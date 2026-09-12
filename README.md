@@ -2,10 +2,10 @@
   <img src="Support/AppIconSource.png" width="136" alt="HS Reconnect app icon">
 </p>
 
-<h1 align="center">Hearthstone Reconnect Tool for Mac</h1>
+<h1 align="center">HS Reconnect for Mac</h1>
 
 <p align="center">
-  <strong>HS Reconnect</strong> — a free, native Hearthstone Battlegrounds reconnect tool for macOS.
+  Source code, releases, and issue tracking for <strong>HS Reconnect</strong>.
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 <h3 align="center">
   <a href="https://github.com/kulibabkaaa/hearthstone-reconnect-macos/releases/latest/download/HS-Reconnect-1.1.0.dmg">Download HS Reconnect 1.1.0</a>
   ·
-  <a href="https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/">Website and install guide</a>
+  <a href="https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/">HS Reconnect for Mac — website and install guide</a>
 </h3>
 
 <p align="center">
