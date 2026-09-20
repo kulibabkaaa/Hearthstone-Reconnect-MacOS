@@ -7,20 +7,30 @@
     <language>en</language>
     <item>
       <title>Version 1.3.0</title>
-      <pubDate>Sun, 20 Sep 2026 18:20:54 +0100</pubDate>
-      <sparkle:version>10</sparkle:version>
+      <pubDate>Sun, 20 Sep 2026 21:18:41 +0100</pubDate>
+      <sparkle:version>16</sparkle:version>
       <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<h2>HS Reconnect 1.3.0</h2>
-<ul>
-  <li>Added a local Solo Battlegrounds lobby overlay with public ranks, ratings, and an estimated lobby average.</li>
-  <li>Added Command-Shift-L positioning mode, proportional resizing, saved layout, and adjustable opacity.</li>
-  <li>Restores the last complete lobby after Hearthstone reconnects into the same match.</li>
-  <li>Added automatic and manual update checks.</li>
-  <li>Added an in-app bug report form with drag-and-drop, clipboard paste, previews, and up to five optional images.</li>
-  <li>Redesigned the main app and bug-report windows.</li>
-</ul>]]></description>
-      <enclosure url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v1.3.0/HS-Reconnect-1.3.0.pkg" sparkle:installationType="package" type="application/octet-stream" sparkle:edSignature="DByAn5zC/Dd15Q0sVt9/C3hdYiJXVzMgSjwDfyWCMQSJ/ms71Dau6LrZ+qqYkzyG9dEKb+5IAPW+OFAjrs0SDQ==" length="14130006" />
+      <description><![CDATA[<pre># HS Reconnect 1.3.0
+
+- Added a local Solo Battlegrounds lobby overlay with player names, public
+  ranks and ratings, and an estimated lobby average.
+- Added **Command-Shift-L** positioning mode with movement, proportional
+  resizing, saved layout, and whole-overlay opacity from 10% to 100%.
+- Restores the last complete lobby after Hearthstone reconnects into the same
+  match.
+- Added automatic update checks and a manual **Check for Updates…** button.
+- Added an in-app bug report form with drag-and-drop, clipboard paste,
+  previews, and up to five optional images.
+- Added privacy-focused active-installation and feature-use analytics. Player
+  names, BattleTags, MMR, lobby data, game traffic, and logs are never sent.
+- Redesigned the main app and bug-report windows.
+- Improved first-run setup, helper recovery, release validation, and signed
+  update packaging.
+
+Lobby info supports native macOS Hearthstone Solo matches in the Americas,
+Europe, and Asia-Pacific regions. Quit HSTracker before using the lobby overlay.</pre>]]></description>
+      <enclosure url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v1.3.0/HS-Reconnect-1.3.0.pkg" sparkle:installationType="package" type="application/octet-stream" sparkle:edSignature="NoKZMZTsgWDgDEHuSa2UJLgc+8eFDuHzMX9tUv3dLIauUhFcnYHOUZBJXBXkrWCK5Tlku9Ea2l5mjOJlshctDw==" length="14134751" />
     </item>
   </channel>
 </rss>

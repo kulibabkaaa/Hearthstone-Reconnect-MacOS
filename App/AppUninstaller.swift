@@ -49,6 +49,14 @@ final class AppUninstaller {
       return
     }
 
+    removeOwnedDesktopShortcut { [weak self] in
+      self?.continueUninstall(completion: completion)
+    }
+  }
+
+  private func continueUninstall(
+    completion: @escaping (Result<Void, Error>) -> Void
+  ) {
     switch autoLaunchController.setEnabled(false) {
     case .failure(let error):
       completion(.failure(error))
@@ -85,14 +93,17 @@ final class AppUninstaller {
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
     var errorInfo: NSDictionary?
-    let appleScript = plan.privilegedRemovalAppleScript(
-      waitingForProcessIdentifier:
-        ProcessInfo.processInfo.processIdentifier
-    )
+    let appleScript = plan.privilegedRemovalAppleScript()
     guard
       NSAppleScript(source: appleScript)?
         .executeAndReturnError(&errorInfo) != nil
     else {
+      if let errorInfo {
+        NSLog(
+          "Privileged uninstall cleanup failed: %@",
+          errorInfo
+        )
+      }
       completion(
         .failure(
           AppUninstallerError
@@ -102,21 +113,24 @@ final class AppUninstaller {
       return
     }
 
-    removeOwnedDesktopShortcut()
     UserDefaults.standard.removePersistentDomain(
       forName: AppIdentity.bundleIdentifier
     )
     UserDefaults.standard.synchronize()
+    plan.removeUserData(using: fileManager)
     completion(.success(()))
   }
 
-  private func removeOwnedDesktopShortcut() {
+  private func removeOwnedDesktopShortcut(
+    completion: @escaping () -> Void
+  ) {
     let shortcutPath = plan.desktopShortcutURL.path
     guard
       let destination =
         try? fileManager
         .destinationOfSymbolicLink(atPath: shortcutPath)
     else {
+      completion()
       return
     }
 
@@ -131,8 +145,21 @@ final class AppUninstaller {
 
     guard plan.ownsDesktopShortcut(destination: destinationURL)
     else {
+      completion()
       return
     }
-    try? fileManager.removeItem(at: plan.desktopShortcutURL)
+    let shortcutURL = plan.desktopShortcutURL
+    NSWorkspace.shared.recycle(
+      [shortcutURL]
+    ) { [weak self] _, error in
+      if error != nil {
+        try? self?.fileManager.removeItem(
+          at: shortcutURL
+        )
+      }
+      DispatchQueue.main.async {
+        completion()
+      }
+    }
   }
 }

@@ -124,9 +124,15 @@ if /usr/bin/grep -q \
 fi
 
 /usr/bin/grep -q \
-  'ProcessInfo.processInfo.processIdentifier' \
+  'privilegedRemovalAppleScript()' \
   "${project_dir}/App/AppUninstaller.swift" \
-  || fail "self-removal does not wait for the uninstall process to exit"
+  || fail "self-removal does not run the privileged cleanup"
+
+if /usr/bin/grep -q \
+  '/usr/bin/nohup\|/bin/kill -0' \
+  "${project_dir}/Shared/AppCore/AppRemovalPlan.swift"; then
+  fail "self-removal still depends on a detached privileged process"
+fi
 
 /usr/bin/grep -q \
   'AppUninstallRecoveryPolicy.shouldRestoreRuntime' \
