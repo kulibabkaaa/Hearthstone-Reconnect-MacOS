@@ -93,13 +93,12 @@ private func fourCharacterCode(_ value: String) -> FourCharCode {
 }
 
 final class GlobalHotKeyManager {
-  var onHotKey: (() -> Void)?
+  typealias Action = HotKeyActionID
+  var onHotKey: ((Action) -> Void)?
 
-  private var hotKeyReference: EventHotKeyRef?
+  private var hotKeyReferences: [Action: EventHotKeyRef] = [:]
   private var handlerReference: EventHandlerRef?
-  private var registeredKeyCode: UInt32?
-  private var registeredModifiers: UInt32?
-  private var nextIdentifier: UInt32 = 1
+  private var registrations: [Action: (UInt32, UInt32)] = [:]
 
   init() {
     var eventType = EventTypeSpec(
@@ -108,12 +107,17 @@ final class GlobalHotKeyManager {
     )
     InstallEventHandler(
       GetApplicationEventTarget(),
-      { _, _, context in
-        guard let context else { return noErr }
+      { _, event, context in
+        guard let context, let event else { return noErr }
+        var identifier = EventHotKeyID()
+        guard GetEventParameter(event, EventParamName(kEventParamDirectObject),
+          EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size,
+          nil, &identifier) == noErr,
+          let action = Action(rawValue: identifier.id) else { return OSStatus(eventNotHandledErr) }
         Unmanaged<GlobalHotKeyManager>
           .fromOpaque(context)
           .takeUnretainedValue()
-          .onHotKey?()
+          .onHotKey?(action)
         return noErr
       },
       1,
@@ -125,9 +129,14 @@ final class GlobalHotKeyManager {
 
   @discardableResult
   func register(keyCode: UInt32, modifiers: UInt32) -> OSStatus {
-    if hotKeyReference != nil,
-      registeredKeyCode == keyCode,
-      registeredModifiers == modifiers
+    register(action: .reconnect, keyCode: keyCode, modifiers: modifiers)
+  }
+
+  @discardableResult
+  func register(action: Action, keyCode: UInt32, modifiers: UInt32) -> OSStatus {
+    if hotKeyReferences[action] != nil,
+      registrations[action]?.0 == keyCode,
+      registrations[action]?.1 == modifiers
     {
       return noErr
     }
@@ -136,10 +145,9 @@ final class GlobalHotKeyManager {
       return OSStatus(eventNotHandledErr)
     }
 
-    nextIdentifier &+= 1
     let identifier = EventHotKeyID(
       signature: fourCharacterCode("HSPX"),
-      id: nextIdentifier
+      id: action.rawValue
     )
     var candidate: EventHotKeyRef?
     let status = RegisterEventHotKey(
@@ -154,7 +162,7 @@ final class GlobalHotKeyManager {
       return status
     }
 
-    if let hotKeyReference {
+    if let hotKeyReference = hotKeyReferences[action] {
       let oldStatus = UnregisterEventHotKey(hotKeyReference)
       guard oldStatus == noErr else {
         UnregisterEventHotKey(candidate)
@@ -162,19 +170,21 @@ final class GlobalHotKeyManager {
       }
     }
 
-    hotKeyReference = candidate
-    registeredKeyCode = keyCode
-    registeredModifiers = modifiers
+    hotKeyReferences[action] = candidate
+    registrations[action] = (keyCode, modifiers)
     return noErr
   }
 
   func unregister() {
-    if let hotKeyReference {
+    hotKeyReferences.values.forEach { UnregisterEventHotKey($0) }
+    hotKeyReferences.removeAll(); registrations.removeAll()
+  }
+
+  func unregister(action: Action) {
+    if let hotKeyReference = hotKeyReferences.removeValue(forKey: action) {
       UnregisterEventHotKey(hotKeyReference)
     }
-    hotKeyReference = nil
-    registeredKeyCode = nil
-    registeredModifiers = nil
+    registrations.removeValue(forKey: action)
   }
 
   deinit {

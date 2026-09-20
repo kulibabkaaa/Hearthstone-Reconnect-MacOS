@@ -13,7 +13,7 @@ export_path="${build_root}/export"
 payload_root="${build_root}/payload"
 package_scripts="${build_root}/installer-scripts"
 expanded_package="${build_root}/expanded-package"
-output_dir="${project_dir}/dist"
+output_dir="${HS_RECONNECT_OUTPUT_DIR:-${project_dir}/dist}"
 output_package="${output_dir}/HS-Reconnect-${version}.pkg"
 output_dmg="${output_dir}/HS-Reconnect-${version}.dmg"
 exported_app="${export_path}/HS Reconnect.app"
@@ -31,11 +31,13 @@ installer_identity="${INSTALLER_SIGNING_IDENTITY:-$(
 
 cd "${project_dir}"
 
+"${script_dir}/verify-vendor.sh"
 xcodegen generate
 "${script_dir}/verify-system-extension-config.sh"
 swift test
 "${project_dir}/Tests/Packaging/run-tests.sh"
 "${project_dir}/Tests/ReleaseContract/run-tests.sh"
+"${project_dir}/Tests/ReleaseValidation/run-tests.sh"
 
 rm -rf -- "${build_root}"
 mkdir -p \
@@ -81,12 +83,45 @@ lipo \
   "${exported_app}/Contents/Library/LoginItems/HS Reconnect Watcher.app/Contents/MacOS/HS Reconnect Watcher" \
   -verify_arch arm64 x86_64
 lipo \
+  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe" \
+  -verify_arch arm64 x86_64
+if strings \
+  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe" \
+  | grep -q 'HS_LOBBY_CAPTURE_LOG'; then
+  echo "Release lobby helper contains debug file logging." >&2
+  exit 1
+fi
+lipo \
+  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/HearthMirror.framework/Versions/A/HearthMirror" \
+  -verify_arch arm64 x86_64
+lipo \
+  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libcoreclr.dylib" \
+  -verify_arch arm64 x86_64
+lipo \
+  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libSystem.Native.dylib" \
+  -verify_arch arm64 x86_64
+lipo \
   "${exported_app}/Contents/Library/SystemExtensions/io.github.kulibabkaaa.HSReconnect.ProxyExtension.systemextension/Contents/MacOS/io.github.kulibabkaaa.HSReconnect.ProxyExtension" \
+  -verify_arch arm64 x86_64
+lipo \
+  "${exported_app}/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle" \
+  -verify_arch arm64 x86_64
+lipo \
+  "${exported_app}/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate" \
+  -verify_arch arm64 x86_64
+lipo \
+  "${exported_app}/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater" \
   -verify_arch arm64 x86_64
 
 ditto --norsrc --noextattr \
   "${exported_app}" \
   "${payload_root}/Applications/HS Reconnect.app"
+/usr/bin/xattr -cr "${payload_root}"
+/usr/sbin/dot_clean -m "${payload_root}"
+if /usr/bin/find "${payload_root}" -name '._*' -print -quit | /usr/bin/grep -q .; then
+  echo "AppleDouble metadata remains in the installer payload." >&2
+  exit 1
+fi
 ditto --norsrc --noextattr \
   "${script_dir}/Installer/preinstall" \
   "${package_scripts}/preinstall"
@@ -134,4 +169,5 @@ codesign --verify --deep --strict --verbose=2 \
 "${script_dir}/verify-dmg-contents.sh" \
   "${output_dmg}"
 
+echo "${output_package}"
 echo "${output_dmg}"

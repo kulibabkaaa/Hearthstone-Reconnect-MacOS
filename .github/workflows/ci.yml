@@ -23,13 +23,27 @@ jobs:
       - name: Run Swift tests
         run: swift test
 
+      - name: Build the complete app without signing
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild build \
+            -project HSReconnect.xcodeproj \
+            -scheme HSReconnect \
+            -configuration Debug \
+            -destination 'generic/platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO
+
       - name: Verify source and packaging contracts
         run: |
           chmod +x Scripts/*.sh Scripts/Installer/* Tests/*/run-tests.sh
           zsh -n Scripts/*.sh Scripts/Installer/* Tests/*/run-tests.sh
+          Scripts/verify-vendor.sh
           Scripts/verify-system-extension-config.sh
+          Tests/LobbyConcurrency/run-tests.sh
           Tests/Packaging/run-tests.sh
           Tests/ReleaseContract/run-tests.sh
+          Tests/ReleaseValidation/run-tests.sh
 
   intel-tests:
     name: intel-tests

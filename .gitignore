@@ -1,7 +1,9 @@
 .DS_Store
 .build/
+.build-stale-*/
 build/
 dist/
+.release-backups/
 *.pkg
 *.p12
 *.cer
@@ -10,7 +12,12 @@ dist/
 *.mobileprovision
 notary-profile*
 HSReconnect.xcodeproj/
+HSReconnect [0-9]*.xcodeproj/
 *.xcarchive
 Support/AppIcon.iconset/
 Support/AppIcon.png
 Support/AppIcon.icns
+
+# Finder/iCloud conflict copies; canonical files do not use a numbered suffix.
+**/* 2
+**/* 2.*

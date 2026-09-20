@@ -1,0 +1,6 @@
+framework module HearthMirror {
+  umbrella header "HearthMirror.h"
+  export *
+
+  module * { export * }
+}

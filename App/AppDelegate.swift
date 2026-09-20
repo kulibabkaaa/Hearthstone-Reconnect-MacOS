@@ -1,5 +1,6 @@
 import AppKit
 import ServiceManagement
+import Sparkle
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private let launchMode: AppLaunchMode
@@ -12,6 +13,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let systemExtensionController =
     SystemExtensionController()
   private let proxyController = TransparentProxyController()
+  private let lobbyCoordinator = LobbyCoordinator()
+  private let analyticsController = AnalyticsController()
+  private let updaterController = SPUStandardUpdaterController(
+    startingUpdater: false,
+    updaterDelegate: nil,
+    userDriverDelegate: nil
+  )
   private lazy var appUninstaller = AppUninstaller(
     autoLaunchController: autoLaunchController,
     proxyController: proxyController,
@@ -21,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var statusItem: NSStatusItem!
   private var reconnectMenuItem: NSMenuItem!
   private var windowController: SettingsWindowController!
+  private var bugReportWindowController: BugReportWindowController?
   private var cooldownTimer: Timer?
   private var isRecordingShortcut = false
   private var isReconnectRunning = false
@@ -28,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var userOpenedWindow = false
   private var isUninstalling = false
   private var isUninstallCleanupStarted = false
+  private var isUpdaterStarted = false
   private var restoreAutoLaunchAfterFailedUninstall = false
   private var isAwaitingSystemExtensionApproval = false
   private var shouldPresentSystemExtensionApprovalReminder = false
@@ -46,6 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(
     _ notification: Notification
   ) {
+    if launchMode.uninstallProcessIdentifier == nil {
+      analyticsController.start()
+    }
     registerDefaults()
     _ = dockVisibilityController.applyStoredPreference()
     autoLaunchController.synchronizeStoredState()
@@ -62,13 +75,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         waitingForProcessIdentifier: processIdentifier
       )
     } else {
+      startUpdaterIfNeeded()
       registerStoredHotKey()
       observeHearthstoneTermination()
+      // Lobby capture is independent of the reconnect system extension. Start
+      // it even while that extension is awaiting approval or cannot activate.
+      lobbyCoordinator.start()
       prepareProxy()
 
       if !launchedForHearthstone {
         showWindow()
-        _ = autoLaunchController.configureDefaultIfNeeded()
+        switch autoLaunchController.configureDefaultIfNeeded() {
+        case .success:
+          break
+        case .failure:
+          windowController.setStatus(
+            "Automatic opening couldn't be set up. Try again in Settings.",
+            isError: true
+          )
+        }
         windowController.refresh()
       }
 
@@ -81,6 +106,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     _ sender: NSApplication
   ) -> Bool {
     false
+  }
+
+  func applicationWillTerminate(_ notification: Notification) {
+    analyticsController.flush()
+    lobbyCoordinator.stop()
   }
 
   func applicationDidBecomeActive(
@@ -109,6 +139,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       DefaultsKey.showInDock:
         AppConfiguration.showInDockByDefault,
       DefaultsKey.lastReconnectAt: 0.0,
+      DefaultsKey.lobbyEnabled: true,
+      DefaultsKey.lobbyOpacity: 100.0,
+      DefaultsKey.lobbyShortcutKeyCode: Int(AppConfiguration.defaultLobbyShortcutKeyCode),
+      DefaultsKey.lobbyShortcutModifiers: Int(defaultCarbonModifiers()),
+      DefaultsKey.lobbyShortcutDisplay: AppConfiguration.defaultLobbyShortcutDisplay,
+      DefaultsKey.lobbyScale: 1.0,
     ])
   }
 
@@ -152,12 +188,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       },
       onUninstall: { [weak self] in
         self?.confirmUninstall()
+      },
+      onLobbyEnabledChanged: { [weak self] enabled in
+        guard let self else { return }
+        self.lobbyCoordinator.setEnabled(enabled)
+        self.hotKeyManager.unregister(action: .lobbyLayout)
+        if enabled {
+          self.registerStoredLobbyHotKey()
+        }
+      },
+      onLobbyOpacityChanged: { [weak self] value in self?.lobbyCoordinator.setOpacity(value) },
+      onLobbyShortcutChanged: { [weak self] key, modifiers, display in
+        self?.changeLobbyShortcut(keyCode: key, modifiers: modifiers, display: display) ?? false
+      },
+      onResetLobby: { [weak self] in self?.lobbyCoordinator.resetLayout() },
+      onRetryLobbySetup: { [weak self] in self?.lobbyCoordinator.retrySetup() },
+      onReportBug: { [weak self] in self?.showBugReport() },
+      onCheckForUpdates: { [weak self] in self?.checkForUpdates() },
+      automaticUpdateChecksEnabled: { [weak self] in
+        self?.updaterController.updater.automaticallyChecksForUpdates ?? true
+      },
+      onAutomaticUpdateChecksChanged: { [weak self] enabled in
+        self?.updaterController.updater.automaticallyChecksForUpdates = enabled
       }
     )
 
-    hotKeyManager.onHotKey = { [weak self] in
+    hotKeyManager.onHotKey = { [weak self] action in
       guard let self, !self.isRecordingShortcut else { return }
-      self.runReconnect()
+      switch action { case .reconnect: self.runReconnect(); case .lobbyLayout: self.lobbyCoordinator.toggleEditing() }
+    }
+    lobbyCoordinator.onStatus = { [weak self] status in
+      self?.windowController.setLobbyStatus(
+        status,
+        canRetry: status == "Lobby setup needs approval"
+      )
+    }
+    lobbyCoordinator.onLobbyDisplayed = { [weak self] in
+      self?.analyticsController.signal(.lobbyDisplayed)
     }
   }
 
@@ -166,6 +233,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let appMenuItem = NSMenuItem()
     mainMenu.addItem(appMenuItem)
     let appMenu = NSMenu()
+    appMenu.addItem(
+      NSMenuItem(
+        title: "Check for Updates…",
+        action: #selector(checkForUpdates),
+        keyEquivalent: ""
+      )
+    )
+    appMenu.addItem(.separator())
     appMenu.addItem(
       NSMenuItem(
         title: "Quit \(AppConfiguration.appName)",
@@ -206,6 +281,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keyEquivalent: ""
       )
     )
+    menu.addItem(
+      NSMenuItem(
+        title: "Check for Updates…",
+        action: #selector(checkForUpdates),
+        keyEquivalent: ""
+      )
+    )
     menu.addItem(.separator())
     menu.addItem(
       NSMenuItem(
@@ -215,6 +297,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       )
     )
     statusItem.menu = menu
+  }
+
+  @objc private func checkForUpdates() {
+    guard !isUninstalling, isUpdaterStarted else { return }
+    userOpenedWindow = true
+    updaterController.checkForUpdates(nil)
+  }
+
+  private func startUpdaterIfNeeded() {
+    guard !isUpdaterStarted else { return }
+    updaterController.startUpdater()
+    isUpdaterStarted = true
+  }
+
+  private func showBugReport() {
+    userOpenedWindow = true
+    if bugReportWindowController == nil {
+      bugReportWindowController = BugReportWindowController()
+    }
+    bugReportWindowController?.present()
   }
 
   private func configureSystemExtensionStatusHandlers() {
@@ -415,6 +517,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
       case .success(let response):
         if response.didCloseFlow {
+          self.analyticsController.signal(.reconnectSucceeded)
           UserDefaults.standard.set(
             Date().timeIntervalSince1970,
             forKey: DefaultsKey.lastReconnectAt
@@ -468,6 +571,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isError: true
       )
     }
+    hotKeyManager.unregister(action: .lobbyLayout)
+    if UserDefaults.standard.bool(forKey: DefaultsKey.lobbyEnabled) {
+      registerStoredLobbyHotKey()
+    }
+  }
+
+  private func registerStoredLobbyHotKey() {
+    let key = UInt32(clamping: UserDefaults.standard.integer(forKey: DefaultsKey.lobbyShortcutKeyCode))
+    let modifiers = UInt32(clamping: UserDefaults.standard.integer(forKey: DefaultsKey.lobbyShortcutModifiers))
+    if hotKeyManager.register(action: .lobbyLayout, keyCode: key, modifiers: modifiers) != noErr {
+      windowController?.setStatus("Lobby shortcut is already in use. Choose another one.", isError: true)
+    }
   }
 
   private func setShortcutRecordingActive(_ recording: Bool) {
@@ -493,6 +608,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     else {
       return false
     }
+    let lobbyKey = UInt32(clamping: UserDefaults.standard.integer(forKey: DefaultsKey.lobbyShortcutKeyCode))
+    let lobbyModifiers = UInt32(clamping: UserDefaults.standard.integer(forKey: DefaultsKey.lobbyShortcutModifiers))
+    guard keyCode != lobbyKey || modifiers != lobbyModifiers else { return false }
 
     let previous = storedShortcut(in: .standard)
     let status = hotKeyManager.register(
@@ -514,6 +632,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         display: display
       )
     )
+    return true
+  }
+
+  private func changeLobbyShortcut(keyCode: UInt32, modifiers: UInt32, display: String) -> Bool {
+    guard shortcutValidationMessage(keyCode: keyCode, modifiers: modifiers) == nil else { return false }
+    let reconnect = storedShortcut(in: .standard)
+    guard keyCode != reconnect.keyCode || modifiers != reconnect.modifiers else { return false }
+    if UserDefaults.standard.bool(forKey: DefaultsKey.lobbyEnabled) {
+      let oldKey = UInt32(clamping: UserDefaults.standard.integer(forKey: DefaultsKey.lobbyShortcutKeyCode))
+      let oldModifiers = UInt32(clamping: UserDefaults.standard.integer(forKey: DefaultsKey.lobbyShortcutModifiers))
+      let status = hotKeyManager.register(action: .lobbyLayout, keyCode: keyCode, modifiers: modifiers)
+      guard status == noErr else {
+        _ = hotKeyManager.register(action: .lobbyLayout, keyCode: oldKey, modifiers: oldModifiers)
+        return false
+      }
+    } else {
+      hotKeyManager.unregister(action: .lobbyLayout)
+    }
+    UserDefaults.standard.set(Int(keyCode), forKey: DefaultsKey.lobbyShortcutKeyCode)
+    UserDefaults.standard.set(Int(modifiers), forKey: DefaultsKey.lobbyShortcutModifiers)
+    UserDefaults.standard.set(display, forKey: DefaultsKey.lobbyShortcutDisplay)
     return true
   }
 
@@ -583,6 +722,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     isUninstallCleanupStarted = false
     isProxyReady = false
     hotKeyManager.unregister()
+    lobbyCoordinator.stop()
     windowController.setUninstalling(true)
     windowController.setStatus(
       "Preparing to uninstall HS Reconnect…"
@@ -610,8 +750,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         self.isUninstalling = false
         self.isUninstallCleanupStarted = false
+        self.isReconnectRunning = false
         self.isProxyReady = proxyWasReady
         self.registerStoredHotKey()
+        self.lobbyCoordinator.start()
         self.windowController.setUninstalling(false)
         self.windowController.setStatus(
           "HS Reconnect couldn't begin uninstalling. Please try again.",
@@ -687,7 +829,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
           if self.restoreAutoLaunchAfterFailedUninstall {
             _ = self.autoLaunchController.setEnabled(true)
           }
+          self.startUpdaterIfNeeded()
           self.registerStoredHotKey()
+          self.lobbyCoordinator.start()
         }
         self.restoreAutoLaunchAfterFailedUninstall = false
         self.windowController.setUninstalling(false)

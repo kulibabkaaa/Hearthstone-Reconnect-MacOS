@@ -2,6 +2,7 @@ name: HSReconnect
 
 options:
   minimumXcodeGenVersion: 2.44.0
+  postGenCommand: Scripts/patch-project-capabilities.sh
   deploymentTarget:
     macOS: "13.0"
   groupSortPosition: top
@@ -14,12 +15,102 @@ settings:
     MACOSX_DEPLOYMENT_TARGET: "13.0"
     ARCHS: "$(ARCHS_STANDARD)"
     ONLY_ACTIVE_ARCH: NO
-    CURRENT_PROJECT_VERSION: 7
-    MARKETING_VERSION: 1.1.0
+    CURRENT_PROJECT_VERSION: 10
+    MARKETING_VERSION: 1.3.0
     CLANG_ENABLE_MODULES: YES
     ENABLE_HARDENED_RUNTIME: YES
+  configs:
+    Debug:
+      ONLY_ACTIVE_ARCH: YES
+
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.0
+  TelemetryDeck:
+    url: https://github.com/TelemetryDeck/SwiftSDK
+    exactVersion: 2.14.2
 
 targets:
+  LobbyUIHarness:
+    type: application
+    platform: macOS
+    productName: HS Reconnect Lobby UI Harness
+    sources:
+      - path: Tools/LobbyUIHarness
+      - path: App/AppConfiguration.swift
+      - path: App/GlobalHotKey.swift
+      - path: App/HoverButton.swift
+      - path: App/RecorderButton.swift
+      - path: App/SettingsWindowController.swift
+      - path: App/BugReportClient.swift
+      - path: App/BugReportWindowController.swift
+      - path: App/LobbyOverlayController.swift
+      - path: Shared/AppCore
+    info:
+      path: Tools/LobbyUIHarness/Info.plist
+      properties:
+        CFBundleDisplayName: HS Reconnect Lobby UI Harness
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        NSPrincipalClass: NSApplication
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.kulibabkaaa.HSReconnect.LobbyUIHarness
+        PRODUCT_NAME: HS Reconnect Lobby UI Harness
+        INFOPLIST_FILE: Tools/LobbyUIHarness/Info.plist
+
+  LobbyCaptureProbe:
+    type: application
+    platform: macOS
+    productName: HS Reconnect Lobby Capture Probe
+    sources:
+      - path: Tools/LobbyCaptureProbe
+      - path: Shared/AppCore/LobbyReconnectCore.swift
+    info:
+      path: Tools/LobbyCaptureProbe/Info.plist
+      properties:
+        CFBundleDisplayName: HS Reconnect Lobby Capture Probe
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        LSBackgroundOnly: true
+        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        NSPrincipalClass: NSApplication
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.kulibabkaaa.HSReconnect.LobbyCaptureProbe
+        PRODUCT_NAME: HS Reconnect Lobby Capture Probe
+        INFOPLIST_FILE: Tools/LobbyCaptureProbe/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Tools/LobbyCaptureProbe/LobbyCaptureProbe.entitlements
+        SKIP_INSTALL: YES
+    dependencies:
+      - framework: "Vendor/HearthMirror/HearthMirror.framework"
+        embed: true
+    preBuildScripts:
+      - name: Embed HearthMirror runtime
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          vendor="${SRCROOT}/Vendor/HearthMirror"
+          frameworks="${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}"
+          resources="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources"
+          managed="${resources}/Resources/Managed"
+
+          mkdir -p "${frameworks}" "${managed}/arm64" "${managed}/x64"
+          cp "${vendor}/libcoreclr.dylib" "${frameworks}/"
+          cp "${vendor}/libSystem.Native.dylib" "${frameworks}/"
+          cp "${vendor}/HearthMirror-version.txt" "${resources}/"
+          cp "${vendor}/mono-version.txt" "${resources}/"
+          cp "${vendor}/NOTICE.md" "${vendor}/HSTracker-LICENSE.txt" "${vendor}/CoreCLR-LICENSE.txt" "${vendor}/CoreCLR-THIRD-PARTY-NOTICES.txt" "${resources}/"
+          cp "${vendor}/Managed/arm64/"*.dll \
+            "${managed}/arm64/"
+          cp "${vendor}/Managed/x64/"*.dll \
+            "${managed}/x64/"
+          if [[ "${CODE_SIGNING_ALLOWED:-NO}" == "YES" && -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]]; then
+            /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" --options runtime --timestamp=none "${frameworks}/libcoreclr.dylib"
+            /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" --options runtime --timestamp=none "${frameworks}/libSystem.Native.dylib"
+          fi
+
   ProxyCore:
     type: framework
     platform: macOS
@@ -44,12 +135,38 @@ targets:
         CODE_SIGNING_ALLOWED: NO
         MACOSX_DEPLOYMENT_TARGET: "14.0"
 
+  AppCore:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Shared/AppCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.kulibabkaaa.HSReconnect.AppCore
+        SKIP_INSTALL: YES
+
+  AppCoreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/AppCoreTests
+    dependencies:
+      - target: AppCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.kulibabkaaa.HSReconnect.AppCoreTests
+        CODE_SIGNING_ALLOWED: NO
+
   HSReconnectWatcher:
     type: application
     platform: macOS
     productName: HS Reconnect Watcher
     sources:
       - path: Watcher
+        excludes:
+          - "* 2.swift"
+          - "* 2.plist"
+          - "* 2.entitlements"
     info:
       path: Watcher/Info.plist
       properties:
@@ -71,8 +188,16 @@ targets:
     type: system-extension
     platform: macOS
     productName: io.github.kulibabkaaa.HSReconnect.ProxyExtension
+    attributes:
+      SystemCapabilities:
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
     sources:
       - path: Extension
+        excludes:
+          - "* 2.swift"
+          - "* 2.plist"
+          - "* 2.entitlements"
       - path: Shared/ProxyCore
     info:
       path: Extension/Info.plist
@@ -103,8 +228,16 @@ targets:
     type: application
     platform: macOS
     productName: HS Reconnect
+    attributes:
+      SystemCapabilities:
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
     sources:
       - path: App
+        excludes:
+          - "* 2.swift"
+          - "* 2.plist"
+          - "* 2.entitlements"
       - path: Shared/AppCore
       - path: Shared/ProxyCore
       - path: Resources/Assets.xcassets
@@ -122,6 +255,14 @@ targets:
         NSHumanReadableCopyright: Copyright © 2026 kulibabkaaa
         NSPrincipalClass: NSApplication
         NSSystemExtensionUsageDescription: HS Reconnect uses a local network extension to reconnect your current Battlegrounds game.
+        HSRBugReportEndpoint: https://forminit.com/f/jvfaut0jy05
+        HSRTelemetryDeckAppID: 9A07D574-467A-4B61-88A9-B50A46A87470
+        SUFeedURL: https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/appcast.xml
+        SUPublicEDKey: baS/PuIr/2jaQNNlD+Zv27mz5F9TijUUaUd8Zp/g058=
+        SUEnableAutomaticChecks: true
+        SUAllowsAutomaticUpdates: true
+        SUAutomaticallyUpdate: false
+        SUScheduledCheckInterval: 86400
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.kulibabkaaa.HSReconnect
@@ -134,6 +275,10 @@ targets:
         embed: true
       - target: HSReconnectWatcher
         embed: false
+      - target: LobbyCaptureProbe
+        embed: false
+      - package: Sparkle
+      - package: TelemetryDeck
     preBuildScripts:
       - name: Embed Hearthstone watcher
         basedOnDependencyAnalysis: true
@@ -147,8 +292,34 @@ targets:
           destination="${TARGET_BUILD_DIR}/${WRAPPER_NAME}/Contents/Library/LoginItems"
           mkdir -p "${destination}"
           ditto "${source_app}" "${destination}/HS Reconnect Watcher.app"
+      - name: Embed lobby capture helper
+        basedOnDependencyAnalysis: true
+        inputFiles:
+          - "$(BUILT_PRODUCTS_DIR)/HS Reconnect Lobby Capture Probe.app/Contents/Info.plist"
+        outputFiles:
+          - "$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Info.plist"
+        script: |
+          set -euo pipefail
+          source_app="${BUILT_PRODUCTS_DIR}/HS Reconnect Lobby Capture Probe.app"
+          destination="${TARGET_BUILD_DIR}/${WRAPPER_NAME}/Contents/Library/LoginItems"
+          mkdir -p "${destination}"
+          ditto "${source_app}" "${destination}/HS Reconnect Lobby Capture Probe.app"
 
 schemes:
+  LobbyUIHarness:
+    build:
+      targets:
+        LobbyUIHarness: all
+    run:
+      config: Debug
+
+  LobbyCaptureProbe:
+    build:
+      targets:
+        LobbyCaptureProbe: all
+    run:
+      config: Debug
+
   HSReconnect:
     build:
       targets:
@@ -159,6 +330,7 @@ schemes:
       config: Debug
       targets:
         - ProxyCoreTests
+        - AppCoreTests
     run:
       config: Debug
     archive:

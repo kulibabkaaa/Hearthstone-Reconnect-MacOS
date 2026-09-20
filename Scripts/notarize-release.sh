@@ -7,17 +7,17 @@ version="$(
   awk '/MARKETING_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' \
     "${project_dir}/project.yml"
 )"
-dmg="${2:-${project_dir}/dist/HS-Reconnect-${version}.dmg}"
+target="${2:-${project_dir}/dist/HS-Reconnect-${version}.dmg}"
 profile="${NOTARY_PROFILE:-HSReconnect-Notary}"
 mode="${1:-}"
 
 case "${mode}" in
   submit)
-    [[ -f "${dmg}" ]] || {
-      echo "Disk image not found: ${dmg}" >&2
+    [[ -f "${target}" ]] || {
+      echo "Release artifact not found: ${target}" >&2
       exit 1
     }
-    xcrun notarytool submit "${dmg}" \
+    xcrun notarytool submit "${target}" \
       --keychain-profile "${profile}" \
       --output-format json
     ;;
@@ -46,17 +46,29 @@ case "${mode}" in
         || true
       exit 1
     }
-    xcrun stapler staple "${dmg}"
-    xcrun stapler validate "${dmg}"
-    spctl --assess \
-      --type open \
-      --context context:primary-signature \
-      --verbose=2 \
-      "${dmg}"
+    xcrun stapler staple "${target}"
+    xcrun stapler validate "${target}"
+    case "${target:e}" in
+      pkg)
+        pkgutil --check-signature "${target}"
+        spctl --assess --type install --verbose=2 "${target}"
+        ;;
+      dmg)
+        spctl --assess \
+          --type open \
+          --context context:primary-signature \
+          --verbose=2 \
+          "${target}"
+        ;;
+      *)
+        echo "Unsupported release artifact: ${target}" >&2
+        exit 1
+        ;;
+    esac
     ;;
   *)
-    echo "Usage: $0 submit [DMG]" >&2
-    echo "       $0 finish [DMG] SUBMISSION_ID" >&2
+    echo "Usage: $0 submit [PKG_OR_DMG]" >&2
+    echo "       $0 finish [PKG_OR_DMG] SUBMISSION_ID" >&2
     exit 1
     ;;
 esac

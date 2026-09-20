@@ -28,10 +28,6 @@ final class AutoLaunchController {
       return .success(())
     }
 
-    defaults.set(
-      true,
-      forKey: DefaultsKey.didConfigureDefaultLoginItem
-    )
     return setEnabled(
       AppConfiguration.openWithHearthstoneByDefault
     )
@@ -75,6 +71,10 @@ final class AutoLaunchController {
         )
         stopRunningWatcher()
       }
+      defaults.set(
+        true,
+        forKey: DefaultsKey.didConfigureDefaultLoginItem
+      )
       return .success(())
     } catch {
       defaults.set(
