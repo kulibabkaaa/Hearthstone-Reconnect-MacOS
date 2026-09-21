@@ -46,19 +46,26 @@ case "${mode}" in
         || true
       exit 1
     }
-    xcrun stapler staple "${target}"
-    xcrun stapler validate "${target}"
     case "${target:e}" in
       pkg)
+        xcrun stapler staple "${target}"
+        xcrun stapler validate "${target}"
         pkgutil --check-signature "${target}"
         spctl --assess --type install --verbose=2 "${target}"
         ;;
       dmg)
+        xcrun stapler staple "${target}"
+        xcrun stapler validate "${target}"
         spctl --assess \
           --type open \
           --context context:primary-signature \
           --verbose=2 \
           "${target}"
+        ;;
+      zip)
+        "${project_dir}/Scripts/verify-update-archive.sh" \
+          "${target}" \
+          --require-notarization
         ;;
       *)
         echo "Unsupported release artifact: ${target}" >&2
@@ -67,8 +74,8 @@ case "${mode}" in
     esac
     ;;
   *)
-    echo "Usage: $0 submit [PKG_OR_DMG]" >&2
-    echo "       $0 finish [PKG_OR_DMG] SUBMISSION_ID" >&2
+    echo "Usage: $0 submit [PKG_ZIP_OR_DMG]" >&2
+    echo "       $0 finish [PKG_ZIP_OR_DMG] SUBMISSION_ID" >&2
     exit 1
     ;;
 esac

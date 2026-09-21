@@ -21,3 +21,13 @@ script_dir="${0:A:h}"
   "${console_home}" \
   "${console_user}" \
   "/Applications/HS Reconnect.app"
+
+# The package needs administrator approval for the first installation because
+# it contains a Network Extension. Leave the installed app owned by the logged-
+# in user so later signed Sparkle app-archive updates can replace it without
+# asking for the administrator password again.
+console_group="$(id -gn "${console_user}" 2>/dev/null || true)"
+[[ -n "${console_group}" ]] || exit 0
+/usr/sbin/chown -RH \
+  "${console_user}:${console_group}" \
+  "/Applications/HS Reconnect.app"

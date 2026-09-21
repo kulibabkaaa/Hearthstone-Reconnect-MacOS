@@ -36,6 +36,8 @@ final class SettingsWindowController: NSWindowController {
   private let onShowInDockChanged:
     (Bool, @escaping (Bool) -> Void) -> Void
   private let onOpenSystemSettings: () -> Void
+  private let onRetrySystemExtensionApproval: () -> Void
+  private let onRetryProxySetup: () -> Void
   private let onUninstall: () -> Void
   private let onLobbyEnabledChanged: (Bool) -> Void
   private let onLobbyOpacityChanged: (Double) -> Void
@@ -50,10 +52,18 @@ final class SettingsWindowController: NSWindowController {
 
   private var reconnectIsEnabled = false
   private var statusIsError = false
+  private var reconnectSetupAction: ReconnectSetupAction = .none
   private var mainPageView: NSView!
   private var settingsPageView: NSView!
   private weak var mainSettingsButton: NSButton?
   private weak var settingsBackButton: NSButton?
+  private var resetLobbyFeedbackWorkItem: DispatchWorkItem?
+  private var reconnectShortcutFeedbackWorkItem: DispatchWorkItem?
+  private var lobbyShortcutFeedbackWorkItem: DispatchWorkItem?
+  private var reconnectStatusMessage = "Preparing the local proxy…"
+  private var reconnectStatusMessageIsError = false
+  private var lobbyStatusMessage = "Waiting for Hearthstone"
+  private var lobbyStatusCanRetry = false
 
   private let statusLabel = NSTextField(
     wrappingLabelWithString: "Preparing the local proxy…"
@@ -86,7 +96,7 @@ final class SettingsWindowController: NSWindowController {
     action: nil
   )
   private let systemExtensionSettingsButton = HoverButton(
-    title: "Open System Settings",
+    title: "Open Login Items & Extensions",
     target: nil,
     action: nil
   )
@@ -148,6 +158,8 @@ final class SettingsWindowController: NSWindowController {
     onShowInDockChanged:
       @escaping (Bool, @escaping (Bool) -> Void) -> Void,
     onOpenSystemSettings: @escaping () -> Void,
+    onRetrySystemExtensionApproval: @escaping () -> Void,
+    onRetryProxySetup: @escaping () -> Void,
     onUninstall: @escaping () -> Void,
     onLobbyEnabledChanged: @escaping (Bool) -> Void,
     onLobbyOpacityChanged: @escaping (Double) -> Void,
@@ -168,6 +180,9 @@ final class SettingsWindowController: NSWindowController {
       onOpenWithHearthstoneChanged
     self.onShowInDockChanged = onShowInDockChanged
     self.onOpenSystemSettings = onOpenSystemSettings
+    self.onRetrySystemExtensionApproval =
+      onRetrySystemExtensionApproval
+    self.onRetryProxySetup = onRetryProxySetup
     self.onUninstall = onUninstall
     self.onLobbyEnabledChanged = onLobbyEnabledChanged
     self.onLobbyOpacityChanged = onLobbyOpacityChanged
@@ -247,6 +262,17 @@ final class SettingsWindowController: NSWindowController {
     _ message: String,
     isError: Bool = false
   ) {
+    reconnectShortcutFeedbackWorkItem?.cancel()
+    reconnectShortcutFeedbackWorkItem = nil
+    reconnectStatusMessage = message
+    reconnectStatusMessageIsError = isError
+    applyReconnectStatus(message, isError: isError)
+  }
+
+  private func applyReconnectStatus(
+    _ message: String,
+    isError: Bool
+  ) {
     statusIsError = isError
     statusLabel.stringValue = message
     statusLabel.textColor =
@@ -260,6 +286,18 @@ final class SettingsWindowController: NSWindowController {
     )
   }
 
+  func setStatus(
+    _ message: String,
+    ifCurrent expectedMessage: String
+  ) {
+    if statusLabel.stringValue == expectedMessage {
+      setStatus(message)
+    } else if reconnectStatusMessage == expectedMessage {
+      reconnectStatusMessage = message
+      reconnectStatusMessageIsError = false
+    }
+  }
+
   func setReconnectEnabled(_ enabled: Bool) {
     reconnectIsEnabled = enabled
     reconnectButton.isEnabled = enabled
@@ -270,6 +308,17 @@ final class SettingsWindowController: NSWindowController {
     _ message: String,
     canRetry: Bool = false
   ) {
+    lobbyShortcutFeedbackWorkItem?.cancel()
+    lobbyShortcutFeedbackWorkItem = nil
+    lobbyStatusMessage = message
+    lobbyStatusCanRetry = canRetry
+    applyLobbyStatus(message, canRetry: canRetry)
+  }
+
+  private func applyLobbyStatus(
+    _ message: String,
+    canRetry: Bool
+  ) {
     lobbyStatusLabel.stringValue = message
     lobbyStatusLabel.toolTip = message
     retryLobbySetupButton.isHidden = !canRetry
@@ -279,10 +328,48 @@ final class SettingsWindowController: NSWindowController {
     )
   }
 
-  func setSystemExtensionApprovalRequired(
-    _ required: Bool
+  func setReconnectSetupAction(
+    _ action: ReconnectSetupAction
   ) {
-    systemExtensionSettingsButton.isHidden = !required
+    reconnectSetupAction = action
+    systemExtensionSettingsButton.isHidden = action == .none
+    let title: String
+    let accessibilityLabel: String
+    switch action {
+    case .none:
+      title = ""
+      accessibilityLabel = ""
+    case .openSystemExtensionSettings:
+      title = "Open Login Items & Extensions"
+      accessibilityLabel =
+        "Open Login Items and Extensions settings"
+    case .retrySystemExtensionApproval:
+      title = "Try Extension Approval Again"
+      accessibilityLabel =
+        "Try reconnect extension approval again"
+    case .retryProxyConfiguration:
+      title = "Allow Proxy Configuration"
+      accessibilityLabel =
+        "Allow the reconnect proxy configuration"
+    case .retryProxySetup:
+      title = "Try Again"
+      accessibilityLabel = "Try reconnect setup again"
+    }
+    systemExtensionSettingsButton.attributedTitle =
+      NSAttributedString(
+        string: title,
+        attributes: [
+          .foregroundColor: NSColor.white,
+          .font: NSFont.systemFont(
+            ofSize: NSFont.systemFontSize,
+            weight: .medium
+          ),
+        ]
+      )
+    systemExtensionSettingsButton.setAccessibilityLabel(
+      accessibilityLabel
+    )
+    updateStatusIndicator()
   }
 
   func setUninstalling(_ uninstalling: Bool) {
@@ -318,7 +405,7 @@ final class SettingsWindowController: NSWindowController {
     }
     shortcutButton.onValidationMessage = {
       [weak self] message in
-      self?.setStatus(
+      self?.showTemporaryReconnectShortcutStatus(
         message,
         isError: message != "Shortcut change cancelled."
       )
@@ -331,7 +418,7 @@ final class SettingsWindowController: NSWindowController {
         modifiers,
         display
       )
-      self.setStatus(
+      self.showTemporaryReconnectShortcutStatus(
         changed
           ? "Shortcut changed to \(display)."
           : "That shortcut is already in use. Choose another one.",
@@ -361,11 +448,23 @@ final class SettingsWindowController: NSWindowController {
 
     systemExtensionSettingsButton.target = self
     systemExtensionSettingsButton.action =
-      #selector(openSystemSettings)
+      #selector(performReconnectSetupAction)
     systemExtensionSettingsButton.bezelStyle = .rounded
+    systemExtensionSettingsButton.bezelColor = .controlAccentColor
+    systemExtensionSettingsButton.contentTintColor = .white
+    systemExtensionSettingsButton.attributedTitle = NSAttributedString(
+      string: "Open Login Items & Extensions",
+      attributes: [
+        .foregroundColor: NSColor.white,
+        .font: NSFont.systemFont(
+          ofSize: NSFont.systemFontSize,
+          weight: .medium
+        ),
+      ]
+    )
     systemExtensionSettingsButton.isHidden = true
     systemExtensionSettingsButton.setAccessibilityLabel(
-      "Open Network Extension settings"
+      "Open Login Items and Extensions settings"
     )
 
     lobbySwitch.target = self
@@ -382,7 +481,7 @@ final class SettingsWindowController: NSWindowController {
     }
     lobbyShortcutButton.onValidationMessage = {
       [weak self] message in
-      self?.setLobbyStatus(message)
+      self?.showTemporaryLobbyShortcutStatus(message)
     }
     lobbyShortcutButton.onRecord = {
       [weak self] key, modifiers, display in
@@ -392,7 +491,7 @@ final class SettingsWindowController: NSWindowController {
         modifiers,
         display
       )
-      self.setLobbyStatus(
+      self.showTemporaryLobbyShortcutStatus(
         changed
           ? "Position shortcut changed to \(display)."
           : "That shortcut is already in use. Choose another one."
@@ -405,6 +504,7 @@ final class SettingsWindowController: NSWindowController {
     opacitySlider.setAccessibilityLabel("Overlay opacity")
     resetLobbyButton.target = self
     resetLobbyButton.action = #selector(resetLobby)
+    resetLobbyButton.setAccessibilityLabel("Reset lobby layout")
     retryLobbySetupButton.target = self
     retryLobbySetupButton.action =
       #selector(retryLobbySetup)
@@ -455,7 +555,7 @@ final class SettingsWindowController: NSWindowController {
     )
 
     statusLabel.textColor = .secondaryLabelColor
-    statusLabel.maximumNumberOfLines = 2
+    statusLabel.maximumNumberOfLines = 0
     statusLabel.setAccessibilityLabel("Reconnect status")
     statusLabel.setContentCompressionResistancePriority(
       .defaultLow,
@@ -537,20 +637,26 @@ final class SettingsWindowController: NSWindowController {
       spacing: 12
     )
 
-    let statusTextStack = makeVerticalStack(
-      [statusTitleLabel, statusLabel],
-      spacing: 2
-    )
-    let statusRow = makeHorizontalRow(
+    let statusTitleRow = makeHorizontalRow(
       [
+        statusTitleLabel,
         statusIndicator,
-        statusTextStack,
-        flexibleSpacer(),
+      ],
+      spacing: 8
+    )
+    let statusTextStack = makeVerticalStack(
+      [
+        statusTitleRow,
+        statusLabel,
         systemExtensionSettingsButton,
       ],
-      spacing: 12
+      spacing: 6
     )
-    let statusCard = makeCard(containing: statusRow)
+    constrainFullWidth(
+      [statusLabel, systemExtensionSettingsButton],
+      in: statusTextStack
+    )
+    let statusCard = makeCard(containing: statusTextStack)
 
     let reconnectTitle = makeLabel(
       "Reconnect",
@@ -782,26 +888,27 @@ final class SettingsWindowController: NSWindowController {
     )
     let updatesCard = makeCard(containing: updateActionRow)
 
-    let advancedTitle = makeLabel(
-      "Advanced",
+    let uninstallTitle = makeLabel(
+      "Remove HS Reconnect",
       size: 17,
       weight: .semibold
     )
-    let advancedDescription = NSTextField(
+    let uninstallDescription = NSTextField(
       wrappingLabelWithString:
-        "Remove HS Reconnect, its network extension, and saved settings from this Mac."
+        "Completely remove the app, reconnect extension, "
+          + "and saved settings. macOS may require a restart."
     )
-    advancedDescription.textColor = .secondaryLabelColor
-    advancedDescription.maximumNumberOfLines = 2
-    let advancedContent = makeVerticalStack(
+    uninstallDescription.textColor = .secondaryLabelColor
+    uninstallDescription.maximumNumberOfLines = 2
+    let uninstallContent = makeVerticalStack(
       [
-        advancedDescription,
+        uninstallDescription,
         uninstallButton,
       ],
       spacing: 10
     )
-    let advancedCard = makeCard(
-      containing: advancedContent
+    let uninstallCard = makeCard(
+      containing: uninstallContent
     )
 
     let version = Bundle.main.object(
@@ -816,7 +923,7 @@ final class SettingsWindowController: NSWindowController {
 
     let generalDivider = makeDivider()
     let updatesDivider = makeDivider()
-    let advancedDivider = makeDivider()
+    let uninstallDivider = makeDivider()
     let settingsSpacer = flexibleVerticalSpacer()
     let stack = makeVerticalStack(
       [
@@ -827,10 +934,10 @@ final class SettingsWindowController: NSWindowController {
         updatesTitle,
         updatesCard,
         updatesDivider,
-        advancedTitle,
-        advancedCard,
+        uninstallTitle,
+        uninstallCard,
         settingsSpacer,
-        advancedDivider,
+        uninstallDivider,
         settingsStatusLabel,
         versionLabel,
       ],
@@ -848,9 +955,9 @@ final class SettingsWindowController: NSWindowController {
         updatesTitle,
         updatesCard,
         updatesDivider,
-        advancedTitle,
-        advancedCard,
-        advancedDivider,
+        uninstallTitle,
+        uninstallCard,
+        uninstallDivider,
         settingsStatusLabel,
         versionLabel,
       ],
@@ -984,15 +1091,30 @@ final class SettingsWindowController: NSWindowController {
   }
 
   private func updateStatusIndicator() {
-    statusTitleLabel.stringValue = statusIsError
-      ? "Attention needed"
-      : (reconnectIsEnabled
+    switch reconnectSetupAction {
+    case .openSystemExtensionSettings:
+      statusTitleLabel.stringValue = "Enable the reconnect extension"
+      statusIndicator.contentTintColor = .systemOrange
+    case .retrySystemExtensionApproval:
+      statusTitleLabel.stringValue = "Approve the reconnect extension"
+      statusIndicator.contentTintColor = .systemOrange
+    case .retryProxyConfiguration:
+      statusTitleLabel.stringValue = "Allow proxy configuration"
+      statusIndicator.contentTintColor = .systemOrange
+    case .retryProxySetup:
+      statusTitleLabel.stringValue = "Reconnect needs attention"
+      statusIndicator.contentTintColor = .systemRed
+    case .none where statusIsError:
+      statusTitleLabel.stringValue = "Attention needed"
+      statusIndicator.contentTintColor = .systemRed
+    case .none:
+      statusTitleLabel.stringValue = reconnectIsEnabled
         ? "Ready to reconnect"
-        : "Reconnect status")
-    statusIndicator.contentTintColor =
-      statusIsError
-      ? .systemRed
-      : (reconnectIsEnabled ? .systemGreen : .systemOrange)
+        : "Reconnect status"
+      statusIndicator.contentTintColor = reconnectIsEnabled
+        ? .systemGreen
+        : .systemOrange
+    }
   }
 
   private func setSettingsFeedback(
@@ -1057,8 +1179,17 @@ final class SettingsWindowController: NSWindowController {
     onReconnect()
   }
 
-  @objc private func openSystemSettings() {
-    onOpenSystemSettings()
+  @objc private func performReconnectSetupAction() {
+    switch reconnectSetupAction {
+    case .none:
+      break
+    case .openSystemExtensionSettings:
+      onOpenSystemSettings()
+    case .retrySystemExtensionApproval:
+      onRetrySystemExtensionApproval()
+    case .retryProxyConfiguration, .retryProxySetup:
+      onRetryProxySetup()
+    }
   }
 
   @objc private func uninstall() {
@@ -1118,7 +1249,121 @@ final class SettingsWindowController: NSWindowController {
   }
 
   @objc private func resetLobby() {
+    guard resetLobbyButton.isInteractionAvailable else { return }
     onResetLobby()
+    showResetLobbySuccess()
+  }
+
+  private func showResetLobbySuccess() {
+    resetLobbyFeedbackWorkItem?.cancel()
+    resetLobbyButton.disabledAlphaValue = 1
+    resetLobbyButton.isInteractionAvailable = false
+    transitionResetLobbyButton(
+      to: "Done!",
+      color: .systemGreen,
+      direction: .fromBottom
+    )
+    resetLobbyButton.setAccessibilityLabel("Layout reset")
+    NSAccessibility.post(
+      element: resetLobbyButton,
+      notification: .valueChanged
+    )
+
+    let workItem = DispatchWorkItem { [weak self] in
+      guard let self else { return }
+      self.transitionResetLobbyButton(
+        to: "Reset Layout",
+        color: .labelColor,
+        direction: .fromTop
+      )
+      self.resetLobbyButton.setAccessibilityLabel(
+        "Reset lobby layout"
+      )
+      self.resetLobbyButton.isInteractionAvailable = true
+      self.resetLobbyButton.disabledAlphaValue = 0.55
+    }
+    resetLobbyFeedbackWorkItem = workItem
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + 2.5,
+      execute: workItem
+    )
+  }
+
+  private func showTemporaryReconnectShortcutStatus(
+    _ message: String,
+    isError: Bool
+  ) {
+    reconnectShortcutFeedbackWorkItem?.cancel()
+    applyReconnectStatus(message, isError: isError)
+
+    let workItem = DispatchWorkItem { [weak self] in
+      guard let self, self.statusLabel.stringValue == message else {
+        return
+      }
+      self.applyReconnectStatus(
+        self.reconnectStatusMessage,
+        isError: self.reconnectStatusMessageIsError
+      )
+      self.reconnectShortcutFeedbackWorkItem = nil
+    }
+    reconnectShortcutFeedbackWorkItem = workItem
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + 4,
+      execute: workItem
+    )
+  }
+
+  private func showTemporaryLobbyShortcutStatus(
+    _ message: String
+  ) {
+    lobbyShortcutFeedbackWorkItem?.cancel()
+    applyLobbyStatus(message, canRetry: false)
+
+    let workItem = DispatchWorkItem { [weak self] in
+      guard let self, self.lobbyStatusLabel.stringValue == message else {
+        return
+      }
+      self.applyLobbyStatus(
+        self.lobbyStatusMessage,
+        canRetry: self.lobbyStatusCanRetry
+      )
+      self.lobbyShortcutFeedbackWorkItem = nil
+    }
+    lobbyShortcutFeedbackWorkItem = workItem
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + 4,
+      execute: workItem
+    )
+  }
+
+  private func transitionResetLobbyButton(
+    to title: String,
+    color: NSColor,
+    direction: CATransitionSubtype
+  ) {
+    if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+      let transition = CATransition()
+      transition.type = .push
+      transition.subtype = direction
+      transition.duration = 0.2
+      transition.timingFunction = CAMediaTimingFunction(
+        name: .easeInEaseOut
+      )
+      resetLobbyButton.layer?.add(
+        transition,
+        forKey: "resetLayoutTitle"
+      )
+    }
+    resetLobbyButton.attributedTitle = NSAttributedString(
+      string: title,
+      attributes: [
+        .foregroundColor: color,
+        .font: NSFont.systemFont(
+          ofSize: NSFont.systemFontSize,
+          weight: .medium
+        ),
+      ]
+    )
   }
 
   @objc private func retryLobbySetup() {

@@ -14,6 +14,10 @@
 - Redesigned the main app and bug-report windows.
 - Improved first-run setup, helper recovery, release validation, and signed
   update packaging.
+- Added live reconnect-extension status and clear recovery actions when macOS
+  permissions are declined or disabled.
+- Improved shortcut and layout feedback so temporary messages return to the
+  current app state automatically.
 
 Lobby info supports native macOS Hearthstone Solo matches in the Americas,
 Europe, and Asia-Pacific regions. Quit HSTracker before using the lobby overlay.

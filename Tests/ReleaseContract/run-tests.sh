@@ -20,6 +20,8 @@ fail() {
   || fail "the release DMG content verifier is missing"
 [[ -f "${project_dir}/Scripts/prepare-update-feed.sh" ]] \
   || fail "the Sparkle update-feed builder is missing"
+[[ -x "${project_dir}/Scripts/verify-update-archive.sh" ]] \
+  || fail "the Sparkle app-archive verifier is missing or not executable"
 [[ -x "${project_dir}/Scripts/patch-project-capabilities.sh" ]] \
   || fail "the Xcode App Groups capability patch is missing"
 [[ -f "${project_dir}/Extension/ProxyExtension.entitlements" ]] \
@@ -36,6 +38,13 @@ fail() {
   || fail "the lobby helper security notes are missing"
 [[ -f "${project_dir}/Vendor/HearthMirror/SHA256SUMS" ]] \
   || fail "the vendored HearthMirror checksums are missing"
+
+for release_script in build-release.sh verify-release.sh; do
+  /usr/bin/grep -Fq \
+    'Tests/LobbyConcurrency/run-tests.sh' \
+    "${project_dir}/Scripts/${release_script}" \
+    || fail "${release_script} does not run the lobby concurrency tests"
+done
 
 version="$(
   /usr/bin/awk '
@@ -112,7 +121,7 @@ fi
 prepare_proxy_block="$(
   /usr/bin/awk '
     /private func prepareProxy\(\)/ { in_prepare = 1 }
-    in_prepare && /private func activationFailureMessage\(\)/ { exit }
+    in_prepare && /private func finishPreparingProxy\(\)/ { exit }
     in_prepare { print }
   ' "${project_dir}/App/AppDelegate.swift"
 )"
@@ -145,7 +154,7 @@ fi
   || fail "approval guidance cannot reopen the correct System Settings pane"
 
 /usr/bin/grep -q \
-  'setSystemExtensionApprovalRequired(true)' \
+  'setReconnectSetupAction(' \
   "${project_dir}/App/AppDelegate.swift" \
   || fail "approval guidance is not kept available in the app window"
 
@@ -301,6 +310,16 @@ fi
   || fail "the manual update button is missing"
 
 /usr/bin/grep -q \
+  'willInstallUpdateOnQuit' \
+  "${project_dir}/App/AppDelegate.swift" \
+  || fail "automatic updates are not configured to install immediately"
+
+/usr/bin/grep -q \
+  'immediateInstallHandler()' \
+  "${project_dir}/App/AppDelegate.swift" \
+  || fail "automatic updates do not invoke Sparkle's immediate installer"
+
+/usr/bin/grep -q \
   'Report a Bug' \
   "${project_dir}/App/SettingsWindowController.swift" \
   || fail "the in-app bug report button is missing"
@@ -346,9 +365,20 @@ fi
   || fail "lobby helper output is not bounded"
 
 /usr/bin/grep -q \
-  'sparkle:installationType="package"' \
+  'HS-Reconnect-${version}.zip' \
   "${project_dir}/Scripts/prepare-update-feed.sh" \
-  || fail "the appcast does not install the signed package"
+  || fail "the appcast does not publish the signed app archive"
+
+if /usr/bin/grep -q \
+  'sparkle:installationType="package"' \
+  "${project_dir}/Scripts/prepare-update-feed.sh"; then
+  fail "the appcast still forces package installation"
+fi
+
+/usr/bin/grep -q \
+  '/usr/sbin/chown -RH' \
+  "${project_dir}/Scripts/Installer/postinstall" \
+  || fail "the initial installer does not enable password-free app updates"
 
 /usr/bin/grep -q \
   'keychain_public_key.*configured_public_key' \

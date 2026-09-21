@@ -28,6 +28,39 @@ struct BugReportCoreTests {
     }
   }
 
+  @Test func rejectsDescriptionBelowMinimumLength() {
+    #expect(throws: BugReportValidationError.descriptionTooShort) {
+      _ = try BugReportContent(
+        description: String(
+          repeating: "a",
+          count: BugReportContent.minimumDescriptionLength - 1
+        ),
+        appVersion: "1.3.0",
+        buildNumber: "17",
+        macOSVersion: "15.6"
+      )
+    }
+  }
+
+  @Test func acceptsDescriptionAtMinimumLength() throws {
+    let description = String(
+      repeating: "a",
+      count: BugReportContent.minimumDescriptionLength
+    )
+    let content = try BugReportContent(
+      description: "  \(description)  ",
+      appVersion: "1.3.0",
+      buildNumber: "17",
+      macOSVersion: "15.6"
+    )
+
+    #expect(content.description == description)
+    #expect(
+      BugReportContent.descriptionLength("  \(description)  ")
+        == BugReportContent.minimumDescriptionLength
+    )
+  }
+
   @Test func rejectsDescriptionOverLimit() {
     #expect(throws: BugReportValidationError.descriptionTooLong) {
       _ = try BugReportContent(
@@ -131,7 +164,7 @@ struct BugReportCoreTests {
 
   @Test func multipartBodyIncludesMetadataAndMultipleImages() throws {
     let content = try BugReportContent(
-      description: "Overlay vanished.",
+      description: "Overlay vanished after reconnect.",
       appVersion: "1.3.0",
       buildNumber: "9",
       macOSVersion: "15.6"
@@ -148,7 +181,7 @@ struct BugReportCoreTests {
 
     #expect(body.contentType == "multipart/form-data; boundary=test-boundary")
     #expect(text.contains("name=\"fi-text-description\""))
-    #expect(text.contains("Overlay vanished."))
+    #expect(text.contains("Overlay vanished after reconnect."))
     #expect(text.contains("name=\"fi-text-app-version\""))
     #expect(
       text.components(
@@ -162,7 +195,7 @@ struct BugReportCoreTests {
 
   @Test func multipartBodyLimitsImagesToFive() throws {
     let content = try BugReportContent(
-      description: "Overlay vanished.",
+      description: "Overlay vanished after reconnect.",
       appVersion: "1.3.0",
       buildNumber: "9",
       macOSVersion: "15.6"

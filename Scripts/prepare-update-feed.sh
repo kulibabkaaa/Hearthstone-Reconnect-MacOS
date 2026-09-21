@@ -11,13 +11,13 @@ build_number="$(
   awk '/CURRENT_PROJECT_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' \
     "${project_dir}/project.yml"
 )"
-package="${1:-${project_dir}/dist/HS-Reconnect-${version}.pkg}"
+archive="${1:-${project_dir}/dist/HS-Reconnect-${version}.zip}"
 notes="${2:-${project_dir}/RELEASE_NOTES_${version}.md}"
 appcast="${project_dir}/docs/appcast.xml"
-release_url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v${version}/HS-Reconnect-${version}.pkg"
+release_url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v${version}/HS-Reconnect-${version}.zip"
 
-[[ -f "${package}" ]] || {
-  echo "Update package not found: ${package}" >&2
+[[ -f "${archive}" ]] || {
+  echo "Update archive not found: ${archive}" >&2
   exit 1
 }
 [[ -f "${notes}" ]] || {
@@ -27,12 +27,12 @@ release_url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases
 
 "${script_dir}/check-update-build.sh" \
   "${build_number}" \
-  "${package}" \
+  "${archive}" \
   "${appcast}"
 
-xcrun stapler validate "${package}"
-pkgutil --check-signature "${package}"
-spctl --assess --type install --verbose=2 "${package}"
+"${script_dir}/verify-update-archive.sh" \
+  "${archive}" \
+  --require-notarization
 
 sign_update="${SPARKLE_SIGN_UPDATE:-$(
   find "${HOME}/Library/Developer/Xcode/DerivedData" \
@@ -63,10 +63,10 @@ keychain_public_key="$("${generate_keys}" -p | tail -n 1 | tr -d '\r\n')"
   exit 1
 }
 
-raw_signature_attributes="$("${sign_update}" "${package}")"
+raw_signature_attributes="$("${sign_update}" "${archive}")"
 signature_attributes="$(
   "${script_dir}/validate-sign-update-output.sh" \
-    "${package}" \
+    "${archive}" \
     "${raw_signature_attributes}"
 )"
 
@@ -96,7 +96,7 @@ cat > "${temporary_appcast}" <<EOF
       <sparkle:shortVersionString>${version}</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<pre>${escaped_notes}</pre>]]></description>
-      <enclosure url="${release_url}" sparkle:installationType="package" type="application/octet-stream" ${signature_attributes} />
+      <enclosure url="${release_url}" type="application/octet-stream" ${signature_attributes} />
     </item>
   </channel>
 </rss>
@@ -104,7 +104,7 @@ EOF
 
 xmllint --noout "${temporary_appcast}"
 SPARKLE_SIGN_UPDATE="${sign_update}" \
-  "${script_dir}/verify-update-feed.sh" "${package}" "${temporary_appcast}"
+  "${script_dir}/verify-update-feed.sh" "${archive}" "${temporary_appcast}"
 ditto "${temporary_appcast}" "${appcast}"
 
 echo "${appcast}"

@@ -468,11 +468,27 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     target: nil,
     action: nil
   )
+  private let cancelButton = HoverButton(
+    title: "Cancel",
+    target: nil,
+    action: nil
+  )
   private let statusLabel = NSTextField(labelWithString: "")
 
   private var attachments: [BugReportAttachment] = []
   private var submissionTask: Task<Void, Never>?
   private var isSubmitting = false
+  private var formContentView: NSView?
+  private var successContentView: NSView?
+  private lazy var successSound: NSSound? = {
+    guard let url = Bundle.main.url(
+      forResource: "BugReportSuccess",
+      withExtension: "mp3"
+    ) else {
+      return nil
+    }
+    return NSSound(contentsOf: url, byReference: true)
+  }()
 
   init() {
     let window = NSWindow(
@@ -714,19 +730,17 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     statusLabel.maximumNumberOfLines = 2
     statusLabel.setAccessibilityLabel("Bug report status")
 
-    let cancelButton = HoverButton(
-      title: "Cancel",
-      target: self,
-      action: #selector(cancel)
-    )
+    cancelButton.target = self
+    cancelButton.action = #selector(cancel)
     cancelButton.keyEquivalent = "\u{1b}"
 
     submitButton.target = self
     submitButton.action = #selector(submit)
     submitButton.keyEquivalent = "\r"
     submitButton.bezelStyle = .rounded
-    submitButton.bezelColor = .controlAccentColor
+    submitButton.disabledAlphaValue = 1
     updateSubmitButtonTitle("Submit Report")
+    updateSubmitButtonState()
 
     let buttonSpacer = NSView()
     buttonSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -751,6 +765,7 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     stack.spacing = 10
     stack.translatesAutoresizingMaskIntoConstraints = false
     contentView.addSubview(stack)
+    formContentView = stack
 
     for view in [
       header,
@@ -782,6 +797,111 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
         constant: -16
       ),
     ])
+
+    let successView = makeSuccessView()
+    successView.translatesAutoresizingMaskIntoConstraints = false
+    successView.isHidden = true
+    contentView.addSubview(successView)
+    successContentView = successView
+    NSLayoutConstraint.activate([
+      successView.leadingAnchor.constraint(
+        equalTo: contentView.leadingAnchor,
+        constant: 18
+      ),
+      successView.trailingAnchor.constraint(
+        equalTo: contentView.trailingAnchor,
+        constant: -18
+      ),
+      successView.topAnchor.constraint(
+        equalTo: contentView.topAnchor,
+        constant: 16
+      ),
+      successView.bottomAnchor.constraint(
+        equalTo: contentView.bottomAnchor,
+        constant: -16
+      ),
+    ])
+  }
+
+  private func makeSuccessView() -> NSView {
+    let container = NSView()
+
+    let icon = NSImageView(
+      image: NSImage(
+        systemSymbolName: "checkmark.circle.fill",
+        accessibilityDescription: "Report sent"
+      ) ?? NSImage()
+    )
+    icon.contentTintColor = .systemGreen
+    icon.imageScaling = .scaleProportionallyUpOrDown
+    icon.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      icon.widthAnchor.constraint(equalToConstant: 54),
+      icon.heightAnchor.constraint(equalToConstant: 54),
+    ])
+
+    let title = NSTextField(
+      labelWithString: "Report sent. Thank you!"
+    )
+    title.font = .systemFont(ofSize: 22, weight: .semibold)
+    title.alignment = .center
+
+    let closeButton = HoverButton(
+      title: "Close",
+      target: self,
+      action: #selector(cancel)
+    )
+    closeButton.keyEquivalent = "\u{1b}"
+
+    let anotherReportButton = HoverButton(
+      title: "Send Another Report",
+      target: self,
+      action: #selector(sendAnotherReport)
+    )
+    anotherReportButton.bezelColor = .systemBlue
+    anotherReportButton.attributedTitle = NSAttributedString(
+      string: "Send Another Report",
+      attributes: [
+        .foregroundColor: NSColor.white,
+        .font: NSFont.systemFont(
+          ofSize: NSFont.systemFontSize,
+          weight: .medium
+        ),
+      ]
+    )
+
+    let buttonRow = NSStackView(
+      views: [closeButton, anotherReportButton]
+    )
+    buttonRow.orientation = .horizontal
+    buttonRow.alignment = .centerY
+    buttonRow.spacing = 10
+
+    let successStack = NSStackView(
+      views: [icon, title, buttonRow]
+    )
+    successStack.orientation = .vertical
+    successStack.alignment = .centerX
+    successStack.spacing = 18
+    successStack.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(successStack)
+    NSLayoutConstraint.activate([
+      successStack.centerXAnchor.constraint(
+        equalTo: container.centerXAnchor
+      ),
+      successStack.centerYAnchor.constraint(
+        equalTo: container.centerYAnchor
+      ),
+      successStack.leadingAnchor.constraint(
+        greaterThanOrEqualTo: container.leadingAnchor,
+        constant: 20
+      ),
+      successStack.trailingAnchor.constraint(
+        lessThanOrEqualTo: container.trailingAnchor,
+        constant: -20
+      ),
+    ])
+    return container
   }
 
   private func makeCard(containing content: NSView) -> NSView {
@@ -818,6 +938,7 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
         ? .systemRed
         : .secondaryLabelColor
     statusLabel.stringValue = ""
+    updateSubmitButtonState()
   }
 
   @objc private func chooseImage() {
@@ -1039,14 +1160,8 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
           guard !Task.isCancelled else { return }
           await MainActor.run {
             self.setSubmitting(false)
-            self.descriptionTextView.string = ""
-            self.textDidChange(
-              Notification(name: NSText.didChangeNotification)
-            )
-            self.removeTemporaryAttachments()
-            self.updateAttachmentControls()
-            self.statusLabel.textColor = .systemGreen
-            self.statusLabel.stringValue = "Report sent. Thank you."
+            self.resetForm()
+            self.showSuccessState()
           }
         } catch BugReportClientError.notConfigured {
           guard !Task.isCancelled else { return }
@@ -1065,7 +1180,9 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
         }
       }
     } catch BugReportValidationError.emptyDescription {
-      showError("Describe the bug before submitting.")
+      showDescriptionTooShortError()
+    } catch BugReportValidationError.descriptionTooShort {
+      showDescriptionTooShortError()
     } catch BugReportValidationError.descriptionTooLong {
       showError(
         "Keep the description under \(BugReportContent.maximumDescriptionLength) characters."
@@ -1079,17 +1196,25 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     close()
   }
 
+  @objc private func sendAnotherReport() {
+    resetForm()
+    formContentView?.isHidden = false
+    successContentView?.isHidden = true
+    window?.makeFirstResponder(descriptionTextView)
+  }
+
   func windowWillClose(_ notification: Notification) {
     submissionTask?.cancel()
     submissionTask = nil
     setSubmitting(false)
-    removeTemporaryAttachments()
-    updateAttachmentControls()
+    resetForm()
+    formContentView?.isHidden = false
+    successContentView?.isHidden = true
   }
 
   private func setSubmitting(_ submitting: Bool) {
     isSubmitting = submitting
-    submitButton.isEnabled = !submitting
+    updateSubmitButtonState()
     chooseImageButton.isEnabled =
       !submitting
         && attachments.count
@@ -1112,6 +1237,58 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     NSAccessibility.post(
       element: statusLabel,
       notification: .valueChanged
+    )
+  }
+
+  private func showSuccessState() {
+    formContentView?.isHidden = true
+    successContentView?.isHidden = false
+    window?.makeFirstResponder(nil)
+    successSound?.stop()
+    successSound?.play()
+  }
+
+  private func resetForm() {
+    descriptionTextView.string = ""
+    textDidChange(
+      Notification(name: NSText.didChangeNotification)
+    )
+    removeTemporaryAttachments()
+    updateAttachmentControls()
+    statusLabel.stringValue = ""
+  }
+
+  private func showDescriptionTooShortError() {
+    showError(
+      "Enter at least \(BugReportContent.minimumDescriptionLength) characters."
+    )
+  }
+
+  private func updateSubmitButtonState() {
+    let length = BugReportContent.descriptionLength(
+      descriptionTextView.string
+    )
+    let hasValidLength =
+      length >= BugReportContent.minimumDescriptionLength
+        && length <= BugReportContent.maximumDescriptionLength
+    let canSubmit = !isSubmitting && hasValidLength
+    submitButton.isEnabled = true
+    submitButton.isInteractionAvailable = canSubmit
+    submitButton.action = canSubmit ? #selector(submit) : nil
+    submitButton.keyEquivalent = canSubmit ? "\r" : ""
+    submitButton.setAccessibilityEnabled(canSubmit)
+    submitButton.bezelColor = canSubmit ? .systemBlue : .systemGray
+    cancelButton.bezelColor = hasValidLength ? nil : .systemBlue
+    cancelButton.attributedTitle = NSAttributedString(
+      string: "Cancel",
+      attributes: [
+        .foregroundColor:
+          hasValidLength ? NSColor.labelColor : NSColor.white,
+        .font: NSFont.systemFont(
+          ofSize: NSFont.systemFontSize,
+          weight: .medium
+        ),
+      ]
     )
   }
 

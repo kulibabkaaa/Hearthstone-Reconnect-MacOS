@@ -3,6 +3,19 @@ import AppKit
 /// Gives ordinary AppKit push buttons clear hover and press feedback without
 /// replacing their native macOS appearance.
 class HoverButton: NSButton {
+  var isInteractionAvailable = true {
+    didSet {
+      updateFeedback(animated: false)
+      window?.invalidateCursorRects(for: self)
+    }
+  }
+
+  var disabledAlphaValue: CGFloat = 0.55 {
+    didSet {
+      updateFeedback(animated: false)
+    }
+  }
+
   private var hoverTrackingArea: NSTrackingArea?
   private var pointerIsInside = false
   private var pointerIsPressed = false
@@ -45,7 +58,7 @@ class HoverButton: NSButton {
 
   override func resetCursorRects() {
     super.resetCursorRects()
-    guard isEnabled else { return }
+    guard isEnabled, isInteractionAvailable else { return }
     addCursorRect(bounds, cursor: .pointingHand)
   }
 
@@ -60,8 +73,7 @@ class HoverButton: NSButton {
   }
 
   override func mouseDown(with event: NSEvent) {
-    guard isEnabled else {
-      super.mouseDown(with: event)
+    guard isEnabled, isInteractionAvailable else {
       return
     }
     pointerIsPressed = true
@@ -86,8 +98,8 @@ class HoverButton: NSButton {
 
   private func updateFeedback(animated: Bool) {
     let changes = {
-      if !self.isEnabled {
-        self.alphaValue = 0.55
+      if !self.isEnabled || !self.isInteractionAvailable {
+        self.alphaValue = self.disabledAlphaValue
         self.layer?.shadowOpacity = 0
       } else if self.pointerIsPressed {
         self.alphaValue = 0.78

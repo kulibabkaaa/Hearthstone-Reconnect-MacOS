@@ -29,7 +29,8 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
     UserDefaults.standard.removeObject(forKey: DefaultsKey.lobbyOriginY)
     settings = SettingsWindowController(onReconnect: {}, onShortcutChanged: { _,_,_ in true },
       onShortcutRecordingChanged: { _ in }, onOpenWithHearthstoneChanged: { _ in .success(()) },
-      onShowInDockChanged: { value, done in done(value) }, onOpenSystemSettings: {}, onUninstall: {},
+      onShowInDockChanged: { value, done in done(value) }, onOpenSystemSettings: {},
+      onRetrySystemExtensionApproval: {}, onRetryProxySetup: {}, onUninstall: {},
       onLobbyEnabledChanged: { _ in }, onLobbyOpacityChanged: { [weak self] in self?.overlay.opacityPercent = $0 },
       onLobbyShortcutChanged: { _,_,_ in true },
       onResetLobby: { [weak self] in self?.overlay.resetLayout() }, onRetryLobbySetup: {},

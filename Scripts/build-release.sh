@@ -16,6 +16,7 @@ expanded_package="${build_root}/expanded-package"
 output_dir="${HS_RECONNECT_OUTPUT_DIR:-${project_dir}/dist}"
 output_package="${output_dir}/HS-Reconnect-${version}.pkg"
 output_dmg="${output_dir}/HS-Reconnect-${version}.dmg"
+output_update_archive="${output_dir}/HS-Reconnect-${version}.zip"
 exported_app="${export_path}/HS Reconnect.app"
 
 installer_identity="${INSTALLER_SIGNING_IDENTITY:-$(
@@ -35,6 +36,7 @@ cd "${project_dir}"
 xcodegen generate
 "${script_dir}/verify-system-extension-config.sh"
 swift test
+"${project_dir}/Tests/LobbyConcurrency/run-tests.sh"
 "${project_dir}/Tests/Packaging/run-tests.sh"
 "${project_dir}/Tests/ReleaseContract/run-tests.sh"
 "${project_dir}/Tests/ReleaseValidation/run-tests.sh"
@@ -163,6 +165,13 @@ pkgutil --expand-full "${output_package}" "${expanded_package}"
 codesign --verify --deep --strict --verbose=2 \
   "${expanded_package}/Payload/Applications/HS Reconnect.app"
 
+rm -f -- "${output_update_archive}"
+ditto -c -k --sequesterRsrc --keepParent \
+  "${exported_app}" \
+  "${output_update_archive}"
+"${script_dir}/verify-update-archive.sh" \
+  "${output_update_archive}"
+
 "${script_dir}/create-release-dmg.sh" \
   "${output_package}" \
   "${output_dmg}"
@@ -171,3 +180,4 @@ codesign --verify --deep --strict --verbose=2 \
 
 echo "${output_package}"
 echo "${output_dmg}"
+echo "${output_update_archive}"

@@ -29,6 +29,10 @@ enum DefaultsKey {
     "loginItem.didConfigureDefault"
   static let hasSeenSystemExtensionApprovalPrompt =
     "systemExtension.hasSeenApprovalPrompt"
+  static let systemExtensionApprovalWasDenied =
+    "systemExtension.approvalWasDenied"
+  static let proxyConfigurationPermissionWasDenied =
+    "proxyConfiguration.permissionWasDenied"
   static let lastReconnectAt = "reconnect.lastAt"
   static let lobbyEnabled = "lobby.enabled"
   static let lobbyOpacity = "lobby.opacity"

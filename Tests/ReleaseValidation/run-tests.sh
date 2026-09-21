@@ -87,27 +87,32 @@ if HS_RECONNECT_VENDOR_DIR="${vendor}" \
   fail "vendor verification accepted a modified managed DLL"
 fi
 
-package="${fixture_dir}/HS-Reconnect-${version}.pkg"
+archive="${fixture_dir}/HS-Reconnect-${version}.zip"
 appcast="${fixture_dir}/appcast.xml"
 fake_sign_update="${fixture_dir}/sign_update"
 fake_generate_keys="${fixture_dir}/generate_keys"
-package_root="${fixture_dir}/package-root"
-mkdir -p "${package_root}/Applications/HS Reconnect.app/Contents"
-cat > "${package_root}/Applications/HS Reconnect.app/Contents/Info.plist" <<PLIST
+archive_root="${fixture_dir}/archive-root"
+app="${archive_root}/HS Reconnect.app"
+mkdir -p "${app}/Contents/MacOS"
+cat > "${app}/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
+  <key>CFBundleExecutable</key><string>HS Reconnect</string>
   <key>CFBundleIdentifier</key><string>io.github.kulibabkaaa.HSReconnect</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${version}</string>
   <key>CFBundleVersion</key><string>${build_number}</string>
   <key>SUPublicEDKey</key><string>${public_key}</string>
 </dict></plist>
 PLIST
-pkgbuild \
-  --root "${package_root}" \
-  --identifier io.github.kulibabkaaa.HSReconnect.tests \
-  --version "${version}" \
-  "${package}" >/dev/null 2>&1
+cat > "${app}/Contents/MacOS/HS Reconnect" <<'APP_EXECUTABLE'
+#!/bin/zsh
+exit 0
+APP_EXECUTABLE
+chmod 755 "${app}/Contents/MacOS/HS Reconnect"
+codesign --force --sign - "${app}" >/dev/null 2>&1
+ditto -c -k --keepParent "${app}" "${archive}"
 
 cat > "${fake_sign_update}" <<'SIGN_UPDATE'
 #!/bin/zsh
@@ -134,18 +139,18 @@ write_appcast() {
   <channel><item>
     <sparkle:version>${build}</sparkle:version>
     <sparkle:shortVersionString>${version}</sparkle:shortVersionString>
-    <enclosure url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v${version}/HS-Reconnect-${version}.pkg" length="${length}" sparkle:edSignature="${signature}" />
+    <enclosure url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v${version}/HS-Reconnect-${version}.zip" length="${length}" sparkle:edSignature="${signature}" />
   </item></channel>
 </rss>
 EOF
 }
 
-package_length="$(/usr/bin/stat -f %z "${package}")"
-package_signature="$(/usr/bin/shasum -a 256 "${package}" | /usr/bin/awk '{ print $1 }')"
-combined_attributes="sparkle:edSignature=\"${package_signature}\" length=\"${package_length}\""
+archive_length="$(/usr/bin/stat -f %z "${archive}")"
+archive_signature="$(/usr/bin/shasum -a 256 "${archive}" | /usr/bin/awk '{ print $1 }')"
+combined_attributes="sparkle:edSignature=\"${archive_signature}\" length=\"${archive_length}\""
 normalized_attributes="$(
   "${project_dir}/Scripts/validate-sign-update-output.sh" \
-    "${package}" \
+    "${archive}" \
     "${combined_attributes}"
 )"
 [[ "${normalized_attributes}" == "${combined_attributes}" ]] \
@@ -153,47 +158,47 @@ normalized_attributes="$(
 [[ "$(print -r -- "${normalized_attributes}" | /usr/bin/grep -o ' length=' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" == 1 ]] \
   || fail "Sparkle signing attributes contain more than one length"
 if "${project_dir}/Scripts/validate-sign-update-output.sh" \
-  "${package}" \
-  "${combined_attributes} length=\"${package_length}\"" >/dev/null 2>&1; then
+  "${archive}" \
+  "${combined_attributes} length=\"${archive_length}\"" >/dev/null 2>&1; then
   fail "duplicate Sparkle length attributes were accepted"
 fi
-write_appcast "${build_number}" "${package_length}" "${package_signature}"
+write_appcast "${build_number}" "${archive_length}" "${archive_signature}"
 
 HS_RECONNECT_TEST_PUBLIC_KEY="${public_key}" \
   SPARKLE_SIGN_UPDATE="${fake_sign_update}" \
   "${project_dir}/Scripts/verify-update-feed.sh" \
-  "${package}" "${appcast}" >/dev/null
+  "${archive}" "${appcast}" >/dev/null
 HS_RECONNECT_TEST_PUBLIC_KEY="${public_key}" \
   SPARKLE_SIGN_UPDATE="${fake_sign_update}" \
   "${project_dir}/Scripts/check-update-build.sh" \
-  "${build_number}" "${package}" "${appcast}" >/dev/null
+  "${build_number}" "${archive}" "${appcast}" >/dev/null
 
-write_appcast "${build_number}" "${package_length}" "${package_signature}0"
+write_appcast "${build_number}" "${archive_length}" "${archive_signature}0"
 if HS_RECONNECT_TEST_PUBLIC_KEY="${public_key}" \
   SPARKLE_SIGN_UPDATE="${fake_sign_update}" \
   "${project_dir}/Scripts/verify-update-feed.sh" \
-  "${package}" "${appcast}" >/dev/null 2>&1; then
-  fail "appcast verification accepted an invalid package signature"
+  "${archive}" "${appcast}" >/dev/null 2>&1; then
+  fail "appcast verification accepted an invalid archive signature"
 fi
 if HS_RECONNECT_TEST_PUBLIC_KEY="${public_key}" \
   SPARKLE_SIGN_UPDATE="${fake_sign_update}" \
   "${project_dir}/Scripts/check-update-build.sh" \
-  "${build_number}" "${package}" "${appcast}" >/dev/null 2>&1; then
-  fail "the build guard accepted a reused build for a different package"
+  "${build_number}" "${archive}" "${appcast}" >/dev/null 2>&1; then
+  fail "the build guard accepted a reused build for a different archive"
 fi
 
-write_appcast "${next_build}" "${package_length}" "${package_signature}"
+write_appcast "${next_build}" "${archive_length}" "${archive_signature}"
 if HS_RECONNECT_TEST_PUBLIC_KEY="${public_key}" \
   SPARKLE_SIGN_UPDATE="${fake_sign_update}" \
   "${project_dir}/Scripts/check-update-build.sh" \
-  "${build_number}" "${package}" "${appcast}" >/dev/null 2>&1; then
+  "${build_number}" "${archive}" "${appcast}" >/dev/null 2>&1; then
   fail "the build guard accepted a build older than the appcast"
 fi
 
-write_appcast "${previous_build}" "${package_length}" "${package_signature}"
+write_appcast "${previous_build}" "${archive_length}" "${archive_signature}"
 HS_RECONNECT_TEST_PUBLIC_KEY="${public_key}" \
   SPARKLE_SIGN_UPDATE="${fake_sign_update}" \
   "${project_dir}/Scripts/check-update-build.sh" \
-  "${build_number}" "${package}" "${appcast}" >/dev/null
+  "${build_number}" "${archive}" "${appcast}" >/dev/null
 
 echo "Release validation tests passed."

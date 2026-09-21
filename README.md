@@ -78,14 +78,11 @@ HS Reconnect checks for signed updates automatically. Turn
 **Automatically check for updates** off if you prefer manual checks. The
 **Check for Updates…** button always remains available.
 
-Updates use the same signed installer as a fresh install. macOS may request an
-administrator password because the package updates the Network Extension. Your
-shortcuts, overlay layout, and startup preferences remain saved.
-
-Reopen HS Reconnect after the installer finishes. macOS normally replaces the
-existing Network Extension automatically. Approve it or restart your Mac only
-if macOS asks. Use the built-in uninstaller only as a troubleshooting fallback,
-because uninstalling removes your saved settings.
+When automatic updating is enabled, a downloaded update installs and relaunches
+HS Reconnect automatically. Manual checks still show the update details before
+installation. Updates preserve shortcuts, overlay layout, and startup
+preferences. The first installer may request an administrator password; later
+in-app updates do not.
 
 ## How it works
 

@@ -2,11 +2,13 @@ import Foundation
 
 public enum BugReportValidationError: Error, Equatable {
   case emptyDescription
+  case descriptionTooShort
   case descriptionTooLong
   case invalidEndpoint
 }
 
 public struct BugReportContent: Equatable {
+  public static let minimumDescriptionLength = 20
   public static let maximumDescriptionLength = 4_000
   public static let maximumImageCount = 5
   public static let maximumImageBytes = 5 * 1_024 * 1_024
@@ -32,6 +34,9 @@ public struct BugReportContent: Equatable {
     guard !trimmed.isEmpty else {
       throw BugReportValidationError.emptyDescription
     }
+    guard trimmed.count >= Self.minimumDescriptionLength else {
+      throw BugReportValidationError.descriptionTooShort
+    }
     guard trimmed.count <= Self.maximumDescriptionLength else {
       throw BugReportValidationError.descriptionTooLong
     }
@@ -40,6 +45,10 @@ public struct BugReportContent: Equatable {
     self.appVersion = appVersion
     self.buildNumber = buildNumber
     self.macOSVersion = macOSVersion
+  }
+
+  public static func descriptionLength(_ description: String) -> Int {
+    description.trimmingCharacters(in: .whitespacesAndNewlines).count
   }
 
   public static func validatedFormEndpoint(

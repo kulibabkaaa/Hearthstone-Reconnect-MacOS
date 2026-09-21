@@ -11,11 +11,11 @@ build_number="$(
   awk '/CURRENT_PROJECT_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' \
     "${project_dir}/project.yml"
 )"
-package="${1:-${project_dir}/dist/HS-Reconnect-${version}.pkg}"
+archive="${1:-${project_dir}/dist/HS-Reconnect-${version}.zip}"
 appcast="${2:-${project_dir}/docs/appcast.xml}"
 
-[[ -f "${package}" ]] || {
-  echo "Update package not found: ${package}" >&2
+[[ -f "${archive}" ]] || {
+  echo "Update archive not found: ${archive}" >&2
   exit 1
 }
 [[ -f "${appcast}" ]] || {
@@ -43,18 +43,18 @@ feed_signature="$(xml_value "(//*[local-name()='item'])[1]/*[local-name()='enclo
   echo "Appcast version ${feed_version:-<missing>} does not match project version ${version}." >&2
   exit 1
 }
-expected_url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v${version}/HS-Reconnect-${version}.pkg"
+expected_url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v${version}/HS-Reconnect-${version}.zip"
 [[ "${feed_url}" == "${expected_url}" ]] || {
-  echo "Appcast package URL does not match the final package." >&2
+  echo "Appcast archive URL does not match the final archive." >&2
   exit 1
 }
 [[ "${feed_length}" == <-> ]] || {
-  echo "Appcast package length is missing or invalid." >&2
+  echo "Appcast archive length is missing or invalid." >&2
   exit 1
 }
-actual_length="$(/usr/bin/stat -f %z "${package}")"
+actual_length="$(/usr/bin/stat -f %z "${archive}")"
 [[ "${feed_length}" == "${actual_length}" ]] || {
-  echo "Appcast package length ${feed_length} does not match ${actual_length}." >&2
+  echo "Appcast archive length ${feed_length} does not match ${actual_length}." >&2
   exit 1
 }
 [[ -n "${feed_signature}" ]] || {
@@ -67,25 +67,26 @@ cleanup() {
   rm -rf -- "${temporary_dir}"
 }
 trap cleanup EXIT
-expanded_package="${temporary_dir}/expanded"
-pkgutil --expand-full "${package}" "${expanded_package}"
-app_info=(
-  "${(@f)$(/usr/bin/find "${expanded_package}" \
-    -path '*/HS Reconnect.app/Contents/Info.plist' -type f -print)}"
-)
+ditto -x -k "${archive}" "${temporary_dir}/expanded"
+apps=("${temporary_dir}/expanded"/*.app(N))
+[[ "${#apps[@]}" == 1 ]] || {
+  echo "Update archive must contain exactly one top-level app." >&2
+  exit 1
+}
+app_info=("${apps[1]}/Contents/Info.plist")
 [[ "${#app_info[@]}" == 1 ]] || {
-  echo "Update package must contain exactly one HS Reconnect app." >&2
+  echo "Update archive must contain exactly one HS Reconnect app." >&2
   exit 1
 }
-package_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${app_info[1]}")"
-package_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${app_info[1]}")"
-package_public_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "${app_info[1]}")"
-[[ "${package_build}" == "${build_number}" ]] || {
-  echo "Package build ${package_build:-<missing>} does not match project build ${build_number}." >&2
+archive_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${app_info[1]}")"
+archive_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${app_info[1]}")"
+archive_public_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "${app_info[1]}")"
+[[ "${archive_build}" == "${build_number}" ]] || {
+  echo "Archive build ${archive_build:-<missing>} does not match project build ${build_number}." >&2
   exit 1
 }
-[[ "${package_version}" == "${version}" ]] || {
-  echo "Package version ${package_version:-<missing>} does not match project version ${version}." >&2
+[[ "${archive_version}" == "${version}" ]] || {
+  echo "Archive version ${archive_version:-<missing>} does not match project version ${version}." >&2
   exit 1
 }
 
@@ -116,10 +117,11 @@ keychain_public_key="$("${generate_keys}" -p | tail -n 1 | tr -d '\r\n')"
   echo "The Sparkle verification key does not match SUPublicEDKey." >&2
   exit 1
 }
-[[ "${package_public_key}" == "${configured_public_key}" ]] || {
-  echo "The packaged Sparkle public key does not match SUPublicEDKey." >&2
+[[ "${archive_public_key}" == "${configured_public_key}" ]] || {
+  echo "The archived Sparkle public key does not match SUPublicEDKey." >&2
   exit 1
 }
-"${sign_update}" --verify "${package}" "${feed_signature}"
+codesign --verify --deep --strict --verbose=2 "${apps[1]}"
+"${sign_update}" --verify "${archive}" "${feed_signature}"
 
-echo "Sparkle appcast matches the final update package."
+echo "Sparkle appcast matches the final update archive."

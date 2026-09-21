@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="${0:A:h}"
 project_dir="${script_dir:h}"
 build_number="${1:?Provide the proposed build number.}"
-package="${2:?Provide the final update package.}"
+archive="${2:?Provide the final update archive.}"
 appcast="${3:-${project_dir}/docs/appcast.xml}"
 
 [[ "${build_number}" == <-> ]] || {
@@ -30,8 +30,8 @@ if (( existing_build > build_number )); then
 fi
 
 if (( existing_build == build_number )); then
-  if ! "${script_dir}/verify-update-feed.sh" "${package}" "${appcast}"; then
-    echo "Build ${build_number} is already used by a different update package." >&2
+  if ! "${script_dir}/verify-update-feed.sh" "${archive}" "${appcast}"; then
+    echo "Build ${build_number} is already used by a different update archive." >&2
     exit 1
   fi
 fi
