@@ -350,9 +350,12 @@ final class LobbyOverlayController: NSObject, NSWindowDelegate {
   private func restoreFrame() {
     guard let gameFrame else { return }
     let scale = UserDefaults.standard.object(forKey: DefaultsKey.lobbyScale) as? Double ?? 1
+    let defaultOriginY = 1.0 -
+      (Double(Self.baseSize.height) * LobbyOverlayGeometry.clampScale(scale) + 20.0)
+      / Double(gameFrame.height)
     let origin = CGPoint(x: UserDefaults.standard.object(forKey: DefaultsKey.lobbyOriginX) as? Double ?? 0.16,
       y: UserDefaults.standard.object(forKey: DefaultsKey.lobbyOriginY) as? Double
-        ?? (1 - (Self.baseSize.height * LobbyOverlayGeometry.clampScale(scale) + 20) / gameFrame.height))
+        ?? defaultOriginY)
     let screen = NSScreen.screens.max { a, b in
       let x = a.frame.intersection(gameFrame), y = b.frame.intersection(gameFrame)
       return x.width * x.height < y.width * y.height
