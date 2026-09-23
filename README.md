@@ -18,7 +18,7 @@
 <h3 align="center">
   <a href="https://github.com/kulibabkaaa/hearthstone-reconnect-macos/releases/latest/download/HS-Reconnect-2.0.0.dmg">Download HS Reconnect 2.0.0</a>
   ·
-  <a href="https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/">HS Reconnect for Mac — website and install guide</a>
+  <a href="PRIVACY.md">Privacy and permissions</a>
 </h3>
 
 <p align="center">
