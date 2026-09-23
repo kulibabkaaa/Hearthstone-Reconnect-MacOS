@@ -30,7 +30,7 @@ fail() {
   || fail "the installer postinstall script is missing"
 [[ -f "${project_dir}/Scripts/Installer/preinstall" ]] \
   || fail "the installer preinstall script is missing"
-[[ -f "${project_dir}/Documentation/Images/hs-reconnect-window.png" ]] \
+[[ -f "${project_dir}/Documentation/Images/hs-reconnect-window-rounded.png" ]] \
   || fail "the public app screenshot is missing"
 [[ -f "${project_dir}/RELEASE_NOTES_2.0.0.md" ]] \
   || fail "the 2.0.0 release notes are missing"
@@ -78,7 +78,7 @@ readme_download_url="releases/latest/download/HS-Reconnect-${version}.dmg"
   || fail "the README must put the current direct download near the top"
 
 /usr/bin/grep -Fq \
-  'Documentation/Images/hs-reconnect-window.png' \
+  'Documentation/Images/hs-reconnect-window-rounded.png' \
   "${project_dir}/README.md" \
   || fail "the README does not show the public app screenshot"
 
