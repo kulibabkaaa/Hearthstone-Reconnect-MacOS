@@ -40,6 +40,8 @@ The app checks for updates automatically. You can change this or select **Check 
 
 Reconnect and lobby capture run on your Mac. The app uses TelemetryDeck to count app sessions and feature use, without sending player names, ratings, game traffic, or logs. See [Privacy and permissions](PRIVACY.md) for details.
 
+GitHub's `download_count` tracks downloads of each release file; it does not count installed users.
+
 ## Help and source
 
 Use **Report a Bug…** in the app, [open an issue](https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/issues), or email `hsreconnect@gmail.com`. To remove the app and its local setup, use **Uninstall** in Settings.
