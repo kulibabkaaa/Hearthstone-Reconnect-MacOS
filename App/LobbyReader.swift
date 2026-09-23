@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import OSLog
 
 struct LobbyCapture: Codable, Equatable {
   let gameUUID: String?
@@ -20,6 +21,7 @@ private struct LobbyHelperPlayer: Decodable {
 
 private struct LobbyHelperEvent: Decodable {
   let event: String
+  let detail: String?
   let gameUUID: String?
   let gameType: Int?
   let region: String?
@@ -77,6 +79,7 @@ final class LobbyReaderDeliveryGeneration: @unchecked Sendable {
 
 final class LobbyReader {
   private static let maximumEventBytes = 256 * 1_024
+  private let logger = Logger(subsystem: "io.github.kulibabkaaa.HSReconnect", category: "LobbyCapture")
   var onCapture: ((LobbyCapture) -> Void)?
   var onReconnectDetected: (() -> Void)?
   var onStatus: ((String) -> Void)?
@@ -107,7 +110,9 @@ final class LobbyReader {
 
   func stop() {
     deliveryGeneration.stopRun()
-    queue.async {
+    // Terminate the child before the app exits; an asynchronous cleanup can
+    // leave a capture probe running after its parent is gone.
+    queue.sync {
       self.shouldRun = false
       self.outputHandle?.readabilityHandler = nil
       self.outputHandle = nil
@@ -193,6 +198,7 @@ final class LobbyReader {
       "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
       "TMPDIR": FileManager.default.temporaryDirectory.path,
+      "HS_RECONNECT_PARENT_PID": String(ProcessInfo.processInfo.processIdentifier),
     ]
     process.standardOutput = output
     process.standardError = FileHandle.nullDevice
@@ -270,8 +276,14 @@ final class LobbyReader {
       emitEmptyCaptureIfNeeded(for: event, token: token)
       status("Quit HSTracker to use lobby info", token: token)
     case "permission_failed", "attachment_failed":
+      logger.error("\(event.event, privacy: .public): \(event.detail ?? "No detail", privacy: .public)")
       emitEmptyCaptureIfNeeded(for: event, token: token)
-      status("Lobby setup needs approval", token: token)
+      status(event.event == "permission_failed"
+        ? "Lobby access needs approval" : "Lobby capture couldn't start", token: token)
+    case "attachment_retrying":
+      logger.warning("\(event.event, privacy: .public): \(event.detail ?? "No detail", privacy: .public)")
+      emitEmptyCaptureIfNeeded(for: event, token: token)
+      status("Getting lobby info ready…", token: token)
     case "attached":
       status("Waiting for a Solo match", token: token)
     case "reconnecting_match":

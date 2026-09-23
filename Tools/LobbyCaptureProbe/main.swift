@@ -1,6 +1,8 @@
 import AppKit
+import Darwin
 import Foundation
 import HearthMirror
+import Security
 
 private struct CapturedPlayer: Codable, Equatable {
   let accountHigh: Int64
@@ -65,6 +67,9 @@ private final class EventWriter {
 
 private final class LobbyCaptureProbe {
   private let writer = EventWriter()
+  private let expectedParentPID = ProcessInfo.processInfo.environment[
+    "HS_RECONNECT_PARENT_PID"
+  ].flatMap(Int32.init)
   private let timestampFormatter: ISO8601DateFormatter = {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -79,11 +84,15 @@ private final class LobbyCaptureProbe {
   private var attachedAt: Date?
   private var failedAttachmentPID: Int32?
   private var attachmentRetryAfter: Date?
+  private var attachmentFailureCount = 0
 
   func run() -> Never {
     emit(event: "probe_started", detail: "Waiting for native Hearthstone.")
 
     while true {
+      // A forced app quit cannot run LobbyReader.stop(). Do not keep an orphaned
+      // probe attached to Hearthstone or show later permission dialogs.
+      if let expectedParentPID, getppid() != expectedParentPID { exit(0) }
       autoreleasepool {
         if hstrackerProcess() != nil {
           emitIfChanged(
@@ -123,20 +132,24 @@ private final class LobbyCaptureProbe {
     if failedAttachmentPID != pid {
       failedAttachmentPID = nil
       attachmentRetryAfter = nil
+      attachmentFailureCount = 0
     }
     resetAttachment()
     guard let application = NSRunningApplication(processIdentifier: pid),
           HearthstoneProcessTrust.isTrusted(application) else {
-      recordAttachmentFailure(pid: pid)
-      emitIfChanged(event: "attachment_failed", hearthstonePID: pid,
+      let willRetry = recordAttachmentFailure(pid: pid)
+      emitIfChanged(event: willRetry ? "attachment_retrying" : "attachment_failed",
+        hearthstonePID: pid,
         detail: "Hearthstone could not be verified as the signed Blizzard application.")
       return
     }
     let permissionResult = acquireTaskportRight()
     guard permissionResult == 0 else {
-      recordAttachmentFailure(pid: pid)
+      let rejected = permissionResult == errAuthorizationCanceled
+        || permissionResult == errAuthorizationDenied
+      let willRetry = recordAttachmentFailure(pid: pid, permissionRejected: rejected)
       emitIfChanged(
-        event: "permission_failed",
+        event: willRetry ? "attachment_retrying" : "permission_failed",
         hearthstonePID: pid,
         detail: "acquireTaskportRight returned \(permissionResult)."
       )
@@ -147,9 +160,9 @@ private final class LobbyCaptureProbe {
     guard HearthstoneProcessTrust.isTrusted(application) else { return }
     let candidate = HearthMirror(pid: pid, blocking: true)
     guard let logSessionDirectory = candidate.getLogSessionDir(), !logSessionDirectory.isEmpty else {
-      recordAttachmentFailure(pid: pid)
+      let willRetry = recordAttachmentFailure(pid: pid)
       emitIfChanged(
-        event: "attachment_failed",
+        event: willRetry ? "attachment_retrying" : "attachment_failed",
         hearthstonePID: pid,
         detail: "HearthMirror did not expose a log session directory."
       )
@@ -161,12 +174,21 @@ private final class LobbyCaptureProbe {
     attachedAt = Date()
     failedAttachmentPID = nil
     attachmentRetryAfter = nil
+    attachmentFailureCount = 0
     emit(event: "attached", hearthstonePID: pid)
   }
 
-  private func recordAttachmentFailure(pid: Int32) {
+  @discardableResult
+  private func recordAttachmentFailure(pid: Int32,
+                                       permissionRejected: Bool = false) -> Bool {
+    if failedAttachmentPID != pid { attachmentFailureCount = 0 }
+    attachmentFailureCount += 1
     failedAttachmentPID = pid
-    attachmentRetryAfter = Date().addingTimeInterval(LobbyAttachRetryPolicy.retryDelay)
+    attachmentRetryAfter = LobbyAttachRetryPolicy.retryAfter(
+      now: Date(), failureCount: attachmentFailureCount,
+      permissionRejected: permissionRejected
+    )
+    return attachmentRetryAfter != .distantFuture
   }
 
   private func capture() {
@@ -261,6 +283,7 @@ private final class LobbyCaptureProbe {
     if clearRetry {
       failedAttachmentPID = nil
       attachmentRetryAfter = nil
+      attachmentFailureCount = 0
     }
   }
 

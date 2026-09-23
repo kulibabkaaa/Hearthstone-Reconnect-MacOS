@@ -267,7 +267,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     lobbyCoordinator.onStatus = { [weak self] status in
       self?.windowController.setLobbyStatus(
         status,
-        canRetry: status == "Lobby setup needs approval"
+        canRetry: status == "Lobby access needs approval"
+          || status == "Lobby capture couldn't start"
       )
     }
     lobbyCoordinator.onLobbyDisplayed = { [weak self] in
