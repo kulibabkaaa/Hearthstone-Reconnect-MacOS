@@ -444,12 +444,13 @@ private final class BugReportDescriptionTextView: NSTextView {
   }
 }
 
-final class BugReportWindowController: NSWindowController, NSTextViewDelegate, NSWindowDelegate {
-  private static let compactWindowHeight: CGFloat = 485
-  private static let previewWindowHeight: CGFloat = 560
+final class BugReportWindowController: NSWindowController, NSTextViewDelegate, NSTextFieldDelegate, NSWindowDelegate {
+  private static let compactWindowHeight: CGFloat = 600
+  private static let previewWindowHeight: CGFloat = 675
 
   private let client = BugReportClient()
   private let descriptionTextView = BugReportDescriptionTextView()
+  private let replyEmailField = NSTextField()
   private let characterCountLabel = NSTextField(
     labelWithString: "0 / \(BugReportContent.maximumDescriptionLength)"
   )
@@ -591,15 +592,28 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     descriptionScrollView.heightAnchor.constraint(equalToConstant: 145)
       .isActive = true
 
+    let minimumLengthLabel = NSTextField(
+      labelWithString: "Minimum \(BugReportContent.minimumDescriptionLength) characters"
+    )
+    minimumLengthLabel.font = .systemFont(ofSize: 11)
+    minimumLengthLabel.textColor = .secondaryLabelColor
+    characterCountLabel.font = .systemFont(ofSize: 11)
     characterCountLabel.textColor = .secondaryLabelColor
     characterCountLabel.alignment = .right
+    let counterSpacer = NSView()
+    counterSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    let counterRow = NSStackView(
+      views: [minimumLengthLabel, counterSpacer, characterCountLabel]
+    )
+    counterRow.orientation = .horizontal
+    counterRow.alignment = .centerY
 
     let descriptionStack = NSStackView(
       views: [
         descriptionTitle,
         explanation,
         descriptionScrollView,
-        characterCountLabel,
+        counterRow,
       ]
     )
     descriptionStack.orientation = .vertical
@@ -608,7 +622,7 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     for view in [
       explanation,
       descriptionScrollView,
-      characterCountLabel,
+      counterRow,
     ] {
       view.translatesAutoresizingMaskIntoConstraints = false
       view.widthAnchor.constraint(
@@ -618,6 +632,30 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     let descriptionCard = makeCard(
       containing: descriptionStack
     )
+
+    let emailTitle = NSTextField(labelWithString: "Email for reply")
+    emailTitle.font = .systemFont(ofSize: 16, weight: .semibold)
+    let emailOptionalLabel = NSTextField(labelWithString: "Optional")
+    emailOptionalLabel.font = .systemFont(ofSize: 11, weight: .medium)
+    emailOptionalLabel.textColor = .tertiaryLabelColor
+    let emailHeader = NSStackView(views: [emailTitle, emailOptionalLabel])
+    emailHeader.orientation = .horizontal
+    emailHeader.alignment = .centerY
+    emailHeader.spacing = 8
+
+    replyEmailField.placeholderString = "you@example.com"
+    replyEmailField.setAccessibilityLabel("Email for reply, optional")
+    replyEmailField.delegate = self
+    replyEmailField.heightAnchor.constraint(equalToConstant: 28)
+      .isActive = true
+    let emailStack = NSStackView(views: [emailHeader, replyEmailField])
+    emailStack.orientation = .vertical
+    emailStack.alignment = .leading
+    emailStack.spacing = 8
+    replyEmailField.translatesAutoresizingMaskIntoConstraints = false
+    replyEmailField.widthAnchor.constraint(equalTo: emailStack.widthAnchor)
+      .isActive = true
+    let emailCard = makeCard(containing: emailStack)
 
     chooseImageButton.target = self
     chooseImageButton.action = #selector(chooseImage)
@@ -704,10 +742,10 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
 
     let privacyText = NSTextField(
       wrappingLabelWithString:
-        "Sends only your description, app and macOS versions, and optional images. Never include passwords or account details."
+        "Sends your description, app/macOS versions, and any email or images you add. Never include passwords or account details."
     )
     privacyText.textColor = .secondaryLabelColor
-    privacyText.maximumNumberOfLines = 2
+    privacyText.maximumNumberOfLines = 3
     let privacyIcon = NSImageView(
       image: NSImage(
         systemSymbolName: "lock.shield.fill",
@@ -755,6 +793,7 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
       views: [
         header,
         descriptionCard,
+        emailCard,
         attachmentCard,
         privacyRow,
         buttonRow,
@@ -770,6 +809,7 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     for view in [
       header,
       descriptionCard,
+      emailCard,
       attachmentCard,
       privacyRow,
       buttonRow,
@@ -930,7 +970,9 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
   }
 
   func textDidChange(_ notification: Notification) {
-    let count = descriptionTextView.string.count
+    let count = BugReportContent.descriptionLength(
+      descriptionTextView.string
+    )
     characterCountLabel.stringValue =
       "\(count) / \(BugReportContent.maximumDescriptionLength)"
     characterCountLabel.textColor =
@@ -938,6 +980,18 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
         ? .systemRed
         : .secondaryLabelColor
     statusLabel.stringValue = ""
+    updateSubmitButtonState()
+  }
+
+  func controlTextDidChange(_ notification: Notification) {
+    let email = replyEmailField.stringValue.trimmingCharacters(
+      in: .whitespacesAndNewlines
+    )
+    if BugReportContent.isValidOptionalReplyEmail(email) {
+      statusLabel.stringValue = ""
+    } else {
+      showError("Enter a valid email address or leave it blank.")
+    }
     updateSubmitButtonState()
   }
 
@@ -1141,6 +1195,7 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     do {
       let content = try BugReportContent(
         description: descriptionTextView.string,
+        replyEmail: replyEmailField.stringValue,
         appVersion: bundle.object(
           forInfoDictionaryKey: "CFBundleShortVersionString"
         ) as? String ?? "Unknown",
@@ -1187,6 +1242,8 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
       showError(
         "Keep the description under \(BugReportContent.maximumDescriptionLength) characters."
       )
+    } catch BugReportValidationError.invalidReplyEmail {
+      showError("Enter a valid email address or leave it blank.")
     } catch {
       showError("The report could not be prepared. Please try again.")
     }
@@ -1224,6 +1281,7 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
         .forEach { $0.isEnabled = !submitting }
     }
     descriptionTextView.isEditable = !submitting
+    replyEmailField.isEnabled = !submitting
     statusLabel.textColor = .secondaryLabelColor
     statusLabel.stringValue = submitting ? "Sending…" : ""
     updateSubmitButtonTitle(
@@ -1250,6 +1308,7 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
 
   private func resetForm() {
     descriptionTextView.string = ""
+    replyEmailField.stringValue = ""
     textDidChange(
       Notification(name: NSText.didChangeNotification)
     )
@@ -1271,19 +1330,22 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     let hasValidLength =
       length >= BugReportContent.minimumDescriptionLength
         && length <= BugReportContent.maximumDescriptionLength
-    let canSubmit = !isSubmitting && hasValidLength
+    let hasValidEmail = BugReportContent.isValidOptionalReplyEmail(
+      replyEmailField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    )
+    let canSubmit = !isSubmitting && hasValidLength && hasValidEmail
     submitButton.isEnabled = true
     submitButton.isInteractionAvailable = canSubmit
     submitButton.action = canSubmit ? #selector(submit) : nil
     submitButton.keyEquivalent = canSubmit ? "\r" : ""
     submitButton.setAccessibilityEnabled(canSubmit)
     submitButton.bezelColor = canSubmit ? .systemBlue : .systemGray
-    cancelButton.bezelColor = hasValidLength ? nil : .systemBlue
+    cancelButton.bezelColor = canSubmit ? nil : .systemBlue
     cancelButton.attributedTitle = NSAttributedString(
       string: "Cancel",
       attributes: [
         .foregroundColor:
-          hasValidLength ? NSColor.labelColor : NSColor.white,
+          canSubmit ? NSColor.labelColor : NSColor.white,
         .font: NSFont.systemFont(
           ofSize: NSFont.systemFontSize,
           weight: .medium

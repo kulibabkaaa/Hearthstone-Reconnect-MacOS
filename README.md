@@ -16,7 +16,7 @@
 </p>
 
 <h3 align="center">
-  <a href="https://github.com/kulibabkaaa/hearthstone-reconnect-macos/releases/latest/download/HS-Reconnect-1.3.0.dmg">Download HS Reconnect 1.3.0</a>
+  <a href="https://github.com/kulibabkaaa/hearthstone-reconnect-macos/releases/latest/download/HS-Reconnect-2.0.0.dmg">Download HS Reconnect 2.0.0</a>
   ·
   <a href="https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/">HS Reconnect for Mac — website and install guide</a>
 </h3>
@@ -52,21 +52,22 @@ opacity is adjustable from 10% to 100%.
 
 ## Install
 
-1. [Download HS Reconnect 1.3.0](https://github.com/kulibabkaaa/hearthstone-reconnect-macos/releases/latest/download/HS-Reconnect-1.3.0.dmg).
+1. [Download HS Reconnect 2.0.0](https://github.com/kulibabkaaa/hearthstone-reconnect-macos/releases/latest/download/HS-Reconnect-2.0.0.dmg).
 2. Open the disk image, then open **Install HS Reconnect.pkg**.
 3. Complete the installer and open HS Reconnect from Applications or its
    Desktop shortcut.
-4. Approve the Network Extension and network configuration when macOS asks.
-5. Start native Hearthstone. When macOS asks, enter an administrator password
-   so the local lobby reader can attach to the game.
+4. In HS Reconnect, choose **Set Up Reconnect**. macOS may show its own extension
+   approval alert. The app then opens Network Extension Settings when approval
+   is needed. Turn on HS Reconnect there, then approve the proxy configuration
+   when macOS asks.
+5. For optional lobby info, open native Hearthstone. Approve the macOS
+   authentication requests when the app attaches to the game.
 
-If you dismiss the first approval message, reopen HS Reconnect and select
-**Open System Settings** beside the setup message. The app keeps that guidance
-available until setup is complete.
+If you cancel an approval, the app shows the missing step and a button to retry.
 
-The lobby reader runs only on this Mac. If its approval was cancelled, use
-**Retry Setup** in the app. Quit HSTracker while using HS Reconnect's lobby
-overlay; both apps cannot attach to Hearthstone at the same time.
+The lobby reader runs only on this Mac. Quit HSTracker while using HS
+Reconnect's lobby overlay; both apps cannot attach to Hearthstone at the same
+time.
 
 Leave **Open HS Reconnect with Hearthstone** checked to start the app quietly
 with the game. The menu bar and Dock icons are visible by default; turn off
@@ -143,7 +144,7 @@ connection locally and close it when you request a reconnect.
 
 ### Does it work with Windows or CrossOver?
 
-No. Version 1.3.0 supports only the native macOS version of Hearthstone.
+No. Version 2.0.0 supports only the native macOS version of Hearthstone.
 
 ### Do I need to uninstall the old version before updating?
 
@@ -158,8 +159,8 @@ does not inspect or store its contents.
 ### Why does lobby info ask for an administrator password?
 
 The local lobby helper needs macOS permission to read the running Hearthstone
-process. It does not install a root service. If you cancel, lobby info stays off
-until you select **Retry Setup**.
+process. It requests approval when you open Hearthstone. It does not install a
+root service. If you cancel, select **Retry Lobby Setup** in the app to try again.
 
 ### Can I use the lobby overlay with HSTracker?
 
@@ -184,10 +185,11 @@ runtime provenance.
 
 ## Bug reports and support
 
-Select **Report a Bug…** in the app to send a description and up to five
-optional images. Images can be selected, dragged into the form, or pasted from
-the clipboard. The app adds its version and the macOS version. It does not
-attach logs, lobby names, or account data automatically.
+Select **Report a Bug…** in the app to send a description, an optional reply
+email, and up to five optional images. Images can be selected, dragged into
+the form, or pasted from the clipboard. The app adds its version and the
+macOS version. It does not attach logs, lobby names, or account data
+automatically.
 
 Found a problem? [Open an issue](https://github.com/kulibabkaaa/hearthstone-reconnect-macos/issues)
 or email `hsreconnect@gmail.com`.

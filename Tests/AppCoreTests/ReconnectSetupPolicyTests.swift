@@ -10,6 +10,7 @@ struct ReconnectSetupPolicyTests {
       extensionInstalled: false,
       extensionEnabled: false,
       extensionAwaitingApproval: false,
+      hasSavedProxyConfiguration: false,
       systemExtensionRetryRequired: true,
       proxyConfigurationPermissionDenied: false,
       proxyPreparationRetryRequired: false
@@ -31,6 +32,7 @@ struct ReconnectSetupPolicyTests {
       extensionInstalled: true,
       extensionEnabled: true,
       extensionAwaitingApproval: false,
+      hasSavedProxyConfiguration: false,
       systemExtensionRetryRequired: false,
       proxyConfigurationPermissionDenied: true,
       proxyPreparationRetryRequired: true
@@ -52,6 +54,7 @@ struct ReconnectSetupPolicyTests {
       extensionInstalled: true,
       extensionEnabled: false,
       extensionAwaitingApproval: false,
+      hasSavedProxyConfiguration: false,
       systemExtensionRetryRequired: false,
       proxyConfigurationPermissionDenied: false,
       proxyPreparationRetryRequired: false
@@ -66,6 +69,7 @@ struct ReconnectSetupPolicyTests {
       extensionInstalled: true,
       extensionEnabled: true,
       extensionAwaitingApproval: false,
+      hasSavedProxyConfiguration: true,
       systemExtensionRetryRequired: false,
       proxyConfigurationPermissionDenied: false,
       proxyPreparationRetryRequired: false
@@ -79,5 +83,38 @@ struct ReconnectSetupPolicyTests {
         action: action
       )
     )
+  }
+
+  @Test("fresh installation waits for the setup button")
+  func freshInstallationDoesNotRequestApprovalAtLaunch() {
+    let action = ReconnectSetupPolicy.action(
+      extensionInstalled: false,
+      extensionEnabled: false,
+      extensionAwaitingApproval: false,
+      hasSavedProxyConfiguration: false,
+      systemExtensionRetryRequired: false,
+      proxyConfigurationPermissionDenied: false,
+      proxyPreparationRetryRequired: false
+    )
+    #expect(action == .beginReconnectSetup)
+  }
+
+  @Test("enabled extension without a proxy needs a user action")
+  func proxyPermissionWaitsForUser() {
+    let action = ReconnectSetupPolicy.action(
+      extensionInstalled: true,
+      extensionEnabled: true,
+      extensionAwaitingApproval: false,
+      hasSavedProxyConfiguration: false,
+      systemExtensionRetryRequired: false,
+      proxyConfigurationPermissionDenied: false,
+      proxyPreparationRetryRequired: false
+    )
+    #expect(action == .beginReconnectSetup)
+    #expect(!ReconnectSetupPolicy.shouldPrepareProxyAutomatically(
+      extensionEnabled: true,
+      proxyReady: false,
+      action: action
+    ))
   }
 }

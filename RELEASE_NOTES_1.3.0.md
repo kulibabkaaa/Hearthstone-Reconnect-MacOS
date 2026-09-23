@@ -8,7 +8,7 @@
   match.
 - Added automatic update checks and a manual **Check for Updates…** button.
 - Added an in-app bug report form with drag-and-drop, clipboard paste,
-  previews, and up to five optional images.
+  previews, an optional reply email, and up to five optional images.
 - Added privacy-focused active-installation and feature-use analytics. Player
   names, BattleTags, MMR, lobby data, game traffic, and logs are never sent.
 - Redesigned the main app and bug-report windows.

@@ -38,6 +38,7 @@ final class SettingsWindowController: NSWindowController {
   private let onOpenSystemSettings: () -> Void
   private let onRetrySystemExtensionApproval: () -> Void
   private let onRetryProxySetup: () -> Void
+  private let onBeginReconnectSetup: () -> Void
   private let onUninstall: () -> Void
   private let onLobbyEnabledChanged: (Bool) -> Void
   private let onLobbyOpacityChanged: (Double) -> Void
@@ -55,6 +56,8 @@ final class SettingsWindowController: NSWindowController {
   private var reconnectSetupAction: ReconnectSetupAction = .none
   private var mainPageView: NSView!
   private var settingsPageView: NSView!
+  private var mainContentStack: NSStackView!
+  private var resizeScheduled = false
   private weak var mainSettingsButton: NSButton?
   private weak var settingsBackButton: NSButton?
   private var resetLobbyFeedbackWorkItem: DispatchWorkItem?
@@ -120,7 +123,7 @@ final class SettingsWindowController: NSWindowController {
   )
   private let opacityLabel = NSTextField(labelWithString: "100%")
   private let lobbyStatusLabel = NSTextField(
-    labelWithString: "Waiting for Hearthstone"
+    wrappingLabelWithString: "Waiting for Hearthstone"
   )
   private let resetLobbyButton = HoverButton(
     title: "Reset Layout",
@@ -160,6 +163,7 @@ final class SettingsWindowController: NSWindowController {
     onOpenSystemSettings: @escaping () -> Void,
     onRetrySystemExtensionApproval: @escaping () -> Void,
     onRetryProxySetup: @escaping () -> Void,
+    onBeginReconnectSetup: @escaping () -> Void,
     onUninstall: @escaping () -> Void,
     onLobbyEnabledChanged: @escaping (Bool) -> Void,
     onLobbyOpacityChanged: @escaping (Double) -> Void,
@@ -183,6 +187,7 @@ final class SettingsWindowController: NSWindowController {
     self.onRetrySystemExtensionApproval =
       onRetrySystemExtensionApproval
     self.onRetryProxySetup = onRetryProxySetup
+    self.onBeginReconnectSetup = onBeginReconnectSetup
     self.onUninstall = onUninstall
     self.onLobbyEnabledChanged = onLobbyEnabledChanged
     self.onLobbyOpacityChanged = onLobbyOpacityChanged
@@ -267,6 +272,7 @@ final class SettingsWindowController: NSWindowController {
     reconnectStatusMessage = message
     reconnectStatusMessageIsError = isError
     applyReconnectStatus(message, isError: isError)
+    scheduleMainWindowResize()
   }
 
   private func applyReconnectStatus(
@@ -313,6 +319,7 @@ final class SettingsWindowController: NSWindowController {
     lobbyStatusMessage = message
     lobbyStatusCanRetry = canRetry
     applyLobbyStatus(message, canRetry: canRetry)
+    scheduleMainWindowResize()
   }
 
   private func applyLobbyStatus(
@@ -339,10 +346,13 @@ final class SettingsWindowController: NSWindowController {
     case .none:
       title = ""
       accessibilityLabel = ""
+    case .beginReconnectSetup:
+      title = "Set Up Reconnect"
+      accessibilityLabel = "Start reconnect extension and proxy approval"
     case .openSystemExtensionSettings:
-      title = "Open Login Items & Extensions"
+      title = "Open Network Extension Settings"
       accessibilityLabel =
-        "Open Login Items and Extensions settings"
+        "Open Network Extensions to enable HS Reconnect"
     case .retrySystemExtensionApproval:
       title = "Try Extension Approval Again"
       accessibilityLabel =
@@ -370,6 +380,7 @@ final class SettingsWindowController: NSWindowController {
       accessibilityLabel
     )
     updateStatusIndicator()
+    scheduleMainWindowResize()
   }
 
   func setUninstalling(_ uninstalling: Bool) {
@@ -571,6 +582,7 @@ final class SettingsWindowController: NSWindowController {
     settingsStatusLabel.isHidden = true
 
     lobbyStatusLabel.textColor = .secondaryLabelColor
+    lobbyStatusLabel.maximumNumberOfLines = 0
     lobbyStatusLabel.setContentCompressionResistancePriority(
       .defaultLow,
       for: .horizontal
@@ -702,11 +714,7 @@ final class SettingsWindowController: NSWindowController {
       spacing: 12
     )
     let lobbyStatusRow = makeHorizontalRow(
-      [
-        lobbyStatusLabel,
-        flexibleSpacer(),
-        retryLobbySetupButton,
-      ],
+      [lobbyStatusLabel, flexibleSpacer(), retryLobbySetupButton],
       spacing: 12
     )
     let lobbyShortcutLabel = NSTextField(
@@ -758,13 +766,8 @@ final class SettingsWindowController: NSWindowController {
       spacing: 9
     )
     constrainFullWidth(
-      [
-        lobbyHeader,
-        lobbyStatusRow,
-        lobbyDivider,
-        lobbyShortcutRow,
-        opacityRow,
-      ],
+      [lobbyHeader, lobbyStatusRow, lobbyDivider,
+        lobbyShortcutRow, opacityRow],
       in: lobbyStack
     )
     let lobbyCard = makeCard(containing: lobbyStack)
@@ -802,6 +805,7 @@ final class SettingsWindowController: NSWindowController {
       ],
       spacing: 10
     )
+    mainContentStack = stack
     stack.translatesAutoresizingMaskIntoConstraints = false
     page.addSubview(stack)
 
@@ -1092,6 +1096,9 @@ final class SettingsWindowController: NSWindowController {
 
   private func updateStatusIndicator() {
     switch reconnectSetupAction {
+    case .beginReconnectSetup:
+      statusTitleLabel.stringValue = "Set up reconnect"
+      statusIndicator.contentTintColor = .systemOrange
     case .openSystemExtensionSettings:
       statusTitleLabel.stringValue = "Enable the reconnect extension"
       statusIndicator.contentTintColor = .systemOrange
@@ -1142,10 +1149,37 @@ final class SettingsWindowController: NSWindowController {
     mainPageView.isHidden = false
     window?.title = AppConfiguration.appName
     window?.makeFirstResponder(mainSettingsButton)
+    scheduleMainWindowResize()
     NSAccessibility.post(
       element: mainPageView,
       notification: .layoutChanged
     )
+  }
+
+  private func scheduleMainWindowResize() {
+    guard !resizeScheduled else { return }
+    resizeScheduled = true
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.resizeScheduled = false
+      guard let window = self.window,
+        let contentView = window.contentView,
+        let mainPageView = self.mainPageView,
+        !mainPageView.isHidden,
+        let mainContentStack = self.mainContentStack
+      else { return }
+      mainContentStack.layoutSubtreeIfNeeded()
+      let requiredHeight = ceil(mainContentStack.fittingSize.height + 32)
+      let targetHeight = max(485, requiredHeight)
+      guard abs(contentView.bounds.height - targetHeight) > 2
+      else { return }
+      let topLeft = NSPoint(x: window.frame.minX, y: window.frame.maxY)
+      window.setContentSize(NSSize(
+        width: contentView.bounds.width,
+        height: targetHeight
+      ))
+      window.setFrameTopLeftPoint(topLeft)
+    }
   }
 
   private func showSettingsPage() {
@@ -1183,6 +1217,8 @@ final class SettingsWindowController: NSWindowController {
     switch reconnectSetupAction {
     case .none:
       break
+    case .beginReconnectSetup:
+      onBeginReconnectSetup()
     case .openSystemExtensionSettings:
       onOpenSystemSettings()
     case .retrySystemExtensionApproval:

@@ -1,5 +1,6 @@
 public enum ReconnectSetupAction: Equatable, Sendable {
   case none
+  case beginReconnectSetup
   case openSystemExtensionSettings
   case retrySystemExtensionApproval
   case retryProxyConfiguration
@@ -11,6 +12,7 @@ public enum ReconnectSetupPolicy {
     extensionInstalled: Bool,
     extensionEnabled: Bool,
     extensionAwaitingApproval: Bool,
+    hasSavedProxyConfiguration: Bool,
     systemExtensionRetryRequired: Bool,
     proxyConfigurationPermissionDenied: Bool,
     proxyPreparationRetryRequired: Bool
@@ -22,7 +24,9 @@ public enum ReconnectSetupPolicy {
       {
         return .retrySystemExtensionApproval
       }
-      return .openSystemExtensionSettings
+      return extensionInstalled || extensionAwaitingApproval
+        ? .openSystemExtensionSettings
+        : .beginReconnectSetup
     }
 
     if proxyConfigurationPermissionDenied {
@@ -30,6 +34,9 @@ public enum ReconnectSetupPolicy {
     }
     if proxyPreparationRetryRequired {
       return .retryProxySetup
+    }
+    if !hasSavedProxyConfiguration {
+      return .beginReconnectSetup
     }
     return .none
   }

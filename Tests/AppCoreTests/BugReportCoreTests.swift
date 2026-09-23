@@ -75,6 +75,45 @@ struct BugReportCoreTests {
     }
   }
 
+  @Test func optionalReplyEmailIsValidatedAndTrimmed() throws {
+    let content = try BugReportContent(
+      description: "Overlay vanished after reconnect.",
+      replyEmail: "  player+test@example.com  ",
+      appVersion: "1.3.0",
+      buildNumber: "40",
+      macOSVersion: "15.6"
+    )
+    #expect(content.replyEmail == "player+test@example.com")
+
+    let withoutEmail = try BugReportContent(
+      description: "Overlay vanished after reconnect.",
+      replyEmail: "  ",
+      appVersion: "1.3.0",
+      buildNumber: "40",
+      macOSVersion: "15.6"
+    )
+    #expect(withoutEmail.replyEmail == nil)
+
+    #expect(throws: BugReportValidationError.invalidReplyEmail) {
+      _ = try BugReportContent(
+        description: "Overlay vanished after reconnect.",
+        replyEmail: "not-an-email",
+        appVersion: "1.3.0",
+        buildNumber: "40",
+        macOSVersion: "15.6"
+      )
+    }
+    #expect(throws: BugReportValidationError.invalidReplyEmail) {
+      _ = try BugReportContent(
+        description: "Overlay vanished after reconnect.",
+        replyEmail: "user@example.com\r\nBcc: other@example.com",
+        appVersion: "1.3.0",
+        buildNumber: "40",
+        macOSVersion: "15.6"
+      )
+    }
+  }
+
   @Test func acceptsOnlyTheConfiguredHTTPSFormHost() throws {
     let endpoint = try BugReportContent.validatedFormEndpoint(
       "https://forminit.com/f/example"
@@ -165,6 +204,7 @@ struct BugReportCoreTests {
   @Test func multipartBodyIncludesMetadataAndMultipleImages() throws {
     let content = try BugReportContent(
       description: "Overlay vanished after reconnect.",
+      replyEmail: "player@example.com",
       appVersion: "1.3.0",
       buildNumber: "9",
       macOSVersion: "15.6"
@@ -181,6 +221,7 @@ struct BugReportCoreTests {
 
     #expect(body.contentType == "multipart/form-data; boundary=test-boundary")
     #expect(text.contains("name=\"fi-text-description\""))
+    #expect(text.contains("name=\"fi-sender-email\"\r\n\r\nplayer@example.com"))
     #expect(text.contains("Overlay vanished after reconnect."))
     #expect(text.contains("name=\"fi-text-app-version\""))
     #expect(
@@ -191,6 +232,22 @@ struct BugReportCoreTests {
     #expect(text.contains("filename=\"hs-reconnect-image-1.jpg\""))
     #expect(text.contains("filename=\"hs-reconnect-image-2.jpg\""))
     #expect(text.hasSuffix("--test-boundary--\r\n"))
+  }
+
+  @Test func multipartBodyOmitsBlankReplyEmail() throws {
+    let content = try BugReportContent(
+      description: "Overlay vanished after reconnect.",
+      replyEmail: "",
+      appVersion: "1.3.0",
+      buildNumber: "40",
+      macOSVersion: "15.6"
+    )
+    let body = BugReportMultipartBody(
+      content: content,
+      imageJPEGs: [],
+      boundary: "test-boundary"
+    )
+    #expect(!String(decoding: body.data, as: UTF8.self).contains("fi-sender-email"))
   }
 
   @Test func multipartBodyLimitsImagesToFive() throws {

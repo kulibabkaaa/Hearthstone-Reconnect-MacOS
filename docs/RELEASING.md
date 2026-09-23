@@ -24,6 +24,11 @@ Scripts/notarize-release.sh finish dist/HS-Reconnect-<version>.dmg <submission-i
 Scripts/prepare-update-feed.sh
 ```
 
+The ZIP finish step staples the notarized app and repacks the ZIP. Publish that
+final ZIP, not the earlier submission file. Keep the build root until this step
+finishes; set `HS_RECONNECT_BUILD_ROOT` for both build and ZIP finish if using a
+custom build location.
+
 `prepare-update-feed.sh` refuses an update ZIP whose app does not pass Apple's
 notarization assessment. It signs the ZIP with the Sparkle private key in the
 login Keychain and writes `docs/appcast.xml`.

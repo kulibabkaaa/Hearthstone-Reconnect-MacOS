@@ -14,6 +14,10 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
       return
     }
     let scale = ProcessInfo.processInfo.arguments.compactMap { $0.hasPrefix("--scale=") ? Double($0.dropFirst(8)) : nil }.first ?? 1
+    let firstRun = ProcessInfo.processInfo.arguments.contains("--first-run")
+    let windowCapturePath = ProcessInfo.processInfo.arguments.first(where: {
+      $0.hasPrefix("--capture-window=")
+    }).map { String($0.dropFirst("--capture-window=".count)) }
     let opacity = ProcessInfo.processInfo.arguments.compactMap { $0.hasPrefix("--opacity=") ? Double($0.dropFirst(10)) : nil }.first ?? 75
     let overlayOnly = ProcessInfo.processInfo.arguments.contains("--overlay-only")
     let requestedCapturePath = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--capture=") }).map { String($0.dropFirst(10)) }
@@ -30,17 +34,37 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
     settings = SettingsWindowController(onReconnect: {}, onShortcutChanged: { _,_,_ in true },
       onShortcutRecordingChanged: { _ in }, onOpenWithHearthstoneChanged: { _ in .success(()) },
       onShowInDockChanged: { value, done in done(value) }, onOpenSystemSettings: {},
-      onRetrySystemExtensionApproval: {}, onRetryProxySetup: {}, onUninstall: {},
+      onRetrySystemExtensionApproval: {}, onRetryProxySetup: {},
+      onBeginReconnectSetup: {}, onUninstall: {},
       onLobbyEnabledChanged: { _ in }, onLobbyOpacityChanged: { [weak self] in self?.overlay.opacityPercent = $0 },
       onLobbyShortcutChanged: { _,_,_ in true },
       onResetLobby: { [weak self] in self?.overlay.resetLayout() }, onRetryLobbySetup: {},
       onReportBug: { [weak self] in self?.showBugReport() },
       onCheckForUpdates: {}, automaticUpdateChecksEnabled: { true },
       onAutomaticUpdateChecksChanged: { _ in })
-    settings.setStatus("Diagnostic harness — reconnect actions are disabled.")
-    settings.setLobbyStatus("Sample lobby preview")
+    if firstRun {
+      settings.setStatus("Reconnect needs approval for its network extension and proxy. Choose Set Up Reconnect to begin.")
+      settings.setReconnectSetupAction(.beginReconnectSetup)
+      settings.setLobbyStatus("Waiting for Hearthstone")
+    } else {
+      settings.setStatus("Diagnostic harness — reconnect actions are disabled.")
+      settings.setLobbyStatus("Sample lobby preview")
+    }
     settings.showWindow(nil); settings.window?.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
+    if let windowCapturePath, let view = settings.window?.contentView {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        view.layoutSubtreeIfNeeded()
+        if let image = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+          view.cacheDisplay(in: view.bounds, to: image)
+          try? image.representation(using: .png, properties: [:])?
+            .write(to: URL(fileURLWithPath: windowCapturePath))
+        }
+        NSApp.terminate(nil)
+      }
+      return
+    }
+    if firstRun { return }
     guard let frame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else { return }
     overlay.showPreview(gameFrame: frame.insetBy(dx: 40, dy: 40))
     if capturePath == nil { overlay.toggleEditing() } else { overlay.beginDiagnosticEditing() }

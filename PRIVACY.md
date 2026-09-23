@@ -37,10 +37,11 @@ Pages. Downloading an update uses GitHub Releases. GitHub receives ordinary
 connection metadata such as the public IP address.
 
 Bug reports are optional and sent only when the user selects **Submit**. The
-report contains the typed description, app version, macOS version, and up to
-five optional images chosen, dragged, or pasted by the user. It does not
-automatically include logs, lobby names, Blizzard account details, or other
-files. Reports and images are processed and stored by Forminit so an email
-notification can be delivered to the project maintainer. Forminit also
+report contains the typed description, app version, macOS version, an optional
+reply email address, and up to five optional images chosen, dragged, or pasted
+by the user. It does not automatically include logs, lobby names, Blizzard
+account details, or other files. Reports and images are processed and stored
+by Forminit so an email notification can be delivered to the project
+maintainer. Forminit also
 receives ordinary connection metadata, including the public IP address and
 user agent used for the submission.

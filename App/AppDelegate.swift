@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private var isUpdaterStarted = false
   private var restoreAutoLaunchAfterFailedUninstall = false
   private var isAwaitingSystemExtensionApproval = false
+  private var openExtensionSettingsAfterSetup = false
   private var isCheckingSystemExtensionState = false
   private var isPreparingProxy = false
   private var shouldPrepareProxyWhenAvailable = false
@@ -54,6 +55,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private var systemExtensionApprovalWasDenied = false
   private var proxyConfigurationPermissionWasDenied = false
   private var proxyPreparationNeedsUserRetry = false
+  private var hasCheckedProxyConfiguration = false
+  private var hasSavedProxyConfiguration = false
   private var lastSystemExtensionState:
     SystemExtensionRuntimeState?
 
@@ -73,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       analyticsController.start()
     }
     registerDefaults()
+    restoreAutomaticLobbyCaptureIfNeeded()
     systemExtensionApprovalWasDenied = UserDefaults.standard.bool(
       forKey: DefaultsKey.systemExtensionApprovalWasDenied
     )
@@ -102,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       // Lobby capture is independent of the reconnect system extension. Start
       // it even while that extension is awaiting approval or cannot activate.
       lobbyCoordinator.start()
-      prepareProxy()
+      inspectExistingProxySetup()
 
       if !launchedForHearthstone {
         showWindow()
@@ -226,6 +230,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       onRetryProxySetup: { [weak self] in
         self?.retryProxySetup()
       },
+      onBeginReconnectSetup: { [weak self] in
+        self?.beginReconnectSetup()
+      },
       onUninstall: { [weak self] in
         self?.confirmUninstall()
       },
@@ -266,6 +273,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     lobbyCoordinator.onLobbyDisplayed = { [weak self] in
       self?.analyticsController.signal(.lobbyDisplayed)
     }
+  }
+
+  private func restoreAutomaticLobbyCaptureIfNeeded() {
+    let defaults = UserDefaults.standard
+    guard let verified = defaults.object(forKey: DefaultsKey.lobbyAccessVerified)
+      as? Bool else { return }
+    // The button-gated build forcibly disabled lobby info before approval.
+    // Restore the former automatic default once for people left in that state.
+    if !verified {
+      defaults.removeObject(forKey: DefaultsKey.lobbyEnabled)
+    }
+    defaults.removeObject(forKey: DefaultsKey.lobbyAccessVerified)
   }
 
   private func buildMainMenu() {
@@ -449,16 +468,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private func showSystemExtensionEnablementHelp() {
     isAwaitingSystemExtensionApproval = true
     windowController.setStatus(
-      "Reconnect is off. Open Settings, click the info button for "
-        + "HS Reconnect, then turn on Network Extension."
+      "Reconnect is off. Open Network Extension Settings and turn on "
+        + "HS Reconnect. If the list opens instead, choose By Category, "
+        + "then Network Extensions."
     )
     windowController.setReconnectSetupAction(
       .openSystemExtensionSettings
     )
+    guard openExtensionSettingsAfterSetup else { return }
+    openExtensionSettingsAfterSetup = false
+    DispatchQueue.main.async { [weak self] in
+      guard let self, !self.isUninstalling,
+        self.isAwaitingSystemExtensionApproval
+      else { return }
+      self.openSystemExtensionSettings()
+    }
   }
 
   private func openSystemExtensionSettings() {
+    if #available(macOS 15.0, *),
+      let url = URL(string:
+        "x-apple.systempreferences:com.apple.ExtensionsPreferences"
+          + "?extensionPointIdentifier="
+          + "com.apple.system_extension.network_extension.extension-point"
+      ), NSWorkspace.shared.open(url)
+    { return }
     SMAppService.openSystemSettingsLoginItems()
+  }
+
+  private func inspectExistingProxySetup() {
+    proxyController.hasEnabledConfiguration { [weak self] result in
+      guard let self, !self.isUninstalling else { return }
+      self.hasCheckedProxyConfiguration = true
+      switch result {
+      case .success(let exists):
+        self.hasSavedProxyConfiguration = exists
+        self.shouldPrepareProxyWhenAvailable = exists
+      case .failure(let error):
+        NSLog("Could not inspect saved proxy configuration: %@", error as NSError)
+        self.hasSavedProxyConfiguration = false
+        self.shouldPrepareProxyWhenAvailable = false
+      }
+      self.refreshSystemExtensionState()
+    }
+  }
+
+  private func beginReconnectSetup() {
+    guard !isUninstalling, !isPreparingProxy,
+      !systemExtensionController.isOperationPending
+    else { return }
+    windowController.setReconnectSetupAction(.none)
+    windowController.setStatus("Getting ready…")
+    openExtensionSettingsAfterSetup =
+      lastSystemExtensionState?.isEnabled != true
+    if lastSystemExtensionState?.isEnabled == true {
+      finishPreparingProxy()
+    } else {
+      prepareProxy()
+    }
   }
 
   private func prepareProxy() {
@@ -480,6 +547,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       guard !self.isUninstalling else { return }
       switch result {
       case .failure(let error):
+        self.openExtensionSettingsAfterSetup = false
         NSLog("System extension activation failed: %@", error as NSError)
         if Self.isSystemExtensionApprovalDenial(error) {
           self.systemExtensionApprovalWasDenied = true
@@ -507,6 +575,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
           self.refreshSystemExtensionState()
         }
       case .success(.requiresReboot):
+        self.openExtensionSettingsAfterSetup = false
         self.systemExtensionRequiresReboot = true
         self.shouldPrepareProxyWhenAvailable = false
         self.isProxyReady = false
@@ -518,6 +587,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         )
         self.updateReconnectAvailability()
       case .success(.activated):
+        self.openExtensionSettingsAfterSetup = false
         self.clearSystemExtensionApprovalDenial()
         self.systemExtensionRequiresReboot = false
         if self.proxyConfigurationPermissionWasDenied {
@@ -530,11 +600,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     }
   }
 
-  private func finishPreparingProxy() {
+  private func finishPreparingProxy(
+    allowRecreateConfiguration: Bool = true
+  ) {
     guard !isPreparingProxy else { return }
     shouldPrepareProxyWhenAvailable = false
     isPreparingProxy = true
-    proxyController.prepare { [weak self] prepareResult in
+    proxyController.prepare(
+      allowRecreateConfiguration: allowRecreateConfiguration
+    ) { [weak self] prepareResult in
       guard let self else { return }
       self.isPreparingProxy = false
       if self.isUninstalling {
@@ -549,6 +623,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
           .setReconnectSetupAction(.none)
         self.proxyConfigurationPermissionWasDenied = false
         self.proxyPreparationNeedsUserRetry = false
+        self.hasSavedProxyConfiguration = true
         UserDefaults.standard.set(
           false,
           forKey: DefaultsKey.proxyConfigurationPermissionWasDenied
@@ -750,12 +825,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     let wasEnabled = lastSystemExtensionState?.isEnabled
     lastSystemExtensionState = state
 
+    guard hasCheckedProxyConfiguration else { return }
+
     if systemExtensionRequiresReboot && !state.isEnabled {
       recomputeProxyReadiness()
       return
     }
 
     guard state.isEnabled else {
+      if systemExtensionController.isOperationPending,
+        !isAwaitingSystemExtensionApproval
+      {
+        updateReconnectAvailability()
+        return
+      }
       let action = reconnectSetupAction(for: state)
       if action == .retrySystemExtensionApproval {
         isProxyReady = false
@@ -777,12 +860,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       if state.isUnavailable && !systemExtensionController.isOperationPending {
         isProxyReady = false
         shouldPrepareProxyWhenAvailable = false
-        windowController.setReconnectSetupAction(.none)
-        windowController.setStatus(
-          "The reconnect extension isn’t installed or was rejected by macOS. "
-            + "Reinstall the latest verified installer. If this continues, report a bug.",
-          isError: true
-        )
+        showReconnectSetupHelp()
         updateReconnectAvailability()
         return
       }
@@ -804,6 +882,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     isAwaitingSystemExtensionApproval = false
     let setupAction = reconnectSetupAction(for: state)
     windowController.setReconnectSetupAction(setupAction)
+    if setupAction == .beginReconnectSetup {
+      isProxyReady = false
+      shouldPrepareProxyWhenAvailable = false
+      if isPreparingProxy {
+        windowController.setReconnectSetupAction(.none)
+      } else {
+        showReconnectSetupHelp()
+      }
+      updateReconnectAvailability()
+      return
+    }
     if setupAction == .retryProxyConfiguration {
       showProxyConfigurationRetry()
       recomputeProxyReadiness()
@@ -838,7 +927,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         !isPreparingProxy
       else { return }
       windowController.setStatus("Getting ready…")
-      finishPreparingProxy()
+      finishPreparingProxy(allowRecreateConfiguration: false)
     }
   }
 
@@ -849,6 +938,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       extensionInstalled: state.isInstalled,
       extensionEnabled: state.isEnabled,
       extensionAwaitingApproval: state.isAwaitingUserApproval,
+      hasSavedProxyConfiguration: hasSavedProxyConfiguration,
       systemExtensionRetryRequired:
         systemExtensionApprovalWasDenied,
       proxyConfigurationPermissionDenied:
@@ -858,9 +948,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     )
   }
 
+  private func showReconnectSetupHelp() {
+    windowController.setReconnectSetupAction(.beginReconnectSetup)
+    windowController.setStatus(
+      lastSystemExtensionState?.isEnabled == true
+        ? "Reconnect needs proxy approval. Choose Set Up Reconnect to continue."
+        : "Reconnect needs approval for its network extension and proxy. "
+          + "Choose Set Up Reconnect to begin."
+    )
+  }
+
   private func retrySystemExtensionApproval() {
     clearSystemExtensionApprovalDenial()
     windowController.setReconnectSetupAction(.none)
+    openExtensionSettingsAfterSetup = true
     prepareProxy()
   }
 

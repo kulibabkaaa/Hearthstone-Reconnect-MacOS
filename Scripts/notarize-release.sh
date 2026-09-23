@@ -63,9 +63,27 @@ case "${mode}" in
           "${target}"
         ;;
       zip)
+        build_root="${HS_RECONNECT_BUILD_ROOT:-/private/tmp/hs-reconnect-release-${UID}}"
+        exported_app="${build_root}/export/HS Reconnect.app"
+        [[ -d "${exported_app}" ]] || {
+          echo "Exported app not found: ${exported_app}" >&2
+          exit 1
+        }
+        # ZIP files cannot be stapled. Staple the notarized app, then replace
+        # the submitted ZIP with the final archive used by Sparkle.
+        xcrun stapler staple "${exported_app}"
+        xcrun stapler validate "${exported_app}"
+        spctl --assess --type execute --verbose=2 "${exported_app}"
+        temporary_dir="$(mktemp -d /private/tmp/hs-reconnect-notarized-zip.XXXXXX)"
+        trap 'rm -rf -- "${temporary_dir}"' EXIT
+        final_archive="${temporary_dir}/${target:t}"
+        ditto -c -k --sequesterRsrc --keepParent \
+          "${exported_app}" "${final_archive}"
         "${project_dir}/Scripts/verify-update-archive.sh" \
-          "${target}" \
-          --require-notarization
+          "${final_archive}" --require-notarization
+        mv -f -- "${final_archive}" "${target}"
+        "${project_dir}/Scripts/verify-update-archive.sh" \
+          "${target}" --require-notarization
         ;;
       *)
         echo "Unsupported release artifact: ${target}" >&2

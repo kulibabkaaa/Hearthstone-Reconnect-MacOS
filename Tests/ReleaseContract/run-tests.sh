@@ -32,8 +32,8 @@ fail() {
   || fail "the installer preinstall script is missing"
 [[ -f "${project_dir}/Documentation/Images/hs-reconnect-window.png" ]] \
   || fail "the public app screenshot is missing"
-[[ -f "${project_dir}/RELEASE_NOTES_1.3.0.md" ]] \
-  || fail "the 1.3.0 release notes are missing"
+[[ -f "${project_dir}/RELEASE_NOTES_2.0.0.md" ]] \
+  || fail "the 2.0.0 release notes are missing"
 [[ -f "${project_dir}/SECURITY.md" ]] \
   || fail "the lobby helper security notes are missing"
 [[ -f "${project_dir}/Vendor/HearthMirror/SHA256SUMS" ]] \
@@ -57,7 +57,7 @@ version="$(
 )"
 
 [[ -n "${version}" ]] || fail "the release version is missing"
-[[ "${version}" == "1.3.0" ]] || fail "the update release must use version 1.3.0"
+[[ "${version}" == "2.0.0" ]] || fail "the update release must use version 2.0.0"
 
 bug_report_endpoint="$(
   /usr/bin/awk '
@@ -121,7 +121,7 @@ fi
 prepare_proxy_block="$(
   /usr/bin/awk '
     /private func prepareProxy\(\)/ { in_prepare = 1 }
-    in_prepare && /private func finishPreparingProxy\(\)/ { exit }
+    in_prepare && /private func finishPreparingProxy/ { exit }
     in_prepare { print }
   ' "${project_dir}/App/AppDelegate.swift"
 )"
@@ -151,7 +151,12 @@ fi
 /usr/bin/grep -q \
   'SMAppService.openSystemSettingsLoginItems' \
   "${project_dir}/App/AppDelegate.swift" \
-  || fail "approval guidance cannot reopen the correct System Settings pane"
+  || fail "extension settings fallback is missing"
+
+/usr/bin/grep -q \
+  'com.apple.system_extension.network_extension.extension-point' \
+  "${project_dir}/App/AppDelegate.swift" \
+  || fail "extension approval does not target Network Extensions"
 
 /usr/bin/grep -q \
   'setReconnectSetupAction(' \

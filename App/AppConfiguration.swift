@@ -35,6 +35,7 @@ enum DefaultsKey {
     "proxyConfiguration.permissionWasDenied"
   static let lastReconnectAt = "reconnect.lastAt"
   static let lobbyEnabled = "lobby.enabled"
+  static let lobbyAccessVerified = "lobby.accessVerified"
   static let lobbyOpacity = "lobby.opacity"
   static let lobbyShortcutKeyCode = "lobby.shortcut.keyCode"
   static let lobbyShortcutModifiers = "lobby.shortcut.modifiers"

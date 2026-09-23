@@ -28,6 +28,26 @@ final class TransparentProxyController {
     }
   }
 
+  func hasEnabledConfiguration(
+    completion: @escaping (Result<Bool, Error>) -> Void
+  ) {
+    NETransparentProxyManager.loadAllFromPreferences { managers, error in
+      DispatchQueue.main.async {
+        if let error {
+          completion(.failure(error))
+          return
+        }
+        let exists = (managers ?? []).contains { manager in
+          manager.isEnabled
+            && (manager.protocolConfiguration as? NETunnelProviderProtocol)?
+              .providerBundleIdentifier
+              == AppConfiguration.extensionBundleIdentifier
+        }
+        completion(.success(exists))
+      }
+    }
+  }
+
   func removeConfiguration(
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
@@ -55,6 +75,7 @@ final class TransparentProxyController {
   }
 
   func prepare(
+    allowRecreateConfiguration: Bool = true,
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
     loadManager { [weak self] result in
@@ -63,9 +84,18 @@ final class TransparentProxyController {
       case .failure(let error):
         completion(.failure(Self.normalized(error)))
       case .success(let manager):
+        if !allowRecreateConfiguration,
+          (!manager.isEnabled
+            || (manager.protocolConfiguration as? NETunnelProviderProtocol)?
+              .providerBundleIdentifier
+              != AppConfiguration.extensionBundleIdentifier)
+        {
+          completion(.failure(TransparentProxyControllerError.configurationMissing))
+          return
+        }
         self.prepare(
           manager,
-          canRecreateConfiguration: true,
+          canRecreateConfiguration: allowRecreateConfiguration,
           completion: completion
         )
       }

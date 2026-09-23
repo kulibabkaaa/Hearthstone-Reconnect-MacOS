@@ -4,6 +4,7 @@ public enum BugReportValidationError: Error, Equatable {
   case emptyDescription
   case descriptionTooShort
   case descriptionTooLong
+  case invalidReplyEmail
   case invalidEndpoint
 }
 
@@ -18,12 +19,14 @@ public struct BugReportContent: Equatable {
   public static let maximumSourceImagePixels = 100_000_000
 
   public let description: String
+  public let replyEmail: String?
   public let appVersion: String
   public let buildNumber: String
   public let macOSVersion: String
 
   public init(
     description: String,
+    replyEmail: String? = nil,
     appVersion: String,
     buildNumber: String,
     macOSVersion: String
@@ -40,8 +43,13 @@ public struct BugReportContent: Equatable {
     guard trimmed.count <= Self.maximumDescriptionLength else {
       throw BugReportValidationError.descriptionTooLong
     }
+    let trimmedEmail = replyEmail?.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard Self.isValidOptionalReplyEmail(trimmedEmail) else {
+      throw BugReportValidationError.invalidReplyEmail
+    }
 
     self.description = trimmed
+    self.replyEmail = trimmedEmail?.isEmpty == false ? trimmedEmail : nil
     self.appVersion = appVersion
     self.buildNumber = buildNumber
     self.macOSVersion = macOSVersion
@@ -49,6 +57,15 @@ public struct BugReportContent: Equatable {
 
   public static func descriptionLength(_ description: String) -> Int {
     description.trimmingCharacters(in: .whitespacesAndNewlines).count
+  }
+
+  public static func isValidOptionalReplyEmail(_ email: String?) -> Bool {
+    guard let email, !email.isEmpty else { return true }
+    guard email.utf8.count <= 254 else { return false }
+    return email.range(
+      of: "^[^\\s@]+@[^\\s@.]+(?:\\.[^\\s@.]+)+$",
+      options: .regularExpression
+    ) != nil
   }
 
   public static func validatedFormEndpoint(
@@ -123,6 +140,9 @@ public struct BugReportMultipartBody {
   ) {
     var body = Data()
     Self.append("HS Reconnect User", name: "fi-sender-fullName", boundary: boundary, to: &body)
+    if let replyEmail = content.replyEmail {
+      Self.append(replyEmail, name: "fi-sender-email", boundary: boundary, to: &body)
+    }
     Self.append(content.description, name: "fi-text-description", boundary: boundary, to: &body)
     Self.append(content.appVersion, name: "fi-text-app-version", boundary: boundary, to: &body)
     Self.append(content.buildNumber, name: "fi-text-build-number", boundary: boundary, to: &body)
