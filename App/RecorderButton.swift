@@ -1,7 +1,7 @@
 import AppKit
 import Carbon
 
-final class RecorderButton: NSButton {
+final class RecorderButton: HoverButton {
   var onRecord: ((UInt32, UInt32, String) -> Bool)?
   var onRecordingStateChanged: ((Bool) -> Void)?
   var onValidationMessage: ((String) -> Void)?

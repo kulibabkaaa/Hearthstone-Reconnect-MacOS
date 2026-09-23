@@ -16,9 +16,9 @@
 </p>
 
 <h3 align="center">
-  <a href="https://github.com/kulibabkaaa/hearthstone-reconnect-macos/releases/latest/download/HS-Reconnect-1.1.0.dmg">Download HS Reconnect 1.1.0</a>
+  <a href="https://github.com/kulibabkaaa/hearthstone-reconnect-macos/releases/latest/download/HS-Reconnect-2.0.0.dmg">Download HS Reconnect 2.0.0</a>
   ·
-  <a href="https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/">HS Reconnect for Mac — website and install guide</a>
+  <a href="PRIVACY.md">Privacy and permissions</a>
 </h3>
 
 <p align="center">
@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <img src="Documentation/Images/hs-reconnect-window.png" width="760" alt="HS Reconnect window showing the global shortcut, launch options, reconnect button, and uninstall button">
+  <img src="Documentation/Images/hs-reconnect-window.png" width="760" alt="HS Reconnect window showing reconnect and Lobby info controls">
 </p>
 
 ## What it does
@@ -39,6 +39,11 @@ change it inside the app.
 HS Reconnect can open quietly with Hearthstone, stay available in the menu bar,
 and show or hide its Dock icon whenever you choose.
 
+For Solo Battlegrounds, it also shows a local overlay with the eight player
+names, public leaderboard ranks and ratings, and the estimated lobby average.
+Use **Command-Shift-L** to move and proportionally resize the overlay. Its
+opacity is adjustable from 10% to 100%.
+
 ## Requirements
 
 - macOS 13 or later
@@ -47,15 +52,22 @@ and show or hide its Dock icon whenever you choose.
 
 ## Install
 
-1. [Download HS Reconnect 1.1.0](https://github.com/kulibabkaaa/hearthstone-reconnect-macos/releases/latest/download/HS-Reconnect-1.1.0.dmg).
+1. [Download HS Reconnect 2.0.0](https://github.com/kulibabkaaa/hearthstone-reconnect-macos/releases/latest/download/HS-Reconnect-2.0.0.dmg).
 2. Open the disk image, then open **Install HS Reconnect.pkg**.
 3. Complete the installer and open HS Reconnect from Applications or its
    Desktop shortcut.
-4. Approve the Network Extension and network configuration when macOS asks.
+4. In HS Reconnect, choose **Set Up Reconnect**. macOS may show its own extension
+   approval alert. The app then opens Network Extension Settings when approval
+   is needed. Turn on HS Reconnect there, then approve the proxy configuration
+   when macOS asks.
+5. For optional lobby info, open native Hearthstone. Approve the macOS
+   authentication requests when the app attaches to the game.
 
-If you dismiss the first approval message, reopen HS Reconnect and select
-**Open System Settings** beside the setup message. The app keeps that guidance
-available until setup is complete.
+If you cancel an approval, the app shows the missing step and a button to retry.
+
+The lobby reader runs only on this Mac. Quit HSTracker while using HS
+Reconnect's lobby overlay; both apps cannot attach to Hearthstone at the same
+time.
 
 Leave **Open HS Reconnect with Hearthstone** checked to start the app quietly
 with the game. The menu bar and Dock icons are visible by default; turn off
@@ -63,15 +75,15 @@ with the game. The menu bar and Dock icons are visible by default; turn off
 
 ## Update
 
-If HS Reconnect is already installed, do not uninstall it first. Download the
-new disk image and run **Install HS Reconnect.pkg** over the existing version.
-The installer closes the old app, replaces it in Applications, refreshes the
-Desktop shortcut, and keeps your shortcut and startup preferences.
+HS Reconnect checks for signed updates automatically. Turn
+**Automatically check for updates** off if you prefer manual checks. The
+**Check for Updates…** button always remains available.
 
-Reopen HS Reconnect after the installer finishes. macOS normally replaces the
-existing Network Extension automatically. Approve it or restart your Mac only
-if macOS asks. Use the built-in uninstaller only as a troubleshooting fallback,
-because uninstalling removes your saved settings.
+When automatic updating is enabled, a downloaded update installs and relaunches
+HS Reconnect automatically. Manual checks still show the update details before
+installation. Updates preserve shortcuts, overlay layout, and startup
+preferences. The first installer may request an administrator password; later
+in-app updates do not.
 
 ## How it works
 
@@ -81,6 +93,10 @@ the current Hearthstone game connection so the game reconnects immediately.
 
 No root helper or sudo rule is installed. No HS Reconnect account or separate
 online service is required.
+
+Lobby names are read from the running game by a narrowly scoped helper. That
+helper asks macOS for administrator approval when it attaches. Public rating
+pages are then requested directly from Blizzard and cached locally.
 
 ## Uninstall
 
@@ -92,13 +108,17 @@ Desktop shortcut, and installer receipt.
 
 ## Privacy
 
-HS Reconnect has no analytics, telemetry, advertising, remote crash reporting,
-accounts, or project-server connection. It does not collect or transmit personal
-data. Read the full [privacy statement](PRIVACY.md).
+HS Reconnect uses always-on, privacy-focused TelemetryDeck analytics to count
+active installations and successful reconnect/lobby-info use. It never sends
+player names, BattleTags, MMR, lobby data, game traffic, or logs. Captured lobby
+data stays on the Mac. Public leaderboard requests go directly to Blizzard,
+which receives ordinary connection metadata such as the public IP address.
+Read the full [privacy statement](PRIVACY.md).
 
 GitHub records the cumulative `download_count` for the signed DMG attached to
-each release. This measures release-asset downloads, not installations or active
-users. GitHub maintains this count; the app contains no download tracking.
+each release. This measures release-asset downloads. Active installations are
+measured separately through TelemetryDeck using its random hashed installation
+identifier.
 
 ## FAQ
 
@@ -124,7 +144,7 @@ connection locally and close it when you request a reconnect.
 
 ### Does it work with Windows or CrossOver?
 
-No. Version 1.1.0 supports only the native macOS version of Hearthstone.
+No. Version 2.0.0 supports only the native macOS version of Hearthstone.
 
 ### Do I need to uninstall the old version before updating?
 
@@ -135,6 +155,17 @@ startup preferences remain in place.
 
 No. The Network Extension passes Hearthstone traffic through unchanged and
 does not inspect or store its contents.
+
+### Why does lobby info ask for an administrator password?
+
+The local lobby helper needs macOS permission to read the running Hearthstone
+process. It requests approval when you open Hearthstone. It does not install a
+root service. If you cancel, select **Retry Lobby Setup** in the app to try again.
+
+### Can I use the lobby overlay with HSTracker?
+
+No. Quit HSTracker before using this overlay because only one tracker can attach
+to Hearthstone reliably at a time. Reconnect remains available.
 
 ## Build from source
 
@@ -148,8 +179,17 @@ Scripts/build-local.sh
 
 Public builds require Developer ID Application and Developer ID Installer
 certificates, Network Extension provisioning, and Apple notarization.
+See [SECURITY.md](SECURITY.md) for the lobby helper's scoped entitlements and
+[Vendor/HearthMirror/NOTICE.md](Vendor/HearthMirror/NOTICE.md) for vendored
+runtime provenance.
 
-## Support
+## Bug reports and support
+
+Select **Report a Bug…** in the app to send a description, an optional reply
+email, and up to five optional images. Images can be selected, dragged into
+the form, or pasted from the clipboard. The app adds its version and the
+macOS version. It does not attach logs, lobby names, or account data
+automatically.
 
 Found a problem? [Open an issue](https://github.com/kulibabkaaa/hearthstone-reconnect-macos/issues)
 or email `hsreconnect@gmail.com`.

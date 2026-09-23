@@ -28,6 +28,22 @@ component_plist="${fixture_dir}/components.plist"
   -- '-o args=' \
   "${project_dir}/Scripts/Installer/preinstall" \
   || fail "the preinstall script must inspect the complete executable path"
+/usr/bin/grep -Fq \
+  'HS Reconnect Watcher.app/Contents/MacOS/HS Reconnect Watcher' \
+  "${project_dir}/Scripts/Installer/preinstall" \
+  || fail "the preinstall script must stop the installed watcher"
+/usr/bin/grep -Fq \
+  'HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe' \
+  "${project_dir}/Scripts/Installer/preinstall" \
+  || fail "the preinstall script must stop the installed lobby helper"
+/usr/bin/grep -Fq \
+  '/usr/sbin/chown -RH' \
+  "${project_dir}/Scripts/Installer/postinstall" \
+  || fail "the installer must leave the app replaceable by Sparkle"
+/usr/bin/grep -Fq \
+  '${console_user}:${console_group}' \
+  "${project_dir}/Scripts/Installer/postinstall" \
+  || fail "the installer must assign the app to the logged-in user"
 
 cat > "${component_plist}" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

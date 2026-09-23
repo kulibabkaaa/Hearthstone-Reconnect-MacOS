@@ -56,6 +56,18 @@ lipo \
   "${app}/Contents/Library/LoginItems/HS Reconnect Watcher.app/Contents/MacOS/HS Reconnect Watcher" \
   -verify_arch arm64 x86_64
 lipo \
+  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe" \
+  -verify_arch arm64 x86_64
+lipo \
+  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/HearthMirror.framework/Versions/A/HearthMirror" \
+  -verify_arch arm64 x86_64
+lipo \
+  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libcoreclr.dylib" \
+  -verify_arch arm64 x86_64
+lipo \
+  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libSystem.Native.dylib" \
+  -verify_arch arm64 x86_64
+lipo \
   "${app}/Contents/Library/SystemExtensions/io.github.kulibabkaaa.HSReconnect.ProxyExtension.systemextension/Contents/MacOS/io.github.kulibabkaaa.HSReconnect.ProxyExtension" \
   -verify_arch arm64 x86_64
 

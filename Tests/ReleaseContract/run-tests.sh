@@ -18,6 +18,12 @@ fail() {
   || fail "the signed GitHub Release DMG builder is missing"
 [[ -f "${project_dir}/Scripts/verify-dmg-contents.sh" ]] \
   || fail "the release DMG content verifier is missing"
+[[ -f "${project_dir}/Scripts/prepare-update-feed.sh" ]] \
+  || fail "the Sparkle update-feed builder is missing"
+[[ -x "${project_dir}/Scripts/verify-update-archive.sh" ]] \
+  || fail "the Sparkle app-archive verifier is missing or not executable"
+[[ -x "${project_dir}/Scripts/patch-project-capabilities.sh" ]] \
+  || fail "the Xcode App Groups capability patch is missing"
 [[ -f "${project_dir}/Extension/ProxyExtension.entitlements" ]] \
   || fail "the transparent-proxy extension is missing"
 [[ -f "${project_dir}/Scripts/Installer/postinstall" ]] \
@@ -26,6 +32,19 @@ fail() {
   || fail "the installer preinstall script is missing"
 [[ -f "${project_dir}/Documentation/Images/hs-reconnect-window.png" ]] \
   || fail "the public app screenshot is missing"
+[[ -f "${project_dir}/RELEASE_NOTES_2.0.0.md" ]] \
+  || fail "the 2.0.0 release notes are missing"
+[[ -f "${project_dir}/SECURITY.md" ]] \
+  || fail "the lobby helper security notes are missing"
+[[ -f "${project_dir}/Vendor/HearthMirror/SHA256SUMS" ]] \
+  || fail "the vendored HearthMirror checksums are missing"
+
+for release_script in build-release.sh verify-release.sh; do
+  /usr/bin/grep -Fq \
+    'Tests/LobbyConcurrency/run-tests.sh' \
+    "${project_dir}/Scripts/${release_script}" \
+    || fail "${release_script} does not run the lobby concurrency tests"
+done
 
 version="$(
   /usr/bin/awk '
@@ -38,6 +57,20 @@ version="$(
 )"
 
 [[ -n "${version}" ]] || fail "the release version is missing"
+[[ "${version}" == "2.0.0" ]] || fail "the update release must use version 2.0.0"
+
+bug_report_endpoint="$(
+  /usr/bin/awk '
+    /HSRBugReportEndpoint:/ {
+      sub(/^[^:]*:[[:space:]]*/, "")
+      gsub(/"/, "")
+      print
+      exit
+    }
+  ' "${project_dir}/project.yml"
+)"
+[[ "${bug_report_endpoint}" == https://forminit.com/f/* ]] \
+  || fail "the production Forminit bug-report endpoint is not configured"
 
 readme_download_url="releases/latest/download/HS-Reconnect-${version}.dmg"
 /usr/bin/head -n 40 "${project_dir}/README.md" \
@@ -88,7 +121,7 @@ fi
 prepare_proxy_block="$(
   /usr/bin/awk '
     /private func prepareProxy\(\)/ { in_prepare = 1 }
-    in_prepare && /private func activationFailureMessage\(\)/ { exit }
+    in_prepare && /private func finishPreparingProxy/ { exit }
     in_prepare { print }
   ' "${project_dir}/App/AppDelegate.swift"
 )"
@@ -100,9 +133,15 @@ if /usr/bin/grep -q \
 fi
 
 /usr/bin/grep -q \
-  'ProcessInfo.processInfo.processIdentifier' \
+  'privilegedRemovalAppleScript()' \
   "${project_dir}/App/AppUninstaller.swift" \
-  || fail "self-removal does not wait for the uninstall process to exit"
+  || fail "self-removal does not run the privileged cleanup"
+
+if /usr/bin/grep -q \
+  '/usr/bin/nohup\|/bin/kill -0' \
+  "${project_dir}/Shared/AppCore/AppRemovalPlan.swift"; then
+  fail "self-removal still depends on a detached privileged process"
+fi
 
 /usr/bin/grep -q \
   'AppUninstallRecoveryPolicy.shouldRestoreRuntime' \
@@ -112,10 +151,15 @@ fi
 /usr/bin/grep -q \
   'SMAppService.openSystemSettingsLoginItems' \
   "${project_dir}/App/AppDelegate.swift" \
-  || fail "approval guidance cannot reopen the correct System Settings pane"
+  || fail "extension settings fallback is missing"
 
 /usr/bin/grep -q \
-  'setSystemExtensionApprovalRequired(true)' \
+  'com.apple.system_extension.network_extension.extension-point' \
+  "${project_dir}/App/AppDelegate.swift" \
+  || fail "extension approval does not target Network Extensions"
+
+/usr/bin/grep -q \
+  'setReconnectSetupAction(' \
   "${project_dir}/App/AppDelegate.swift" \
   || fail "approval guidance is not kept available in the app window"
 
@@ -150,6 +194,31 @@ fi
   || fail "the Developer ID exporter does not embed distribution profiles"
 
 /usr/bin/grep -q \
+  'signed-extension-entitlements.plist' \
+  "${project_dir}/Scripts/export-developer-id.sh" \
+  || fail "the Developer ID exporter does not verify final signed App Group entitlements"
+
+/usr/bin/grep -q \
+  'Entitlements:com.apple.security.application-groups' \
+  "${project_dir}/Scripts/export-developer-id.sh" \
+  || fail "the Developer ID exporter does not inspect profile App Groups"
+
+/usr/bin/grep -Fq \
+  'wildcard_application_group="${team_id}.*"' \
+  "${project_dir}/Scripts/export-developer-id.sh" \
+  || fail "the Developer ID exporter does not accept Apple's team-wide App Group authorization"
+
+/usr/bin/grep -q \
+  'profile_has_required_entitlements' \
+  "${project_dir}/Scripts/export-developer-id.sh" \
+  || fail "the Developer ID exporter does not validate selected and embedded profiles"
+
+/usr/bin/grep -q \
+  'Embedded profile for.*does not authorize' \
+  "${project_dir}/Scripts/export-developer-id.sh" \
+  || fail "the Developer ID exporter does not reject an invalid embedded profile"
+
+/usr/bin/grep -q \
   '/private/tmp/hs-reconnect-release' \
   "${project_dir}/Scripts/build-release.sh" \
   || fail "release signing still runs inside file-provider managed storage"
@@ -180,9 +249,148 @@ fi
   || fail "the release build does not inspect the completed DMG"
 
 /usr/bin/grep -q \
+  'HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe' \
+  "${project_dir}/Scripts/build-release.sh" \
+  || fail "the release build does not verify the lobby helper architectures"
+
+/usr/bin/grep -q \
+  'Release lobby helper contains debug file logging' \
+  "${project_dir}/Scripts/build-release.sh" \
+  || fail "the release build does not reject lobby debug logging"
+
+# The custom website is released separately; this app release checks its own
+# public documentation without changing the existing GitHub Pages content.
+if /usr/bin/grep -Fq \
+  'does not collect or transmit personal data' \
+  "${project_dir}/PRIVACY.md" "${project_dir}/README.md"; then
+  fail "privacy copy overstates what a direct Blizzard request transmits"
+fi
+
+/usr/bin/grep -q \
   'HS-Reconnect-${version}.dmg' \
   "${project_dir}/Scripts/notarize-release.sh" \
   || fail "notarization does not target the outer release DMG"
+
+/usr/bin/grep -q \
+  'spctl --assess --type install' \
+  "${project_dir}/Scripts/notarize-release.sh" \
+  || fail "the signed update package is not verified after notarization"
+
+/usr/bin/grep -q \
+  'exactVersion: 2.10.0' \
+  "${project_dir}/project.yml" \
+  || fail "Sparkle is not pinned to the reviewed release"
+
+/usr/bin/grep -q \
+  'exactVersion: 2.14.2' \
+  "${project_dir}/project.yml" \
+  || fail "TelemetryDeck is not pinned to the reviewed release"
+
+/usr/bin/grep -q \
+  'HSRTelemetryDeckAppID: 9A07D574-467A-4B61-88A9-B50A46A87470' \
+  "${project_dir}/project.yml" \
+  || fail "the production TelemetryDeck app ID is missing"
+
+/usr/bin/grep -q \
+  'TelemetryDeck.signal(event.rawValue)' \
+  "${project_dir}/App/AnalyticsController.swift" \
+  || fail "feature analytics are not connected"
+
+/usr/bin/grep -qi \
+  'This analytics collection is always' \
+  "${project_dir}/PRIVACY.md" \
+  || fail "the always-on analytics disclosure is missing"
+
+/usr/bin/grep -q \
+  'SUFeedURL: https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/appcast.xml' \
+  "${project_dir}/project.yml" \
+  || fail "the public Sparkle feed URL is missing"
+
+/usr/bin/grep -q \
+  'Automatically check for updates' \
+  "${project_dir}/App/SettingsWindowController.swift" \
+  || fail "the automatic update toggle is missing"
+
+/usr/bin/grep -q \
+  'Check for Updates' \
+  "${project_dir}/App/SettingsWindowController.swift" \
+  || fail "the manual update button is missing"
+
+/usr/bin/grep -q \
+  'willInstallUpdateOnQuit' \
+  "${project_dir}/App/AppDelegate.swift" \
+  || fail "automatic updates are not configured to install immediately"
+
+/usr/bin/grep -q \
+  'immediateInstallHandler()' \
+  "${project_dir}/App/AppDelegate.swift" \
+  || fail "automatic updates do not invoke Sparkle's immediate installer"
+
+/usr/bin/grep -q \
+  'Report a Bug' \
+  "${project_dir}/App/SettingsWindowController.swift" \
+  || fail "the in-app bug report button is missing"
+
+/usr/bin/grep -q \
+  'func windowWillClose' \
+  "${project_dir}/App/BugReportWindowController.swift" \
+  || fail "closing the bug report does not clean up its temporary image"
+
+/usr/bin/grep -q \
+  'removeTemporaryAttachments()' \
+  "${project_dir}/App/BugReportWindowController.swift" \
+  || fail "the bug report does not remove its temporary images"
+
+/usr/bin/grep -q \
+  'CGImageSourceCreateThumbnailAtIndex' \
+  "${project_dir}/App/BugReportWindowController.swift" \
+  || fail "bug-report images are not safely downsampled before use"
+
+/usr/bin/grep -q \
+  'URLSessionConfiguration.ephemeral' \
+  "${project_dir}/App/BugReportClient.swift" \
+  || fail "bug reports do not use an ephemeral network session"
+
+/usr/bin/grep -q \
+  'BugReportContent.allowsRedirect' \
+  "${project_dir}/App/BugReportClient.swift" \
+  || fail "bug-report redirects are not constrained to the configured origin"
+
+/usr/bin/grep -q \
+  '#if DEBUG' \
+  "${project_dir}/Tools/LobbyCaptureProbe/main.swift" \
+  || fail "the lobby helper's file logging is not debug-only"
+
+/usr/bin/grep -q \
+  'process.environment = ' \
+  "${project_dir}/App/LobbyReader.swift" \
+  || fail "the privileged lobby helper inherits the full app environment"
+
+/usr/bin/grep -q \
+  'maximumEventBytes' \
+  "${project_dir}/App/LobbyReader.swift" \
+  || fail "lobby helper output is not bounded"
+
+/usr/bin/grep -q \
+  'HS-Reconnect-${version}.zip' \
+  "${project_dir}/Scripts/prepare-update-feed.sh" \
+  || fail "the appcast does not publish the signed app archive"
+
+if /usr/bin/grep -q \
+  'sparkle:installationType="package"' \
+  "${project_dir}/Scripts/prepare-update-feed.sh"; then
+  fail "the appcast still forces package installation"
+fi
+
+/usr/bin/grep -q \
+  '/usr/sbin/chown -RH' \
+  "${project_dir}/Scripts/Installer/postinstall" \
+  || fail "the initial installer does not enable password-free app updates"
+
+/usr/bin/grep -q \
+  'keychain_public_key.*configured_public_key' \
+  "${project_dir}/Scripts/prepare-update-feed.sh" \
+  || fail "the appcast builder does not match the signing key to SUPublicEDKey"
 
 /usr/bin/grep -q \
   'download_count' \

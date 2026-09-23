@@ -10,6 +10,8 @@ public enum AppIdentity {
     "io.github.kulibabkaaa.HSReconnect.Watcher"
   public static let packageReceiptIdentifier =
     "io.github.kulibabkaaa.HSReconnect.installer"
+  public static let legacyPackageReceiptIdentifier =
+    "io.github.kulibabkaaa.HSReconnect.pkg"
   public static let applicationGroupIdentifier =
     "D8KUYWS8JN.io.github.kulibabkaaa.HSReconnect"
 }
@@ -17,15 +19,34 @@ public enum AppIdentity {
 public struct AppRemovalPlan: Sendable {
   public let installedApplicationURL: URL
   public let packageReceiptIdentifier: String
+  public let legacyPackageReceiptIdentifiers: [String]
   public let desktopShortcutURL: URL
   public let userDataURLs: [URL]
 
   public init(homeDirectory: URL) {
-    installedApplicationURL = URL(
-      fileURLWithPath: "/Applications/HS Reconnect.app"
+    self.init(
+      homeDirectory: homeDirectory,
+      installedApplicationURL: URL(
+        fileURLWithPath: "/Applications/HS Reconnect.app"
+      ),
+      packageReceiptIdentifier:
+        AppIdentity.packageReceiptIdentifier,
+      legacyPackageReceiptIdentifiers: [
+        AppIdentity.legacyPackageReceiptIdentifier
+      ]
     )
-    packageReceiptIdentifier =
-      AppIdentity.packageReceiptIdentifier
+  }
+
+  init(
+    homeDirectory: URL,
+    installedApplicationURL: URL,
+    packageReceiptIdentifier: String,
+    legacyPackageReceiptIdentifiers: [String] = []
+  ) {
+    self.installedApplicationURL = installedApplicationURL
+    self.packageReceiptIdentifier = packageReceiptIdentifier
+    self.legacyPackageReceiptIdentifiers =
+      legacyPackageReceiptIdentifiers
     desktopShortcutURL =
       homeDirectory
       .appendingPathComponent("Desktop", isDirectory: true)
@@ -108,37 +129,23 @@ public struct AppRemovalPlan: Sendable {
       == installedApplicationURL.standardizedFileURL
   }
 
-  public func privilegedRemovalCommand(
-    waitingForProcessIdentifier processIdentifier: Int32
-  ) -> String {
-    let deferredCleanup = deferredRemovalCommand(
-      waitingForProcessIdentifier: processIdentifier
-    )
-    return
-      "/usr/bin/nohup /bin/sh -c "
-      + Self.shellQuote(deferredCleanup)
-      + " </dev/null >/dev/null 2>&1 &"
+  public func privilegedRemovalCommand() -> String {
+    cleanupCommand
   }
 
-  func deferredRemovalCommand(
-    waitingForProcessIdentifier processIdentifier: Int32
-  ) -> String {
-    return
-      "while /bin/kill -0 \(processIdentifier)"
-      + " >/dev/null 2>&1;"
-      + " do /bin/sleep 0.1; done; "
-      + cleanupCommand
-  }
-
-  public func privilegedRemovalAppleScript(
-    waitingForProcessIdentifier processIdentifier: Int32
-  ) -> String {
-    let command = privilegedRemovalCommand(
-      waitingForProcessIdentifier: processIdentifier
-    )
+  public func privilegedRemovalAppleScript() -> String {
+    let command = privilegedRemovalCommand()
     return
       "do shell script \(Self.appleScriptQuote(command))"
       + " with administrator privileges"
+  }
+
+  public func removeUserData(
+    using fileManager: FileManager
+  ) {
+    for userDataURL in userDataURLs {
+      try? fileManager.removeItem(at: userDataURL)
+    }
   }
 
   private var cleanupCommand: String {
@@ -152,20 +159,27 @@ public struct AppRemovalPlan: Sendable {
       "if [ -L \(desktopShortcut) ]"
       + " && [ \"$(/usr/bin/readlink \(desktopShortcut))\""
       + " = \(installedApplication) ];"
-      + " then /bin/rm -f -- \(desktopShortcut); fi"
+      + " then /bin/unlink \(desktopShortcut)"
+      + " >/dev/null 2>&1 || true; fi"
     let userDataCommands = userDataURLs.map {
       "/bin/rm -rf -- \(Self.shellQuote($0.path))"
         + " >/dev/null 2>&1 || true"
     }
+    let receiptCommands =
+      ([packageReceiptIdentifier] + legacyPackageReceiptIdentifiers)
+      .map {
+        "/usr/sbin/pkgutil --forget "
+          + Self.shellQuote($0)
+          + " >/dev/null 2>&1 || true"
+      }
     return
-      (["set -e", desktopShortcutCommand]
-      + userDataCommands + [
+      ([
+        "set -e",
+        desktopShortcutCommand,
+      ] + receiptCommands + [
         "/bin/rm -rf -- "
           + installedApplication,
-        "/usr/sbin/pkgutil --forget "
-          + Self.shellQuote(packageReceiptIdentifier)
-          + " >/dev/null 2>&1 || true",
-      ]).joined(separator: "; ")
+      ] + userDataCommands).joined(separator: "; ")
   }
 
   private static func shellQuote(_ value: String) -> String {

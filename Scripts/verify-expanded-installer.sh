@@ -16,6 +16,12 @@ installer_scripts="${expanded_package}/Scripts"
   exit 1
 }
 
+if /usr/bin/find "${expanded_package}/Payload" -name '._*' -print -quit \
+  | /usr/bin/grep -q .; then
+  echo "Installer payload contains AppleDouble metadata files." >&2
+  exit 1
+fi
+
 if /usr/bin/grep -q "<relocate>" "${package_info}"; then
   echo "Installer still permits app relocation." >&2
   exit 1

@@ -11,6 +11,10 @@ enum SystemExtensionDeactivationResult {
   case requiresReboot
 }
 
+enum SystemExtensionControllerError: Error {
+  case stateCheckTimedOut
+}
+
 final class SystemExtensionController:
   NSObject, OSSystemExtensionRequestDelegate
 {
@@ -29,6 +33,43 @@ final class SystemExtensionController:
   private var operation: Operation?
   private var pendingDeactivation: ((Result<SystemExtensionDeactivationResult, Error>) -> Void)?
   private var request: OSSystemExtensionRequest?
+  private var propertiesRequest: OSSystemExtensionRequest?
+  private var propertiesCompletions: [
+    (Result<SystemExtensionRuntimeState, Error>) -> Void
+  ] = []
+
+  var isOperationPending: Bool {
+    operation != nil
+  }
+
+  func currentState(
+    completion: @escaping (
+      Result<SystemExtensionRuntimeState, Error>
+    ) -> Void
+  ) {
+    propertiesCompletions.append(completion)
+    guard propertiesRequest == nil else { return }
+
+    let request = OSSystemExtensionRequest.propertiesRequest(
+      forExtensionWithIdentifier:
+        AppConfiguration.extensionBundleIdentifier,
+      queue: .main
+    )
+    request.delegate = self
+    propertiesRequest = request
+    OSSystemExtensionManager.shared.submitRequest(request)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+      [weak self, weak request] in
+      guard let self, let request,
+        self.propertiesRequest === request
+      else { return }
+      self.finishPropertiesRequest(
+        .failure(
+          SystemExtensionControllerError.stateCheckTimedOut
+        )
+      )
+    }
+  }
 
   func activate(
     completion: @escaping (Result<SystemExtensionActivationResult, Error>) -> Void
@@ -92,6 +133,7 @@ final class SystemExtensionController:
     _ request: OSSystemExtensionRequest,
     didFinishWithResult result: OSSystemExtensionRequest.Result
   ) {
+    guard request === self.request else { return }
     guard let operation = beginFinishing() else { return }
     switch operation {
     case .activation(let completion):
@@ -118,6 +160,11 @@ final class SystemExtensionController:
     _ request: OSSystemExtensionRequest,
     didFailWithError error: Error
   ) {
+    if request === propertiesRequest {
+      finishPropertiesRequest(.failure(error))
+      return
+    }
+    guard request === self.request else { return }
     guard let operation = beginFinishing() else { return }
     switch operation {
     case .activation(let completion):
@@ -132,6 +179,24 @@ final class SystemExtensionController:
     startPendingDeactivationIfNeeded()
   }
 
+  func request(
+    _ request: OSSystemExtensionRequest,
+    foundProperties properties: [OSSystemExtensionProperties]
+  ) {
+    guard request === propertiesRequest else { return }
+    let state = SystemExtensionRuntimeState.resolve(
+      properties.map {
+        SystemExtensionPropertyState(
+          isEnabled: $0.isEnabled,
+          isAwaitingUserApproval:
+            $0.isAwaitingUserApproval,
+          isUninstalling: $0.isUninstalling
+        )
+      }
+    )
+    finishPropertiesRequest(.success(state))
+  }
+
   private func beginFinishing() -> Operation? {
     let operation = self.operation
     self.operation = nil
@@ -144,6 +209,15 @@ final class SystemExtensionController:
       self.pendingDeactivation = nil
       deactivate(completion: pendingDeactivation)
     }
+  }
+
+  private func finishPropertiesRequest(
+    _ result: Result<SystemExtensionRuntimeState, Error>
+  ) {
+    propertiesRequest = nil
+    let completions = propertiesCompletions
+    propertiesCompletions.removeAll()
+    completions.forEach { $0(result) }
   }
 
   private static func isExtensionNotFound(

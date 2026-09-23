@@ -2,21 +2,29 @@
 set -euo pipefail
 
 app_executable="/Applications/HS Reconnect.app/Contents/MacOS/HS Reconnect"
+watcher_executable="/Applications/HS Reconnect.app/Contents/Library/LoginItems/HS Reconnect Watcher.app/Contents/MacOS/HS Reconnect Watcher"
+probe_executable="/Applications/HS Reconnect.app/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe"
+process_executables=(
+  "${app_executable}"
+  "${watcher_executable}"
+  "${probe_executable}"
+)
 
 matching_processes() {
-  local process_identifier command
-  for process_identifier in $(
-    /usr/bin/pgrep -x "HS Reconnect" 2>/dev/null || true
-  ); do
+  local process_identifier command expected_executable
+  for process_identifier in $(/usr/bin/pgrep -f '/Applications/HS Reconnect.app/Contents/' 2>/dev/null || true); do
     command="$(
       /bin/ps -p "${process_identifier}" -o args= 2>/dev/null \
         || true
     )"
-    case "${command}" in
-      "${app_executable}" | "${app_executable} "*)
-        print -r -- "${process_identifier}"
-        ;;
-    esac
+    for expected_executable in "${process_executables[@]}"; do
+      case "${command}" in
+        "${expected_executable}" | "${expected_executable} "*)
+          print -r -- "${process_identifier}"
+          break
+          ;;
+      esac
+    done
   done
 }
 

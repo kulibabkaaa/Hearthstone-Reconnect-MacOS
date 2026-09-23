@@ -22,6 +22,10 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>HSRBugReportEndpoint</key>
+	<string>https://forminit.com/f/jvfaut0jy05</string>
+	<key>HSRTelemetryDeckAppID</key>
+	<string>9A07D574-467A-4B61-88A9-B50A46A87470</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
@@ -34,5 +38,17 @@
 	<string>NSApplication</string>
 	<key>NSSystemExtensionUsageDescription</key>
 	<string>HS Reconnect uses a local network extension to reconnect your current Battlegrounds game.</string>
+	<key>SUAllowsAutomaticUpdates</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>baS/PuIr/2jaQNNlD+Zv27mz5F9TijUUaUd8Zp/g058=</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 </dict>
 </plist>

@@ -17,4 +17,7 @@ fi
 
 /usr/libexec/PlistBuddy \
   -c "Set :0:BundleIsRelocatable false" \
-  "${component_plist}"
+  "${component_plist}" 2>/dev/null \
+  || /usr/libexec/PlistBuddy \
+    -c "Add :0:BundleIsRelocatable bool false" \
+    "${component_plist}"
