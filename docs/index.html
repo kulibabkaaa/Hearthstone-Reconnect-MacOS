@@ -1,138 +1,457 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HS Reconnect for Mac | Hearthstone Reconnect Tool</title>
-  <meta name="description" content="Download HS Reconnect, a free Hearthstone Battlegrounds reconnect tool for Mac. Trigger a reconnect with a shortcut. For macOS 13+, Apple silicon and Intel.">
-  <meta name="google-site-verification" content="8z1elsLAVRPXaMeKHieP73QIsLSUKKptPkEFViuY-so">
-  <meta name="theme-color" content="#0b1018">
-  <meta name="robots" content="index,follow,max-image-preview:large">
-  <link rel="canonical" href="https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/">
-  <link rel="icon" href="assets/app-icon.png" type="image/png">
-  <link rel="stylesheet" href="styles.css">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HS Reconnect for Mac | Reconnect & Battlegrounds Lobby Info</title>
+    <meta
+      name="description"
+      content="Download HS Reconnect for Mac. Reconnect with a shortcut and see local Solo Battlegrounds lobby ratings. For macOS 13+, Apple silicon and Intel."
+    />
+    <meta
+      name="google-site-verification"
+      content="8z1elsLAVRPXaMeKHieP73QIsLSUKKptPkEFViuY-so"
+    />
+    <meta name="theme-color" content="#0b1018" />
+    <meta name="robots" content="index,follow,max-image-preview:large" />
+    <link
+      rel="canonical"
+      href="https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/"
+    />
+    <link rel="icon" href="assets/app-icon.png" type="image/png" />
+    <link
+      rel="preload"
+      href="assets/fonts/inter-semibold.ttf"
+      as="font"
+      type="font/ttf"
+      crossorigin
+    />
+    <link rel="stylesheet" href="styles.css?v=2.0.0" />
+    <script src="site-config.js?v=2.0.0" defer></script>
+    <script src="site.js?v=2.0.0" defer></script>
 
-  <meta property="og:type" content="website">
-  <meta property="og:site_name" content="HS Reconnect">
-  <meta property="og:title" content="HS Reconnect for Mac | Hearthstone Reconnect Tool">
-  <meta property="og:description" content="Download HS Reconnect, a free Hearthstone Battlegrounds reconnect tool for Mac. Trigger a reconnect with a shortcut. For macOS 13+, Apple silicon and Intel.">
-  <meta property="og:url" content="https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/">
-  <meta property="og:image" content="https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/assets/hs-reconnect-window.png">
-  <meta property="og:image:alt" content="HS Reconnect for Mac showing shortcut and reconnect controls">
-  <meta name="twitter:card" content="summary_large_image">
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="HS Reconnect" />
+    <meta
+      property="og:title"
+      content="HS Reconnect for Mac | Reconnect & Battlegrounds Lobby Info"
+    />
+    <meta
+      property="og:description"
+      content="Reconnect with a shortcut and see local Solo Battlegrounds lobby ratings on Mac."
+    />
+    <meta
+      property="og:url"
+      content="https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/"
+    />
+    <meta
+      property="og:image"
+      content="https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/assets/app-icon.png"
+    />
+    <meta property="og:image:alt" content="HS Reconnect app icon" />
+    <meta name="twitter:card" content="summary" />
 
-  <script type="application/ld+json">
-  {
-  "@context": "https://schema.org",
-  "@graph": [
-    {
-      "@type": "WebSite",
-      "name": "HS Reconnect",
-      "alternateName": "Hearthstone Reconnect Tool for Mac",
-      "url": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/",
-      "@id": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/#website"
-    },
-    {
-      "@type": "SoftwareApplication",
-      "name": "HS Reconnect",
-      "alternateName": "Hearthstone Reconnect Tool for Mac",
-      "description": "A free, native Hearthstone Battlegrounds reconnect tool for Mac.",
-      "url": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/",
-      "downloadUrl": "https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v1.1.0/HS-Reconnect-1.1.0.dmg",
-      "softwareVersion": "1.1.0",
-      "operatingSystem": "macOS 13 or later",
-      "applicationCategory": "UtilitiesApplication",
-      "license": "https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/blob/main/LICENSE",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD"
-      },
-      "@id": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/#app",
-      "mainEntityOfPage": {
-        "@id": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/#webpage"
-      },
-      "screenshot": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/assets/hs-reconnect-window.png",
-      "image": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/assets/app-icon.png"
-    },
-    {
-      "@type": "WebPage",
-      "@id": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/#webpage",
-      "url": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/",
-      "name": "HS Reconnect for Mac | Hearthstone Reconnect Tool",
-      "description": "Download HS Reconnect, a free Hearthstone Battlegrounds reconnect tool for Mac. Trigger a reconnect with a shortcut. For macOS 13+, Apple silicon and Intel.",
-      "isPartOf": {
-        "@id": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/#website"
-      },
-      "mainEntity": {
-        "@id": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/#app"
-      },
-      "inLanguage": "en"
-    }
-  ]
-}
-  </script>
-</head>
-<body>
-  <a class="skip-link" href="#main">Skip to content</a>
-  <header class="site-header">
-    <a class="brand" href="#top" aria-label="HS Reconnect home"><img src="assets/app-icon.png" width="32" height="32" alt=""><span>HS Reconnect</span></a>
-    <nav aria-label="Main navigation"><a href="#install">Setup</a><a href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS">GitHub <span aria-hidden="true">↗</span></a></nav>
-  </header>
-  <main id="main">
-    <section class="hero" id="top" aria-labelledby="hero-title">
-      <div class="hero-copy">
-        <p class="eyebrow">For Hearthstone Battlegrounds · macOS</p>
-        <h1 id="hero-title">HS Reconnect</h1>
-        <p class="hero-tagline">Skip the battle. <br>With the shortcut.</p>
-        <p class="hero-summary">A free Hearthstone Battlegrounds reconnect tool for Mac.<br>Reconnect with a shortcut, without quitting the game.</p>
-        <div class="actions">
-          <a class="primary-button" href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v1.1.0/HS-Reconnect-1.1.0.dmg"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4"/></svg> Download for Mac</a>
-          <a class="secondary-button github-star" href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS"><span class="github-star-label"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M12 .75a11.25 11.25 0 0 0-3.56 21.92c.56.1.77-.24.77-.54v-2.1c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.69.08-.69 1.13.08 1.72 1.16 1.72 1.16 1 .1 1.58 2.06 3.3 1.18.1-.73.4-1.23.72-1.51-2.5-.28-5.13-1.25-5.13-5.56 0-1.23.44-2.23 1.16-3.02-.12-.28-.5-1.43.11-2.98 0 0 .95-.3 3.09 1.15a10.7 10.7 0 0 1 5.62 0c2.15-1.45 3.09-1.15 3.09-1.15.61 1.55.23 2.7.11 2.98.72.79 1.16 1.79 1.16 3.02 0 4.32-2.63 5.28-5.14 5.56.4.35.76 1.03.76 2.08v2.86c0 .3.2.65.77.54A11.25 11.25 0 0 0 12 .75Z"/></svg><span>Star on GitHub</span></span><span class="github-star-end" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.78 5.63L21 9.54l-4.5 4.38 1.06 6.19L12 17.19l-5.56 2.92 1.06-6.19L3 9.54l6.22-.91Z"/></svg></span></a>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "name": "HS Reconnect",
+            "alternateName": "Hearthstone Reconnect Tool for Mac",
+            "url": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/",
+            "@id": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/#website"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "HS Reconnect",
+            "alternateName": "Hearthstone Reconnect Tool for Mac",
+            "description": "A native Mac utility for Battlegrounds reconnects and local Solo lobby ratings.",
+            "url": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/",
+            "softwareVersion": "2.0.0",
+            "downloadUrl": "https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v2.0.0/HS-Reconnect-2.0.0.dmg",
+            "operatingSystem": "macOS 13 or later",
+            "applicationCategory": "UtilitiesApplication",
+            "license": "https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/blob/main/LICENSE",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            },
+            "@id": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/#app",
+            "mainEntityOfPage": {
+              "@id": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/#webpage"
+            },
+            "image": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/assets/app-icon.png"
+          },
+          {
+            "@type": "WebPage",
+            "@id": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/#webpage",
+            "url": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/",
+            "name": "HS Reconnect for Mac | Reconnect & Battlegrounds Lobby Info",
+            "description": "Reconnect with a shortcut and see local Solo Battlegrounds lobby ratings on Mac.",
+            "isPartOf": {
+              "@id": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/#website"
+            },
+            "mainEntity": {
+              "@id": "https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/#app"
+            },
+            "inLanguage": "en"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="#top" aria-label="HS Reconnect home"
+          ><img src="assets/app-icon.png" width="28" height="28" alt="" /><span
+            >HS Reconnect</span
+          ></a
+        >
+        <nav aria-label="Main navigation">
+          <a href="#features">Features</a><a href="#faq">FAQ</a
+          ><a href="mailto:hsreconnect@gmail.com">Contact</a>
+        </nav>
+        <a
+          class="github-button"
+          href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS"
+          aria-label="Star HS Reconnect on GitHub"
+          ><svg
+            viewBox="0 0 24 24"
+            class="icon"
+            width="20"
+            height="20"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              d="M12 .75a11.25 11.25 0 0 0-3.56 21.92c.56.1.77-.24.77-.54v-2.1c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.69.08-.69 1.13.08 1.72 1.16 1.72 1.16 1 .1 1.58 2.06 3.3 1.18.1-.73.4-1.23.72-1.51-2.5-.28-5.13-1.25-5.13-5.56 0-1.23.44-2.23 1.16-3.02-.12-.28-.5-1.43.11-2.98 0 0 .95-.3 3.09 1.15a10.7 10.7 0 0 1 5.62 0c2.15-1.45 3.09-1.15 3.09-1.15.61 1.55.23 2.7.11 2.98.72.79 1.16 1.79 1.16 3.02 0 4.32-2.63 5.28-5.14 5.56.4.35.76 1.03.76 2.08v2.86c0 .3.2.65.77.54A11.25 11.25 0 0 0 12 .75Z"
+            /></svg
+          ><span>GitHub <span class="star-count">(7)</span></span></a
+        >
+      </div>
+    </header>
+    <main id="main">
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <h1 id="hero-title">Skip the battle. Know your lobby.</h1>
+          <p class="hero-summary">
+            HS Reconnect is your free, open-source companion for Hearthstone
+            Battlegrounds.<br class="desktop-break" />
+            Reconnect with a shortcut. See who you’re playing against.
+          </p>
+          <a
+            class="download-button"
+            data-download
+            href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v2.0.0/HS-Reconnect-2.0.0.dmg"
+            ><svg
+              class="icon apple-icon"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                d="M16.6 12.9c0-2 1.6-3 1.7-3.1-1-1.4-2.5-1.6-3-1.6-1.3-.1-2.5.8-3.2.8-.7 0-1.7-.8-2.8-.7-1.5 0-2.9.9-3.7 2.2-1.6 2.7-.4 6.7 1.1 8.9.7 1 1.5 2.1 2.6 2 1 0 1.4-.6 2.7-.6s1.7.6 2.8.6 1.8-1 2.5-2c.8-1.2 1.1-2.3 1.2-2.4-.1 0-2.3-.9-2.3-4.1h.4ZM14.6 6.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.8 1.4-.6.7-1.2 1.8-1.1 2.9 1.1.1 2.2-.5 2.9-1.3Z"
+              /></svg
+            ><span>Download for Mac</span></a
+          >
+          <p class="compatibility">
+            <span data-release-label>v2.0.0</span
+            ><span aria-hidden="true">·</span>macOS 13+<span aria-hidden="true"
+              >·</span
+            >Apple silicon &amp; Intel
+          </p>
         </div>
-        <p class="compatibility">v1.1.0 <span>·</span> macOS 13+ <span>·</span> Apple silicon &amp; Intel</p>
+        <div class="media-slot hero-media" data-media="overview">
+          <video
+            hidden
+            autoplay
+            muted
+            loop
+            playsinline
+            preload="metadata"
+            poster="assets/videos/hs-reconnect-overview.jpg"
+            aria-label="HS Reconnect overview demonstration"
+          ></video>
+          <div class="media-fallback">
+            <div class="overview-poster">
+              <img
+                src="assets/app-icon.png"
+                width="96"
+                height="96"
+                alt=""
+              /><strong>HS Reconnect</strong
+              ><span>Reconnect. Read the lobby. Keep playing.</span>
+              <div class="poster-shortcuts">
+                <span>⌘ ⇧ W <small>Reconnect</small></span
+                ><span>⌘ ⇧ L <small>Layout mode</small></span>
+              </div>
+            </div>
+            <span class="video-caption"
+              >Reconnect. See your lobby. Keep playing.</span
+            >
+          </div>
+          <button
+            class="media-toggle"
+            type="button"
+            hidden
+            aria-label="Pause video"
+          >
+            Pause
+          </button>
+        </div>
+      </section>
+      <div class="community">
+        <span>Free to use. Open to everyone.</span
+        ><a href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS"
+          ><svg
+            viewBox="0 0 24 24"
+            class="icon"
+            width="20"
+            height="20"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              d="M12 .75a11.25 11.25 0 0 0-3.56 21.92c.56.1.77-.24.77-.54v-2.1c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.69.08-.69 1.13.08 1.72 1.16 1.72 1.16 1 .1 1.58 2.06 3.3 1.18.1-.73.4-1.23.72-1.51-2.5-.28-5.13-1.25-5.13-5.56 0-1.23.44-2.23 1.16-3.02-.12-.28-.5-1.43.11-2.98 0 0 .95-.3 3.09 1.15a10.7 10.7 0 0 1 5.62 0c2.15-1.45 3.09-1.15 3.09-1.15.61 1.55.23 2.7.11 2.98.72.79 1.16 1.79 1.16 3.02 0 4.32-2.63 5.28-5.14 5.56.4.35.76 1.03.76 2.08v2.86c0 .3.2.65.77.54A11.25 11.25 0 0 0 12 .75Z"
+            />
+          </svg>
+          Built in the open <span aria-hidden="true">↗</span></a
+        >
       </div>
-      <figure class="hero-visual">
-        <div class="window-stage"><img src="assets/hs-reconnect-window.png" width="938" height="742" fetchpriority="high" alt="HS Reconnect app with a customizable shortcut, startup settings and Reconnect Now button"></div>
-        <figcaption><span class="eyebrow">At home on your Mac</span><strong>Set it up. <br>Keep it close.</strong><span>Choose your shortcut and let the app open with Hearthstone.</span><small>Shown with a custom shortcut.</small></figcaption>
-      </figure>
-    </section>
-    <section class="shortcut-section content-width" aria-labelledby="shortcut-title">
-      <div class="keycaps" aria-label="Command Shift W"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>W</kbd></div>
-      <h2 id="shortcut-title">Press the shortcut to reconnect.</h2>
-      <p>While playing Battlegrounds, press <strong>Command–Shift–W</strong> to trigger the game’s reconnect state. Keep HS Reconnect running in the background. You can change the shortcut in the app.</p>
-      <div class="small-facts"><span>Starts with Hearthstone</span><span>Lives in the menu bar</span><span>No account or analytics</span></div>
-    </section>
-    <section class="timing-section content-width" aria-labelledby="timing-title">
-      <div class="timing-number">≈0.17<span>seconds</span></div>
-      <div class="timing-copy"><p class="eyebrow">Median response time</p><h2 id="timing-title">From shortcut to reconnect state.</h2><p>The time between pressing the shortcut and triggering the reconnect state in Battlegrounds.</p><p class="timing-note">This measures the trigger, not the time to rejoin the match.</p></div>
-    </section>
-    <section class="install content-width" id="install" aria-labelledby="install-title">
-      <div class="section-heading"><p class="eyebrow">First-time setup</p><h2 id="install-title">Install once. Then just play.</h2><p>Developer ID signed. Notarized by Apple.</p></div>
-      <ol class="steps">
-        <li><span class="step-number">01</span><h3>Open the installer</h3><p>Download the disk image, open it, then run <strong>Install HS Reconnect.pkg</strong>.</p></li>
-        <li><span class="step-number">02</span><h3>Allow the extension</h3><p>Open HS Reconnect. Approve the Network Extension and network configuration when macOS asks.</p></li>
-        <li><span class="step-number">03</span><h3>Start a match</h3><p>Leave the app running with Hearthstone. Press <strong>⌘ ⇧ W</strong> when you want to reconnect.</p></li>
-      </ol>
-      <p class="setup-help">Dismissed the permission prompt? Reopen the app and choose <strong>Open System Settings</strong>.</p>
-    </section>
-    <section class="faq content-width" aria-labelledby="faq-title">
-      <div class="section-heading"><p class="eyebrow">A few useful details</p><h2 id="faq-title">Before you download.</h2></div>
-      <div class="faq-list">
-        <details><summary>Will it work on my Mac?</summary><p>You need macOS 13 or later and the native Mac version of Hearthstone. Both Apple silicon and Intel are supported. Windows and CrossOver are not.</p></details>
-        <details><summary>Why does it need a Network Extension?</summary><p>The extension lets the app close your current Hearthstone connection when you use the shortcut. It runs locally and passes game traffic through unchanged, without inspecting or saving its contents.</p></details>
-        <details><summary>How do I update?</summary><p>Run the new installer over your existing version, then reopen the app. Your shortcut and startup preferences stay saved. Don’t uninstall first. Approve the replacement extension or restart only if macOS asks.</p></details>
-        <details><summary>Does the app collect anything?</summary><p>No accounts, analytics, advertising or telemetry. The app does not collect or transmit personal data. <a href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/blob/main/PRIVACY.md">Read the privacy statement ↗</a></p></details>
+      <section
+        class="features section-width"
+        id="features"
+        aria-label="HS Reconnect features"
+      >
+        <div class="feature-stack">
+          <article class="feature-card" id="feature-reconnect">
+            <div class="media-slot feature-media">
+              <img
+                class="feature-still"
+                src="assets/reconnect-still.jpg"
+                width="1088"
+                height="612"
+                loading="lazy"
+                decoding="async"
+                alt="Hearthstone confirms that you were reconnected to your game."
+              />
+            </div>
+            <div class="feature-copy">
+              <h2>Instant Reconnect <br />Trigger</h2>
+              <p>
+                Press a shortcut to trigger a reconnect in your current
+                Battlegrounds match. No quitting Hearthstone or switching off
+                your Wi-Fi.
+              </p>
+              <p class="feature-note">
+                About 0.17 seconds to trigger. Rejoining takes longer.
+              </p>
+            </div>
+          </article>
+          <article class="feature-card feature-reverse" id="feature-lobby">
+            <div class="feature-copy">
+              <h2>Get Lobby <br />Information</h2>
+              <p>
+                See your opponents’ public MMR, your lobby’s estimated average
+                rating, and their positions on your region’s leaderboard.
+              </p>
+              <p class="feature-note">
+                For Solo Battlegrounds in Europe, Americas, and Asia-Pacific.
+                Public ratings and ranks appear where available.
+              </p>
+            </div>
+            <div class="media-slot feature-media">
+              <img
+                class="feature-still"
+                src="assets/lobby-still.jpg"
+                width="1000"
+                height="562"
+                loading="lazy"
+                decoding="async"
+                alt="HS Reconnect lobby info overlay showing players, public ratings, ranks, and an estimated average."
+              />
+            </div>
+          </article>
+          <article class="feature-card" id="feature-layout">
+            <div class="media-slot feature-media">
+              <img
+                class="feature-still"
+                src="assets/layout-still.jpg"
+                width="1200"
+                height="675"
+                loading="lazy"
+                decoding="async"
+                alt="Layout mode shows a movable lobby info overlay over Hearthstone."
+              />
+            </div>
+            <div class="feature-copy">
+              <h2>Layout mode</h2>
+              <p>
+                Press <kbd>⌘ ⇧ L</kbd> to reposition the lobby info window. Move
+                it, resize it, and press Enter to save a layout that fits the
+                way you play.
+              </p>
+              <p class="feature-note">
+                Adjust opacity in the app. The overlay stays out of the way of
+                your clicks during play.
+              </p>
+            </div>
+          </article>
+        </div>
+      </section>
+      <section
+        class="statistics section-width"
+        aria-label="HS Reconnect in numbers"
+      >
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-value" data-stat="downloads" data-number="200+">
+              <span class="number-readable">200+</span>
+            </div>
+            <p>Downloads</p>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" data-stat="reconnects" data-number="3,000+">
+              <span class="number-readable">3,000+</span>
+            </div>
+            <p>Successful Reconnects</p>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" data-stat="trigger-time" data-number="0.17">
+              <span class="number-readable">0.17</span>
+            </div>
+            <p>Seconds to Trigger</p>
+          </div>
+        </div>
+        <p class="stats-note">
+          Rounded totals. 0.17 seconds is the median trigger time, not the time
+          needed to rejoin the match.
+        </p>
+      </section>
+      <section class="faq section-width" id="faq" aria-labelledby="faq-title">
+        <div class="faq-intro">
+          <p class="eyebrow">// FAQ</p>
+          <h2 id="faq-title">
+            A few questions.<br /><span>Before you jump in.</span>
+          </h2>
+          <p>
+            Need a hand?
+            <a
+              href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/issues"
+              >Open an issue on GitHub.</a
+            >
+          </p>
+        </div>
+        <div class="faq-list">
+          <details id="install">
+            <summary>Will it work on my Mac?</summary>
+            <div class="faq-answer">
+              <p>
+                Yes, on macOS 13+ with native Hearthstone. Apple silicon and
+                Intel are supported. Install the DMG, approve both macOS
+                prompts, and quit HSTracker before using lobby info.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>How often can I reconnect?</summary>
+            <div class="faq-answer">
+              <p>
+                There’s a five-second cooldown and no per-match limit. The
+                shortcut triggers in about 0.17 seconds; Hearthstone takes
+                longer to rejoin.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>Where do lobby ratings come from?</summary>
+            <div class="faq-answer">
+              <p>
+                Your Solo lobby is read locally and matched with Blizzard’s
+                public leaderboard. Ratings and ranks appear where available;
+                the lobby average is estimated.
+              </p>
+            </div>
+          </details>
+          <details>
+            <summary>Is it free and private?</summary>
+            <div class="faq-answer">
+              <p>
+                Yes, it’s free and open source. Lobby data stays on your Mac.
+                TelemetryDeck records anonymous installation and feature-use
+                counts.
+                <a
+                  href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/blob/main/PRIVACY.md"
+                  >Read the privacy statement.</a
+                >
+              </p>
+            </div>
+          </details>
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer">
+      <div class="footer-inner section-width">
+        <div class="footer-about">
+          <a class="brand" href="#top"
+            ><img
+              src="assets/app-icon.png"
+              width="28"
+              height="28"
+              alt=""
+            /><span>HS Reconnect</span></a
+          >
+          <p>A little more control over<br />your next Battlegrounds game.</p>
+          <a
+            class="footer-star"
+            href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS"
+            ><svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path
+                d="m12 3 2.8 5.6 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.5l6.2-.9Z"
+              />
+            </svg>
+            Star on GitHub <span aria-hidden="true">↗</span></a
+          >
+        </div>
+        <div class="footer-navigation">
+          <p>Navigation</p>
+          <a href="#features">Features</a><a href="#faq">FAQ &amp; setup</a
+          ><a
+            href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v2.0.0/HS-Reconnect-2.0.0.dmg"
+            data-download
+            >Download</a
+          >
+        </div>
+        <div class="footer-project">
+          <p>Project</p>
+          <a href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS"
+            >GitHub <span aria-hidden="true">↗</span></a
+          ><a
+            href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/blob/main/PRIVACY.md"
+            >Privacy</a
+          ><a
+            href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/blob/main/LICENSE"
+            >MIT License</a
+          >
+        </div>
+        <p class="footer-legal">
+          Independent software. Not affiliated with or endorsed by Blizzard
+          Entertainment.
+        </p>
       </div>
-    </section>
-    <aside class="github-tray content-width" aria-labelledby="github-title">
-      <div><h2 id="github-title">A little app. Out in the open.</h2><p>Free and open source. If it’s useful to you, give it a star.</p></div>
-      <a class="star-button" href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS"><span aria-hidden="true">☆</span> Star on GitHub <span aria-hidden="true">↗</span></a>
-    </aside>
-  </main>
-  <footer class="content-width">
-    <div class="footer-row"><a class="footer-brand" href="#top">HS Reconnect</a><div><a href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/issues">Report an issue</a><a href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/blob/main/LICENSE">MIT License</a></div></div>
-    <p>An independent project. Not affiliated with or endorsed by Blizzard Entertainment.</p>
-  </footer>
-</body>
+    </footer>
+  </body>
 </html>
