@@ -7,8 +7,8 @@
     <language>en</language>
     <item>
       <title>Version 2.0.0</title>
-      <pubDate>Wed, 23 Sep 2026 17:55:45 +0100</pubDate>
-      <sparkle:version>46</sparkle:version>
+      <pubDate>Wed, 23 Sep 2026 18:19:41 +0100</pubDate>
+      <sparkle:version>47</sparkle:version>
       <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<pre># HS Reconnect 2.0.0
@@ -19,6 +19,8 @@ lobby overlay in a redesigned Mac app.
 - Reconnect with Command-Shift-W, or change the shortcut in the app.
 - See player names, public leaderboard ranks and ratings, and an estimated Solo
   lobby average. Move and resize the overlay with Command-Shift-L.
+- After first-run macOS approvals, lobby capture retries a temporary startup
+  failure automatically. A declined permission leaves a clear manual retry.
 - Set up the reconnect extension from the app. When approval is needed, the app
   opens Network Extension Settings and shows the next step. macOS still shows
   its own extension and proxy approval prompts.
@@ -36,7 +38,7 @@ HSTracker before using the lobby overlay.
 To upgrade an existing installation, run the new installer over the old app.
 Your shortcut and preferences remain. The app is unofficial and is not
 affiliated with Blizzard Entertainment.</pre>]]></description>
-      <enclosure url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v2.0.0/HS-Reconnect-2.0.0.zip" type="application/octet-stream" sparkle:edSignature="J3loTduDPK1LJ3D4q91G3EG3hJwpuMgyVGMyVEF3EZG5Z5rV/mpKJg6Eyi+396kTbPsw6xnRhf1qCqQlPNZsCg==" length="14621908" />
+      <enclosure url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v2.0.0/HS-Reconnect-2.0.0.zip" type="application/octet-stream" sparkle:edSignature="uzyMfyOr2ZbY56NmCNxoBVXQPMR1h8VcXs83vHdVpjrxeYiNW+v0l8h91ix6geqWJM5jSYXThc9f1LvWIYJYCQ==" length="14628276" />
     </item>
   </channel>
 </rss>
