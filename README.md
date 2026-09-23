@@ -15,7 +15,7 @@
 </h3>
 
 <p align="center">
-  <img src="Documentation/Images/hs-reconnect-window.png" width="760" alt="HS Reconnect showing ready status, reconnect controls, and lobby info">
+  <img src="Documentation/Images/hs-reconnect-window-rounded.png" width="760" alt="HS Reconnect showing ready status, reconnect controls, and lobby info">
 </p>
 
 ## What it does
