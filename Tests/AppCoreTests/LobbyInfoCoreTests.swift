@@ -204,9 +204,11 @@ struct LobbyInfoCoreTests {
     #expect(!LobbyHelperProcessPolicy.shouldRestart(previousPID: 100, currentPID: nil))
     #expect(LobbyHelperProcessPolicy.shouldRestart(previousPID: 100, currentPID: 200))
   }
-  @Test("failed lobby attachment backs off until retry or a new game process")
+  @Test("first attach failure gets one automatic retry without repeating denied prompts")
   func lobbyAttachRetry() {
-    let retryAfter = now.addingTimeInterval(LobbyAttachRetryPolicy.retryDelay)
+    let retryAfter = LobbyAttachRetryPolicy.retryAfter(
+      now: now, failureCount: 1, permissionRejected: false)
+    #expect(retryAfter == now.addingTimeInterval(LobbyAttachRetryPolicy.automaticRetryDelay))
     #expect(!LobbyAttachRetryPolicy.canAttempt(
       failedPID: 100, retryAfter: retryAfter, currentPID: 100, now: now
     ))
@@ -215,6 +217,15 @@ struct LobbyInfoCoreTests {
     ))
     #expect(LobbyAttachRetryPolicy.canAttempt(
       failedPID: 100, retryAfter: retryAfter, currentPID: 200, now: now
+    ))
+    let afterSecondFailure = LobbyAttachRetryPolicy.retryAfter(
+      now: now, failureCount: 2, permissionRejected: false)
+    let afterDeniedPermission = LobbyAttachRetryPolicy.retryAfter(
+      now: now, failureCount: 1, permissionRejected: true)
+    #expect(afterSecondFailure == .distantFuture)
+    #expect(afterDeniedPermission == .distantFuture)
+    #expect(!LobbyAttachRetryPolicy.canAttempt(
+      failedPID: 100, retryAfter: afterDeniedPermission, currentPID: 100, now: retryAfter
     ))
   }
 }

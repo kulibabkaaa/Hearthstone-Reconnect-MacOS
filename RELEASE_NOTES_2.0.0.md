@@ -6,6 +6,8 @@ lobby overlay in a redesigned Mac app.
 - Reconnect with Command-Shift-W, or change the shortcut in the app.
 - See player names, public leaderboard ranks and ratings, and an estimated Solo
   lobby average. Move and resize the overlay with Command-Shift-L.
+- After first-run macOS approvals, lobby capture retries a temporary startup
+  failure automatically. A declined permission leaves a clear manual retry.
 - Set up the reconnect extension from the app. When approval is needed, the app
   opens Network Extension Settings and shows the next step. macOS still shows
   its own extension and proxy approval prompts.

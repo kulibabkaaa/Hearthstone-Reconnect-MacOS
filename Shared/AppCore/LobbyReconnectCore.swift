@@ -62,7 +62,15 @@ public enum LobbyHelperProcessPolicy {
 }
 
 public enum LobbyAttachRetryPolicy {
-  public static let retryDelay: TimeInterval = 5 * 60
+  // A first attach can fail while the two macOS approval dialogs settle or
+  // while Hearthstone finishes opening. Give it one automatic recovery attempt.
+  public static let automaticRetryDelay: TimeInterval = 8
+
+  public static func retryAfter(now: Date, failureCount: Int,
+                                permissionRejected: Bool) -> Date {
+    guard failureCount == 1, !permissionRejected else { return .distantFuture }
+    return now.addingTimeInterval(automaticRetryDelay)
+  }
 
   public static func canAttempt(failedPID: Int32?, retryAfter: Date?,
                                 currentPID: Int32, now: Date) -> Bool {
