@@ -272,9 +272,6 @@ final class LobbyReader {
     switch event.event {
     case "probe_started", "waiting_for_hearthstone", "match_suspended":
       status("Waiting for Hearthstone", token: token)
-    case "blocked_hstracker_running":
-      emitEmptyCaptureIfNeeded(for: event, token: token)
-      status("Quit HSTracker to use lobby info", token: token)
     case "permission_failed", "attachment_failed":
       logger.error("\(event.event, privacy: .public): \(event.detail ?? "No detail", privacy: .public)")
       emitEmptyCaptureIfNeeded(for: event, token: token)

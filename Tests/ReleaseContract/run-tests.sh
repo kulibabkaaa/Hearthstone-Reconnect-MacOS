@@ -32,8 +32,8 @@ fail() {
   || fail "the installer preinstall script is missing"
 [[ -f "${project_dir}/Documentation/Images/hs-reconnect-window-rounded.png" ]] \
   || fail "the public app screenshot is missing"
-[[ -f "${project_dir}/RELEASE_NOTES_2.0.0.md" ]] \
-  || fail "the 2.0.0 release notes are missing"
+[[ -f "${project_dir}/RELEASE_NOTES_2.0.1.md" ]] \
+  || fail "the 2.0.1 release notes are missing"
 [[ -f "${project_dir}/SECURITY.md" ]] \
   || fail "the lobby helper security notes are missing"
 [[ -f "${project_dir}/Vendor/HearthMirror/SHA256SUMS" ]] \
@@ -57,7 +57,7 @@ version="$(
 )"
 
 [[ -n "${version}" ]] || fail "the release version is missing"
-[[ "${version}" == "2.0.0" ]] || fail "the update release must use version 2.0.0"
+[[ "${version}" == "2.0.1" ]] || fail "the update release must use version 2.0.1"
 
 bug_report_endpoint="$(
   /usr/bin/awk '
