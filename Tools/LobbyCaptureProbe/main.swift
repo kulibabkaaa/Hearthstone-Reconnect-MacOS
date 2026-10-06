@@ -94,14 +94,6 @@ private final class LobbyCaptureProbe {
       // probe attached to Hearthstone or show later permission dialogs.
       if let expectedParentPID, getppid() != expectedParentPID { exit(0) }
       autoreleasepool {
-        if hstrackerProcess() != nil {
-          emitIfChanged(
-            event: "blocked_hstracker_running",
-            detail: "Quit HSTracker before running the standalone capture gate."
-          )
-          return
-        }
-
         guard let hearthstone = hearthstoneProcess() else {
           if let gameUUID = activeGameUUID {
             emit(event: "match_suspended", gameUUID: gameUUID, detail: "Hearthstone exited during a match.")
@@ -303,14 +295,6 @@ private final class LobbyCaptureProbe {
   private func hearthstoneProcess() -> NSRunningApplication? {
     NSWorkspace.shared.runningApplications.first {
       $0.bundleIdentifier == HearthstoneProcessTrust.bundleIdentifier
-    }
-  }
-
-  private func hstrackerProcess() -> NSRunningApplication? {
-    NSWorkspace.shared.runningApplications.first {
-      $0.bundleIdentifier == "net.hearthsim.HSTracker"
-        || $0.bundleIdentifier == "com.illiakulibaba.hstracker"
-        || $0.localizedName == "HSTracker"
     }
   }
 
