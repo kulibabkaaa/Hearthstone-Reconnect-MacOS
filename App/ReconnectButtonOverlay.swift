@@ -123,32 +123,42 @@ final class ReconnectButtonCanvas: NSView {
     if isSpinning {
       if Self.reducesMotion { alpha = 0.6 + 0.4 * cos(spinAngle) } else { context.rotate(by: -spinAngle) }
     }
-    context.addPath(buttonAppearance.tone == .success ? Self.checkPath : Self.arrowsPath)
-    context.clip()
-    context.setAlpha(alpha)
     let colors = [palette.iconTop.cgColor, palette.iconBottom.cgColor] as CFArray
     guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) else { return }
+    // Fill each piece solid, then paint the gradient over just those pixels. Filling pieces one by one
+    // keeps the overlap where an arrowhead meets its arc filled, whatever the outlines' winding.
+    context.setAlpha(alpha)
+    context.beginTransparencyLayer(auxiliaryInfo: nil)
+    context.setFillColor(CGColor(gray: 1, alpha: 1))
+    for piece in buttonAppearance.tone == .success ? [Self.checkPath] : Self.arrowPieces {
+      context.addPath(piece)
+      context.fillPath()
+    }
+    context.setBlendMode(.sourceIn)
     context.drawLinearGradient(gradient, start: CGPoint(x: 0, y: 15), end: CGPoint(x: 0, y: -15), options: [])
+    context.endTransparencyLayer()
   }
 
-  private static let arrowsPath: CGPath = {
+  private static let arrowPieces: [CGPath] = {
     let radius: CGFloat = 11.2, width: CGFloat = 4.4
-    let path = CGMutablePath()
+    var pieces: [CGPath] = []
     for turn in [0.0, CGFloat.pi] {
       // Each arc runs clockwise over ~140° and ends in an arrowhead pointing along the turn.
       let start = 160 * CGFloat.pi / 180 + turn, end = 20 * CGFloat.pi / 180 + turn
       let arc = CGMutablePath()
       arc.addArc(center: .zero, radius: radius, startAngle: start, endAngle: end, clockwise: true)
-      path.addPath(arc.copy(strokingWithWidth: width, lineCap: .butt, lineJoin: .round, miterLimit: 1))
+      pieces.append(arc.copy(strokingWithWidth: width, lineCap: .butt, lineJoin: .round, miterLimit: 1))
       let tip = CGPoint(x: radius * cos(end), y: radius * sin(end))
       let along = CGPoint(x: sin(end), y: -cos(end)), out = CGPoint(x: cos(end), y: sin(end))
       let head: CGFloat = 5.4, length: CGFloat = 6.2
-      path.move(to: CGPoint(x: tip.x + along.x * length * 0.75, y: tip.y + along.y * length * 0.75))
-      path.addLine(to: CGPoint(x: tip.x - along.x * length * 0.25 + out.x * head, y: tip.y - along.y * length * 0.25 + out.y * head))
-      path.addLine(to: CGPoint(x: tip.x - along.x * length * 0.25 - out.x * head, y: tip.y - along.y * length * 0.25 - out.y * head))
-      path.closeSubpath()
+      let arrowhead = CGMutablePath()
+      arrowhead.move(to: CGPoint(x: tip.x + along.x * length * 0.75, y: tip.y + along.y * length * 0.75))
+      arrowhead.addLine(to: CGPoint(x: tip.x - along.x * length * 0.25 + out.x * head, y: tip.y - along.y * length * 0.25 + out.y * head))
+      arrowhead.addLine(to: CGPoint(x: tip.x - along.x * length * 0.25 - out.x * head, y: tip.y - along.y * length * 0.25 - out.y * head))
+      arrowhead.closeSubpath()
+      pieces.append(arrowhead)
     }
-    return path
+    return pieces
   }()
   private static let checkPath: CGPath = {
     let line = CGMutablePath()

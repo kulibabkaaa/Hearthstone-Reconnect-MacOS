@@ -67,8 +67,10 @@ enum OverlayLayoutDiagnostics {
     click(panel)
     precondition(clicks == before && !canvas.accessibilityPerformPress())
     // The editor proxy owns the button's inside, including most of the 24 pt grip under the hidden title bar.
-    // Like the lobby editor (same window style), the outer ~4 pt edge and ~16 pt corners stay with the window
-    // frame's own resize, which `windowWillResize` keeps aspect-locked.
+    // Like the lobby editor (same window style), the outer ~4 pt edge and the corners stay with the window
+    // frame's own resize, which `windowWillResize` keeps aspect-locked. The corner zone grows with the window:
+    // at 176×60 it covers about half of the drawn grip (both resize the same way), so the grip check point
+    // sits in the grip's inner half.
     func verifyEditorOwnsInside() {
       let size = block.editor.frame.size
       let root = block.editor.contentView?.superview
