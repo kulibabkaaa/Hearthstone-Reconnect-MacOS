@@ -214,18 +214,33 @@ struct ReconnectAttemptFlowTests {
   func timeoutThenLateSuccess() {
     var app = AppSim()
     guard let token = app.press(now: t0) else { Issue.record("expected start"); return }
-    #expect(app.model.phase(now: t0 + 9.9) == .reconnecting)
-    app.apply(app.flow.timeOut(token, isUninstalling: false), now: t0 + 10)
-    #expect(app.model.phase(now: t0 + 10) == .failed)
+    #expect(app.model.phase(now: t0 + 11.9) == .reconnecting)
+    app.apply(app.flow.timeOut(token, isUninstalling: false), now: t0 + 12)
+    #expect(app.model.phase(now: t0 + 12) == .failed)
     #expect(app.statuses == [.reconnecting, .failed])
-    app.apply(app.flow.complete(token, .response(didCloseFlow: true)), now: t0 + 11)
+    app.apply(app.flow.complete(token, .response(didCloseFlow: true)), now: t0 + 13)
     #expect(app.finishEvents == 1)
     #expect(app.recorded == 1)
-    #expect(app.lastReconnectAt == t0 + 11)
+    #expect(app.lastReconnectAt == t0 + 13)
     #expect(app.statuses == [.reconnecting, .failed, .triggered])    // the window matches what really happened
     #expect(!ReconnectStatusMessage.triggered.isError)
-    #expect(app.model.phase(now: t0 + 11) == .cooldown(seconds: 5))  // honest: a click now would be refused
-    #expect(app.model.phase(now: t0 + 16) == .ready)
+    #expect(app.model.phase(now: t0 + 13) == .cooldown(seconds: 5))  // honest: a click now would be refused
+    #expect(app.model.phase(now: t0 + 18) == .ready)
+  }
+
+  @Test("a late success while a retry runs records the flow but leaves Reconnecting… to the retry")
+  func lateSuccessDuringRetry() {
+    var app = AppSim()
+    guard let first = app.press(now: t0) else { return }
+    app.apply(app.flow.timeOut(first, isUninstalling: false), now: t0 + 12)
+    guard let second = app.press(now: t0 + 12.5) else { Issue.record("retry must start"); return }
+    app.apply(app.flow.complete(first, .response(didCloseFlow: true)), now: t0 + 13)
+    #expect(app.recorded == 1)
+    #expect(app.statuses == [.reconnecting, .failed, .reconnecting])
+    #expect(app.model.phase(now: t0 + 13) == .reconnecting)
+    app.apply(app.flow.complete(second, .response(didCloseFlow: false)), now: t0 + 14)
+    #expect(app.statuses.last == .missingGame)
+    #expect(app.finishEvents == 2)
   }
 
   @Test("reply then a stray timeout: exactly one finish, the reply's result stays")

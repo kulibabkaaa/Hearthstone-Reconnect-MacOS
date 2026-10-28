@@ -179,8 +179,9 @@ public struct ReconnectAttemptFlow: Equatable, Sendable {
 
   /// The extension replied. The late reply of an attempt that timed out is ignored unless it really closed a
   /// flow; then it still counts: the stamp, the cooldown (so no click is offered that the cooldown would
-  /// refuse) and the success status, replacing the timeout's failure text. The button shows the countdown,
-  /// never "Reconnected". Any other reply for an attempt that already ended is ignored.
+  /// refuse) and the success status, replacing the timeout's failure text (unless a retry is running, whose
+  /// "Reconnecting…" and own result take precedence). The button shows the countdown, never "Reconnected".
+  /// Any other reply for an attempt that already ended is ignored.
   public mutating func complete(_ token: ReconnectAttemptToken, _ completion: ReconnectCompletion)
     -> ReconnectAttemptEffects
   {
@@ -188,7 +189,7 @@ public struct ReconnectAttemptFlow: Equatable, Sendable {
       guard timedOutAttempts.remove(token) != nil, completion == .response(didCloseFlow: true) else {
         return .none
       }
-      return .init(recordsFlowClosed: true, buttonEvent: .cooldownStarted, status: .triggered,
+      return .init(recordsFlowClosed: true, buttonEvent: .cooldownStarted, status: isRunning ? nil : .triggered,
                    updatesAvailability: true)
     }
     switch completion {

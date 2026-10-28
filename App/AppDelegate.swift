@@ -1188,24 +1188,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       || (isReconnectButtonEnabled && isHearthstoneRunning)
   }
 
-  private func updateLayoutHotKeyRegistration() {
+  /// `userInitiated` is false only for the automatic re-registration when Hearthstone launches or quits.
+  private func updateLayoutHotKeyRegistration(userInitiated: Bool = true) {
     hotKeyManager.unregister(action: .lobbyLayout)
     if wantsLayoutHotKey {
-      registerStoredLobbyHotKey()
+      registerStoredLobbyHotKey(userInitiated: userInitiated)
+    } else {
+      layoutHotKeyConflicts.unregistered()
     }
   }
 
-  private func registerStoredLobbyHotKey() {
+  private func registerStoredLobbyHotKey(userInitiated: Bool) {
     let key = UInt32(clamping: UserDefaults.standard.integer(forKey: DefaultsKey.lobbyShortcutKeyCode))
     let modifiers = UInt32(clamping: UserDefaults.standard.integer(forKey: DefaultsKey.lobbyShortcutModifiers))
     let registered = hotKeyManager.register(action: .lobbyLayout, keyCode: key, modifiers: modifiers) == noErr
     // Shown on the overlay status line, like the recorder's conflicts, so reconnect feedback stays put.
-    if layoutHotKeyConflicts.shouldReport(keyCode: key, modifiers: modifiers, registered: registered) {
-      showLayoutStatus(
-        "Position shortcut is already in use. Choose another one.",
-        lobbyEnabled: lobbyCoordinator.enabled
-      )
+    if layoutHotKeyConflicts.shouldReport(
+      keyCode: key, modifiers: modifiers, registered: registered, userInitiated: userInitiated
+    ) {
+      showLayoutHotKeyConflict()
     }
+  }
+
+  private func showLayoutHotKeyConflict() {
+    showLayoutStatus(
+      "Position shortcut is already in use. Choose another one.",
+      lobbyEnabled: lobbyCoordinator.enabled
+    )
   }
 
   private func setShortcutRecordingActive(_ recording: Bool) {
@@ -1342,7 +1351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         // Recording a shortcut unregisters every hotkey; uninstalling must not re-register one.
         guard self.wantsLayoutHotKey != wanted, !self.isRecordingShortcut, !self.isUninstalling
         else { return }
-        self.updateLayoutHotKeyRegistration()
+        self.updateLayoutHotKeyRegistration(userInitiated: false)
       }
     }
   }
@@ -1353,6 +1362,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     windowController.window?.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
     windowController.refresh()
+    // The conflict message is easily overwritten while the window is closed; repeat it while it's true.
+    if layoutHotKeyConflicts.isConflicting { showLayoutHotKeyConflict() }
   }
 
   private func confirmUninstall() {
