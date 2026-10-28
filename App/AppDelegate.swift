@@ -56,6 +56,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   /// One pending re-render (countdown tick or end of a transient state); replaced, never stacked.
   private var reconnectButtonRenderTimer: Timer?
   private var isReconnectButtonEnabled = true
+  /// Kept current by app launch/quit notifications, so button-only users keep the layout shortcut
+  /// for other apps while the game isn't running.
+  private var isHearthstoneRunning = false
+  private var isObservingHearthstoneRunning = false
   private var userOpenedWindow = false
   private var isUninstalling = false
   private var isUninstallCleanupStarted = false
@@ -104,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     isReconnectButtonEnabled = UserDefaults.standard.bool(
       forKey: DefaultsKey.reconnectButtonEnabled
     )
+    refreshHearthstoneRunning()
     reconnectButtonModel = ReconnectButtonModel(
       proxyReady: isProxyReady,
       lastReconnectAt: UserDefaults.standard.double(forKey: DefaultsKey.lastReconnectAt),
@@ -136,6 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       startUpdaterIfNeeded()
       registerStoredHotKey()
       observeHearthstoneTermination()
+      observeHearthstoneRunningForLayoutHotKey()
       // Lobby capture is independent of the reconnect system extension. Start
       // it even while that extension is awaiting approval or cannot activate.
       lobbyCoordinator.start()
@@ -1191,9 +1197,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     updateLayoutHotKeyRegistration()
   }
 
-  /// The layout shortcut positions every overlay, so it stays registered while either one is enabled.
+  /// The layout shortcut positions every overlay. Lobby users keep it registered as before; for the
+  /// button alone it is registered only while Hearthstone runs, so it isn't taken from other apps.
   private var wantsLayoutHotKey: Bool {
-    UserDefaults.standard.bool(forKey: DefaultsKey.lobbyEnabled) || isReconnectButtonEnabled
+    UserDefaults.standard.bool(forKey: DefaultsKey.lobbyEnabled)
+      || (isReconnectButtonEnabled && isHearthstoneRunning)
   }
 
   private func updateLayoutHotKeyRegistration() {
@@ -1207,7 +1215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     let key = UInt32(clamping: UserDefaults.standard.integer(forKey: DefaultsKey.lobbyShortcutKeyCode))
     let modifiers = UInt32(clamping: UserDefaults.standard.integer(forKey: DefaultsKey.lobbyShortcutModifiers))
     if hotKeyManager.register(action: .lobbyLayout, keyCode: key, modifiers: modifiers) != noErr {
-      windowController?.setStatus("Lobby shortcut is already in use. Choose another one.", isError: true)
+      windowController?.setStatus("Position shortcut is already in use. Choose another one.", isError: true)
     }
   }
 
@@ -1315,6 +1323,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         return
       }
       NSApp.terminate(nil)
+    }
+  }
+
+  private func refreshHearthstoneRunning() {
+    isHearthstoneRunning = NSRunningApplication.runningApplications(
+      withBundleIdentifier: HearthstoneApp.bundleIdentifier
+    ).contains { !$0.isTerminated }
+  }
+
+  private func observeHearthstoneRunningForLayoutHotKey() {
+    guard !isObservingHearthstoneRunning else { return }
+    isObservingHearthstoneRunning = true
+    let center = NSWorkspace.shared.notificationCenter
+    for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+      center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+        guard let self,
+          let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+          application.bundleIdentifier == HearthstoneApp.bundleIdentifier
+        else { return }
+        // On quit, the quitting process may still be listed; another copy of the game may still run.
+        let running = NSRunningApplication.runningApplications(
+          withBundleIdentifier: HearthstoneApp.bundleIdentifier
+        ).contains { $0.processIdentifier != application.processIdentifier && !$0.isTerminated }
+          || notification.name == NSWorkspace.didLaunchApplicationNotification
+        let wanted = self.wantsLayoutHotKey
+        self.isHearthstoneRunning = running
+        // Only button-only users' registration depends on the game; lobby users are left untouched.
+        // Recording a shortcut unregisters every hotkey; uninstalling must not re-register one.
+        guard self.wantsLayoutHotKey != wanted, !self.isRecordingShortcut, !self.isUninstalling
+        else { return }
+        self.updateLayoutHotKeyRegistration()
+      }
     }
   }
 
@@ -1459,8 +1499,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
             _ = self.autoLaunchController.setEnabled(true)
           }
           self.startUpdaterIfNeeded()
+          self.refreshHearthstoneRunning()
+          self.observeHearthstoneRunningForLayoutHotKey()
           self.registerStoredHotKey()
           self.lobbyCoordinator.start()
+          self.startReconnectButton()
+          self.renderReconnectButton()
         }
         self.restoreAutoLaunchAfterFailedUninstall = false
         self.windowController.setUninstalling(false)
