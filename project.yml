@@ -46,6 +46,9 @@ targets:
       - path: App/BugReportClient.swift
       - path: App/BugReportWindowController.swift
       - path: App/LobbyOverlayController.swift
+      - path: App/OverlayLayout.swift
+      - path: App/OverlayLayoutDiagnostics.swift
+      - path: App/ReconnectButtonOverlay.swift
       - path: Shared/AppCore
     info:
       path: Tools/LobbyUIHarness/Info.plist

@@ -1,85 +1,6 @@
 import AppKit
 import Carbon
 
-private final class LobbyEditingPanel: NSPanel {
-  var onEditCommand: ((Bool) -> Void)?
-
-  // A nonactivating panel can receive its own keys while Hearthstone remains
-  // frontmost. This keeps bare Escape and Return out of the global hotkey set.
-  override var canBecomeKey: Bool { true }
-  override var canBecomeMain: Bool { false }
-
-  override func keyDown(with event: NSEvent) {
-    if let save = lobbyEditCommand(for: event.keyCode) {
-      onEditCommand?(save)
-    } else {
-      super.keyDown(with: event)
-    }
-  }
-}
-
-private func lobbyEditCommand(for keyCode: UInt16) -> Bool? {
-  switch keyCode {
-  case UInt16(kVK_Escape):
-    false
-  case UInt16(kVK_Return), UInt16(kVK_ANSI_KeypadEnter):
-    true
-  default:
-    nil
-  }
-}
-
-// A separate hit surface leaves the actual lobby canvas unchanged during editing.
-private final class LobbyLayoutSurface: NSView {
-  var onEditCommand: ((Bool) -> Void)?
-  var onResize: ((NSPoint, NSRect) -> Void)?
-  private var resizeStart: NSRect?
-  private var mouseStart = NSPoint.zero
-  override var acceptsFirstResponder: Bool { true }
-  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-  override func resetCursorRects() {
-    addCursorRect(bounds, cursor: .openHand)
-    addCursorRect(NSRect(x: bounds.maxX - 24, y: 0, width: 24, height: 24), cursor: .crosshair)
-  }
-  override func mouseDown(with event: NSEvent) {
-    guard let window else { return }
-    let point = convert(event.locationInWindow, from: nil)
-    if point.x >= bounds.maxX - 24 && point.y <= 24 {
-      resizeStart = window.frame
-      mouseStart = NSEvent.mouseLocation
-    } else {
-      resizeStart = nil
-      window.performDrag(with: event)
-    }
-  }
-  override func mouseDragged(with event: NSEvent) {
-    guard let resizeStart else { return }
-    let point = NSEvent.mouseLocation
-    onResize?(NSPoint(x: point.x - mouseStart.x, y: point.y - mouseStart.y), resizeStart)
-  }
-  override func mouseUp(with event: NSEvent) { resizeStart = nil }
-  override func keyDown(with event: NSEvent) {
-    if let save = lobbyEditCommand(for: event.keyCode) {
-      onEditCommand?(save)
-    } else {
-      super.keyDown(with: event)
-    }
-  }
-  override func draw(_ dirtyRect: NSRect) {
-    NSColor(calibratedRed: 0.96, green: 0.79, blue: 0.38, alpha: 1).setStroke()
-    let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6)
-    outline.lineWidth = 2
-    outline.stroke()
-    let grip = NSBezierPath()
-    for offset in stride(from: CGFloat(6), through: 14, by: 4) {
-      grip.move(to: NSPoint(x: bounds.maxX - offset - 3, y: 4))
-      grip.line(to: NSPoint(x: bounds.maxX - 4, y: offset + 3))
-    }
-    grip.lineWidth = 2
-    grip.stroke()
-  }
-}
-
 private final class LobbyCanvas: NSView {
   var rows: [LobbyRatingRow] = []
   var summary: LobbyAverageSummary?
@@ -141,73 +62,52 @@ private final class LobbyCanvas: NSView {
   }
 }
 
-final class LobbyOverlayController: NSObject, NSWindowDelegate {
+final class LobbyOverlayController: NSObject {
   // Same fixed canvas, typography and colors as the HSTracker fork.
   private static let baseSize = NSSize(width: 208, height: 233)
-  private let panel: LobbyEditingPanel
-  private let editor: LobbyEditingPanel
+  /// The layout mode this block belongs to. Pass one shared session to edit several blocks together.
+  let layoutSession: OverlayLayoutSession
+  private let block: OverlayBlock
   private let canvas = LobbyCanvas(frame: NSRect(origin: .zero, size: baseSize))
-  private let editSurface = LobbyLayoutSurface()
-  private let hintPanel: NSPanel
-  private var gameFrame: NSRect?
-  private var editStartFrame: NSRect?
   private var hasContent = false
   private var isPreview = false
   var onStatus: ((String) -> Void)?
-  private var synchronizingEditor = false
-  private(set) var isEditing = false
+  /// Whether Hearthstone is frontmost. The harness swaps this to simulate focus changes.
+  var isGameFrontmost: () -> Bool = { HearthstoneApp.isFrontmost }
+  var isEditing: Bool { block.isEditing }
+  private var panel: NSPanel { block.panel }
+  private var editor: OverlayEditingPanel { block.editor }
+  private var editSurface: OverlayLayoutSurface { block.editSurface }
+  private var hintPanel: NSPanel { layoutSession.hintPanel }
+  private var gameFrame: NSRect? { block.gameFrame }
 
   var opacityPercent: Double {
-    get { (UserDefaults.standard.object(forKey: DefaultsKey.lobbyOpacity) as? Double) ?? 100 }
-    set {
-      UserDefaults.standard.set(min(max(newValue, 10), 100), forKey: DefaultsKey.lobbyOpacity)
-      applyOpacity()
-    }
+    get { OverlayOpacity.percent }
+    set { layoutSession.opacityPercent = newValue }
   }
 
-  override init() {
-    panel = LobbyEditingPanel(contentRect: NSRect(origin: .zero, size: Self.baseSize),
+  init(layoutSession: OverlayLayoutSession = OverlayLayoutSession()) {
+    self.layoutSession = layoutSession
+    let panel = OverlayEditingPanel(contentRect: NSRect(origin: .zero, size: Self.baseSize),
       styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-    editor = LobbyEditingPanel(contentRect: NSRect(origin: .zero, size: Self.baseSize),
-      styleMask: [.titled, .resizable, .fullSizeContentView, .nonactivatingPanel], backing: .buffered, defer: false)
-    hintPanel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 330, height: 32),
-      styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    block = OverlayBlock(id: .lobby, panel: panel, baseSize: Self.baseSize,
+      keys: OverlayLayoutKeys(originX: DefaultsKey.lobbyOriginX, originY: DefaultsKey.lobbyOriginY,
+        scale: DefaultsKey.lobbyScale),
+      defaultOrigin: { scale, gameFrame in
+        CGPoint(x: 0.16, y: 1.0 -
+          (Double(Self.baseSize.height) * LobbyOverlayGeometry.clampScale(scale) + 20.0)
+          / Double(gameFrame.height))
+      })
     super.init()
-    for window in [panel, editor, hintPanel] {
-      window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.normalWindow)) + 1)
-      window.isOpaque = false
-      window.backgroundColor = .clear
-      window.hasShadow = true
-      window.hidesOnDeactivate = false
-      window.isFloatingPanel = true
-      window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .canJoinAllApplications, .ignoresCycle]
-      window.isReleasedWhenClosed = false
-      window.animationBehavior = .none
+    block.canBeginEditing = { [weak self] in self?.hasContent ?? false }
+    block.onEditingFinished = { [weak self] in
+      guard let self, self.isPreview else { return }
+      self.panel.orderOut(nil); self.isPreview = false; self.hasContent = false
     }
-    panel.delegate = self
-    editor.delegate = self
-    editor.level = NSWindow.Level(rawValue: panel.level.rawValue + 2)
-    hintPanel.level = NSWindow.Level(rawValue: panel.level.rawValue + 7)
-    editor.titleVisibility = .hidden
-    editor.titlebarAppearsTransparent = true
-    editor.hasShadow = false
-    editor.minSize = NSSize(width: Self.baseSize.width * 0.75, height: Self.baseSize.height * 0.75)
-    editor.maxSize = NSSize(width: Self.baseSize.width * 1.5, height: Self.baseSize.height * 1.5)
-    for button: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
-      editor.standardWindowButton(button)?.isHidden = true
-    }
-    editor.onEditCommand = { [weak self] save in
-      self?.finishEditing(save: save)
-    }
-    editSurface.onEditCommand = { [weak self] save in
-      self?.finishEditing(save: save)
-    }
+    block.onPanelResize = { [weak self] in self?.applyContentScale() }
+    layoutSession.register(block)
     build()
-    buildHint()
-    applyOpacity()
   }
-
-
 
   func show(rows: [LobbyRatingRow], summary: LobbyAverageSummary?, gameFrame: NSRect?) {
     isPreview = false
@@ -219,7 +119,7 @@ final class LobbyOverlayController: NSObject, NSWindowDelegate {
   func showPreview(gameFrame: NSRect) {
     isPreview = true
     hasContent = true
-    self.gameFrame = gameFrame
+    block.gameFrame = gameFrame
     let names = ["Your player", "Opponent 2", "Opponent 3", "Opponent 4", "Opponent 5", "Opponent 6", "Opponent 7", "Opponent 8"]
     let rows = names.enumerated().map { index, name in
       LobbyRatingRow(position: index, name: name,
@@ -227,168 +127,53 @@ final class LobbyOverlayController: NSObject, NSWindowDelegate {
         rank: index == 7 ? nil : 834 + index * 900, isLocalPlayer: index == 0)
     }
     render(rows, LobbyAverageSummary(average: 8_555, difference: 1_377))
-    restoreFrame()
+    block.restoreFrame()
   }
 
   // Capture events are deduplicated. Window visibility must not depend on new ratings.
   func updateGameWindow(frame: NSRect?) {
     let changed = frame != gameFrame
-    if let frame { gameFrame = frame }
-    guard frame != nil, hasContent else {
+    if let frame { block.gameFrame = frame }
+    // Leaving the game (or losing content) cancels the whole layout session when this block is in it.
+    // The hint belongs to the session, so it is only hidden through `finishEditing`.
+    guard frame != nil, hasContent, isGameFrontmost() else {
       if isEditing { finishEditing(save: false) }
       panel.orderOut(nil)
-      hintPanel.orderOut(nil)
       editor.orderOut(nil)
       return
     }
-    guard hearthstoneIsActive else {
-      if isEditing { finishEditing(save: false) }
-      panel.orderOut(nil)
-      hintPanel.orderOut(nil)
-      editor.orderOut(nil)
-      return
-    }
-    if !isEditing && (changed || !panel.isVisible) { restoreFrame() }
+    if !isEditing && (changed || !panel.isVisible) { block.restoreFrame() }
     panel.orderFrontRegardless()
-    if isEditing { positionHint(); hintPanel.orderFrontRegardless(); editor.orderFrontRegardless() }
+    if isEditing { layoutSession.refreshHint(); editor.orderFrontRegardless() }
   }
 
   func cancelAndClose() {
     if isEditing { finishEditing(save: false) }
     hasContent = false
     isPreview = false
-    gameFrame = nil
+    block.gameFrame = nil
     panel.orderOut(nil)
-    hintPanel.orderOut(nil)
+    if !layoutSession.isActive { hintPanel.orderOut(nil) }
   }
   func close() { cancelAndClose() }
   func toggleEditing() { isEditing ? finishEditing(save: true) : beginEditing() }
-  func resetLayout() {
-    UserDefaults.standard.removeObject(forKey: DefaultsKey.lobbyOriginX)
-    UserDefaults.standard.removeObject(forKey: DefaultsKey.lobbyOriginY)
-    UserDefaults.standard.set(1.0, forKey: DefaultsKey.lobbyScale)
-    restoreFrame()
-    if isEditing {
-      synchronizingEditor = true
-      editor.setFrame(panel.frame, display: true)
-      synchronizingEditor = false
-    }
-  }
+  /// Resets only the lobby block. `layoutSession.resetLayouts()` resets every block.
+  func resetLayout() { block.resetLayout() }
 
-  private var hearthstoneIsActive: Bool {
-    NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "unity.Blizzard Entertainment.Hearthstone"
-  }
   private func beginEditing() {
     guard gameFrame != nil, hasContent else { return }
-    editStartFrame = panel.frame
-    isEditing = true
-    synchronizingEditor = true
-    editor.setFrame(panel.frame, display: true)
-    synchronizingEditor = false
-    NSRunningApplication.runningApplications(withBundleIdentifier: "unity.Blizzard Entertainment.Hearthstone").first?.activate()
-    panel.orderFrontRegardless()
-    editor.makeKeyAndOrderFront(nil)
-    editor.makeFirstResponder(editSurface)
-    positionHint()
-    hintPanel.orderFrontRegardless()
-    applyOpacity()
+    layoutSession.begin([.lobby])
   }
+  /// Ends the layout session this block is in, which saves or cancels every block in it.
   private func finishEditing(save: Bool) {
     guard isEditing else { return }
-    if save { saveFrame() }
-    else if let editStartFrame { panel.setFrame(editStartFrame, display: true) }
-    isEditing = false
-    editor.orderOut(nil)
-    hintPanel.orderOut(nil)
-    if isPreview { panel.orderOut(nil); isPreview = false; hasContent = false }
-    applyOpacity()
+    layoutSession.finish(save: save)
   }
-  private func resize(delta: NSPoint, from frame: NSRect) {
-    let next = LobbyOverlayGeometry.resizedFrame(from: frame, delta: delta, baseSize: Self.baseSize)
-    editor.setFrame(next, display: true)
-  }
-  func windowDidResize(_ notification: Notification) {
-    if (notification.object as? NSWindow) === editor, isEditing, !synchronizingEditor {
-      panel.setFrame(editor.frame, display: true)
-    }
-    applyContentScale()
-  }
-  func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
-    guard sender === editor else { return frameSize }
-    let dx = (frameSize.width - sender.frame.width) / Self.baseSize.width
-    let dy = (frameSize.height - sender.frame.height) / Self.baseSize.height
-    let scale = LobbyOverlayGeometry.clampScale(sender.frame.width / Self.baseSize.width + (abs(dx) >= abs(dy) ? dx : dy))
-    return NSSize(width: Self.baseSize.width * scale, height: Self.baseSize.height * scale)
-  }
-  func windowDidMove(_ notification: Notification) {
-    guard (notification.object as? NSWindow) === editor, isEditing, !synchronizingEditor else { return }
-    var frame = editor.frame
-    let screen = NSScreen.screens.max { a, b in
-      let x = a.frame.intersection(frame), y = b.frame.intersection(frame)
-      return x.width * x.height < y.width * y.height
-    }
-    if !NSEvent.modifierFlags.contains(.option), let gameFrame {
-      frame = LobbyOverlayGeometry.snappedFrame(frame, to: gameFrame)
-      if let screen { frame = LobbyOverlayGeometry.snappedFrame(frame, to: screen.visibleFrame) }
-    }
-    if let screen { frame = LobbyOverlayGeometry.reachableFrame(frame, in: screen.visibleFrame) }
-    if frame != editor.frame {
-      synchronizingEditor = true
-      editor.setFrame(frame, display: true)
-      synchronizingEditor = false
-    }
-    panel.setFrame(frame, display: true)
-  }
-  private func applyOpacity() { panel.alphaValue = min(max(opacityPercent, 10), 100) / 100 }
-  private func saveFrame() {
-    guard let gameFrame else { return }
-    let origin = LobbyOverlayGeometry.normalizedOrigin(frame: panel.frame, gameFrame: gameFrame)
-    UserDefaults.standard.set(origin.x, forKey: DefaultsKey.lobbyOriginX)
-    UserDefaults.standard.set(origin.y, forKey: DefaultsKey.lobbyOriginY)
-    UserDefaults.standard.set(panel.frame.width / Self.baseSize.width, forKey: DefaultsKey.lobbyScale)
-  }
-  private func restoreFrame() {
-    guard let gameFrame else { return }
-    let scale = UserDefaults.standard.object(forKey: DefaultsKey.lobbyScale) as? Double ?? 1
-    let defaultOriginY = 1.0 -
-      (Double(Self.baseSize.height) * LobbyOverlayGeometry.clampScale(scale) + 20.0)
-      / Double(gameFrame.height)
-    let origin = CGPoint(x: UserDefaults.standard.object(forKey: DefaultsKey.lobbyOriginX) as? Double ?? 0.16,
-      y: UserDefaults.standard.object(forKey: DefaultsKey.lobbyOriginY) as? Double
-        ?? defaultOriginY)
-    let screen = NSScreen.screens.max { a, b in
-      let x = a.frame.intersection(gameFrame), y = b.frame.intersection(gameFrame)
-      return x.width * x.height < y.width * y.height
-    }
-    panel.setFrame(LobbyOverlayGeometry.restoredFrame(origin: origin, scale: scale,
-      baseSize: Self.baseSize, gameFrame: gameFrame, visibleFrame: screen?.frame ?? gameFrame), display: true)
-  }
-  private func positionHint() {
-    guard let gameFrame else { return }
-    hintPanel.setFrameOrigin(NSPoint(x: gameFrame.midX - hintPanel.frame.width / 2, y: gameFrame.maxY - 48))
-  }
-  private func buildHint() {
-    let view = NSView(frame: NSRect(origin: .zero, size: hintPanel.frame.size))
-    view.wantsLayer = true
-    view.layer?.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 0.95).cgColor
-    view.layer?.cornerRadius = 8
-    let label = NSTextField(labelWithString: "Layout mode · Enter saves · Esc cancels")
-    label.font = .systemFont(ofSize: 12, weight: .medium)
-    label.textColor = .white
-    label.alignment = .center
-    label.frame = NSRect(x: 8, y: 8, width: 314, height: 17)
-    view.addSubview(label)
-    hintPanel.contentView = view
-    hintPanel.ignoresMouseEvents = true
-  }
+  private func resize(delta: NSPoint, from frame: NSRect) { block.resize(delta: delta, from: frame) }
   private func build() {
     panel.contentView = canvas
     canvas.setAccessibilityElement(true)
     canvas.setAccessibilityRole(.group)
-    editSurface.frame = NSRect(origin: .zero, size: Self.baseSize)
-    editSurface.autoresizingMask = [.width, .height]
-    editSurface.onResize = { [weak self] delta, frame in self?.resize(delta: delta, from: frame) }
-    editor.contentView = editSurface
     panel.ignoresMouseEvents = true
   }
   private func render(_ rows: [LobbyRatingRow], _ summary: LobbyAverageSummary?) {
@@ -469,5 +254,6 @@ final class LobbyOverlayController: NSObject, NSWindowDelegate {
     try data.write(to: url, options: .atomic)
   }
   var diagnosticFrameSize: NSSize { panel.frame.size }
+  var diagnosticBlock: OverlayBlock { block }
   #endif
 }
