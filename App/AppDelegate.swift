@@ -1210,11 +1210,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     }
   }
 
+  private static let layoutHotKeyConflictMessage = "Position shortcut is already in use. Choose another one."
+
   private func showLayoutHotKeyConflict() {
-    showLayoutStatus(
-      "Position shortcut is already in use. Choose another one.",
-      lobbyEnabled: lobbyCoordinator.enabled
-    )
+    showLayoutStatus(Self.layoutHotKeyConflictMessage, lobbyEnabled: lobbyCoordinator.enabled)
   }
 
   private func setShortcutRecordingActive(_ recording: Bool) {
@@ -1362,8 +1361,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     windowController.window?.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
     windowController.refresh()
-    // The conflict message is easily overwritten while the window is closed; repeat it while it's true.
-    if layoutHotKeyConflicts.isConflicting { showLayoutHotKeyConflict() }
+    // The conflict message is easily overwritten while the window is closed. Retry the shortcut (the other
+    // app may have let go of it) and, if it still fails, repeat the message briefly so the lobby status and
+    // its Retry button come back.
+    if layoutHotKeyConflicts.isConflicting, !isRecordingShortcut, !isUninstalling {
+      updateLayoutHotKeyRegistration(userInitiated: false)
+      if layoutHotKeyConflicts.isConflicting {
+        windowController.showTemporaryOverlayStatus(Self.layoutHotKeyConflictMessage)
+      }
+    }
   }
 
   private func confirmUninstall() {
