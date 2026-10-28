@@ -77,6 +77,10 @@ final class ReconnectButtonCanvas: NSView {
     super.viewDidMoveToWindow()
     updateSpinner()
   }
+  /// Called by the controller after the panel is shown or hidden, so the spinner only runs on screen.
+  func visibilityChanged() { updateSpinner() }
+  /// With Reduce Motion on, "Reconnecting…" shows a still icon instead of a spinning one.
+  static var reducesMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
   override func draw(_ dirtyRect: NSRect) {
     guard let context = NSGraphicsContext.current?.cgContext else { return }
@@ -105,12 +109,7 @@ final class ReconnectButtonCanvas: NSView {
   }
 
   private func drawIcon(in box: NSRect, color: NSColor) {
-    let symbol = buttonAppearance.tone == .success ? "checkmark" : "arrow.triangle.2.circlepath"
-    let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
-      .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
-    guard let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-      .withSymbolConfiguration(configuration),
-      let context = NSGraphicsContext.current?.cgContext else { return }
+    guard let image = icon(color: color), let context = NSGraphicsContext.current?.cgContext else { return }
     let size = image.size
     let fit = min(box.width / max(size.width, 1), box.height / max(size.height, 1), 1)
     let drawSize = NSSize(width: size.width * fit, height: size.height * fit)
@@ -120,6 +119,19 @@ final class ReconnectButtonCanvas: NSView {
     image.draw(in: NSRect(x: -drawSize.width / 2, y: -drawSize.height / 2, width: drawSize.width, height: drawSize.height),
       from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
     context.restoreGState()
+  }
+
+  // The spinner redraws 60 times a second, so the tinted symbol is built once per tone.
+  private var iconCache: (tone: ReconnectButtonTone, image: NSImage?)?
+  private func icon(color: NSColor) -> NSImage? {
+    let tone = buttonAppearance.tone
+    if let iconCache, iconCache.tone == tone { return iconCache.image }
+    let symbol = tone == .success ? "checkmark" : "arrow.triangle.2.circlepath"
+    let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+      .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+    let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
+    iconCache = (tone, image)
+    return image
   }
 
   private func drawTitle(_ title: String, in rect: NSRect, color: NSColor) {
@@ -136,13 +148,13 @@ final class ReconnectButtonCanvas: NSView {
   }
 
   private func updateSpinner() {
-    let shouldSpin = buttonAppearance.spinsIcon && window != nil
+    let shouldSpin = buttonAppearance.spinsIcon && window?.isVisible == true && !Self.reducesMotion
     if shouldSpin, spinTimer == nil {
       let started = Date()
-      let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+      let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
         // Timers added to the main run loop fire on the main thread.
         MainActor.assumeIsolated {
-          guard let self else { return }
+          guard let self else { timer.invalidate(); return }
           let elapsed = Date().timeIntervalSince(started).truncatingRemainder(dividingBy: Self.spinPeriod)
           self.spinAngle = CGFloat(elapsed / Self.spinPeriod) * 2 * .pi
           self.needsDisplay = true
@@ -240,9 +252,16 @@ final class ReconnectButtonOverlayController: NSObject {
   func updateGameWindow(frame: NSRect?) {
     let changed = frame != block.gameFrame
     if let frame { block.gameFrame = frame }
-    guard frame != nil, isGameFrontmost() else { hide(); return }
+    guard frame != nil, isGameFrontmost() else {
+      hide()
+      // Keep the hidden button placed on the game, so a layout session begun before the next frontmost
+      // poll starts (and saves) from the right spot.
+      if changed, frame != nil { block.restoreFrame() }
+      return
+    }
     if !isEditing && (changed || !block.panel.isVisible) { block.restoreFrame() }
     block.panel.orderFrontRegardless()
+    canvas.visibilityChanged()
     if isEditing { layoutSession.refreshHint(); block.editor.orderFrontRegardless() }
   }
   /// Hides the button. A layout session it is part of is cancelled for every block.
@@ -250,6 +269,7 @@ final class ReconnectButtonOverlayController: NSObject {
     if isEditing { layoutSession.finish(save: false) }
     block.panel.orderOut(nil)
     block.editor.orderOut(nil)
+    canvas.visibilityChanged()
   }
   func render(_ phase: ReconnectButtonPhase) {
     self.phase = phase

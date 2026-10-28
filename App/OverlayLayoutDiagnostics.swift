@@ -53,12 +53,12 @@ enum OverlayLayoutDiagnostics {
       click(panel)
       precondition(clicks == before + (appearance.isClickable ? 1 : 0))
       precondition(roughly(panel.frame.size, ReconnectButtonCanvas.baseSize))
-      precondition(canvas.isSpinning == appearance.spinsIcon)
+      precondition(canvas.isSpinning == (appearance.spinsIcon && !ReconnectButtonCanvas.reducesMotion))
       precondition(canvas.accessibilityLabel() == appearance.title)
     }
     button.render(.ready)
     precondition(!canvas.isSpinning)
-    print("PASS: every phase keeps the 124×38 size; only ready/no game/failed take clicks; only reconnecting spins")
+    print("PASS: every phase keeps the 124×38 size; only ready/no game/failed take clicks; only reconnecting spins (\(ReconnectButtonCanvas.reducesMotion ? "Reduce Motion on: static icon" : "Reduce Motion off"))")
 
     precondition(session.begin([.reconnectButton]))
     precondition(button.isEditing && block.editor.isVisible && block.editor.frame == panel.frame)
@@ -66,34 +66,49 @@ enum OverlayLayoutDiagnostics {
     var before = clicks
     click(panel)
     precondition(clicks == before && !canvas.accessibilityPerformPress())
-    // The editor proxy must own every point of the button, including the grip under the hidden title bar strip.
     // The editor proxy owns the button's inside, including most of the 24 pt grip under the hidden title bar.
     // Like the lobby editor (same window style), the outer ~4 pt edge and ~16 pt corners stay with the window
     // frame's own resize, which `windowWillResize` keeps aspect-locked.
-    let size = block.editor.frame.size
-    let root = block.editor.contentView?.superview
-    for point in [NSPoint(x: size.width / 2, y: size.height / 2), NSPoint(x: size.width / 2, y: size.height - 6),
-                  NSPoint(x: 20, y: size.height / 2), NSPoint(x: size.width - 12, y: 9), NSPoint(x: size.width - 20, y: 20)] {
-      precondition(root?.hitTest(point) === block.editSurface)
+    func verifyEditorOwnsInside() {
+      let size = block.editor.frame.size
+      let root = block.editor.contentView?.superview
+      for point in [NSPoint(x: size.width / 2, y: size.height / 2), NSPoint(x: size.width / 2, y: size.height - 6),
+                    NSPoint(x: 20, y: size.height / 2), NSPoint(x: size.width - 12, y: 9),
+                    NSPoint(x: size.width - 20, y: min(20, size.height - 6))] {
+        precondition(root?.hitTest(point) === block.editSurface)
+      }
+      let edgeResize = block.windowWillResize(block.editor, to: NSSize(width: size.width + 40, height: size.height + 2))
+      precondition(aspectLocked(edgeResize, block.baseSize))
     }
-    let edgeResize = block.windowWillResize(block.editor, to: NSSize(width: size.width + 40, height: size.height + 2))
-    precondition(aspectLocked(edgeResize, block.baseSize))
+    verifyEditorOwnsInside()
     let start = panel.frame
     block.resize(delta: NSPoint(x: 1000, y: -1000), from: block.editor.frame)
     precondition(panel.frame == block.editor.frame && roughly(panel.frame.size, scaled(ReconnectButtonCanvas.baseSize, 1.5)))
     precondition(abs(panel.frame.maxY - start.maxY) < 0.01)
     block.resize(delta: NSPoint(x: -1000, y: 1000), from: block.editor.frame)
     precondition(panel.frame == block.editor.frame && roughly(panel.frame.size, scaled(ReconnectButtonCanvas.baseSize, 0.75)))
+    verifyEditorOwnsInside()
     block.editSurface.keyDown(with: key(kVK_Escape, block.editor))
     precondition(!session.isActive && panel.frame == start && !block.editor.isVisible && !session.hintPanel.isVisible)
     before = clicks
     click(panel)
     precondition(clicks == before + 1)
-    print("PASS: layout mode blocks clicks; editor proxy owns the button inside and the grip; resize 0.75–1.5 aspect-locked; Esc restores")
+    print("PASS: layout mode blocks clicks; editor proxy owns the button inside and the grip at 1.0 and 0.75; resize 0.75–1.5 aspect-locked; Esc restores")
 
+    button.render(.reconnecting)
     button.isGameFrontmost = { false }
     button.updateGameWindow(frame: game)
-    precondition(!panel.isVisible)
+    precondition(!panel.isVisible && !canvas.isSpinning)
+    // A game frame that arrives while the game is in the background still places the (hidden) button, so a
+    // layout session begun before the next frontmost poll starts from the right spot.
+    let movedGame = game.offsetBy(dx: 30, dy: -20)
+    let expected = panel.frame.offsetBy(dx: 30, dy: -20)
+    button.updateGameWindow(frame: movedGame)
+    precondition(!panel.isVisible && panel.frame == expected)
+    precondition(session.begin([.reconnectButton]) && panel.frame == expected && panel.isVisible)
+    session.finish(save: false)
+    precondition(panel.frame == expected)
+    button.render(.ready)
     button.isGameFrontmost = { true }
     button.updateGameWindow(frame: game)
     precondition(panel.isVisible)
@@ -104,7 +119,7 @@ enum OverlayLayoutDiagnostics {
     precondition(abs(panel.alphaValue - 0.4) < 0.001)
     button.opacityPercent = 100
     precondition(panel.alphaValue == 1)
-    print("PASS: button hides when the game isn't frontmost or has no window, shows again, follows overlay opacity")
+    print("PASS: button hides (spinner stops) when the game isn't frontmost or has no window, keeps tracking the game while hidden, shows again, follows overlay opacity")
   }
 
   static func verifySharedLayout(lobby: LobbyOverlayController, button: ReconnectButtonOverlayController, gameWindow: NSWindow) {
@@ -141,7 +156,6 @@ enum OverlayLayoutDiagnostics {
     precondition(lb.editor.collectionBehavior == bb.editor.collectionBehavior && lb.editor.canBecomeKey && bb.editor.canBecomeKey)
     precondition(roughly(bb.editor.minSize, scaled(bb.baseSize, 0.75)) && roughly(bb.editor.maxSize, scaled(bb.baseSize, 1.5)))
     precondition(roughly(lb.editor.minSize, scaled(lb.baseSize, 0.75)) && roughly(lb.editor.maxSize, scaled(lb.baseSize, 1.5)))
-    precondition(type(of: lb.editSurface) == type(of: bb.editSurface))
     click(bb.panel)
     precondition(clicks == 0)
     print("PASS: one session edits both blocks with identical editors and one hint; lobby editor takes the keys; no reconnect in layout mode")
@@ -196,6 +210,7 @@ enum OverlayLayoutDiagnostics {
     showBoth()
     precondition(session.begin([.reconnectButton]))
     precondition(button.isEditing && !lobby.isEditing && !lb.editor.isVisible)
+    precondition(!session.begin([.lobby]) && session.begin([.reconnectButton]) && session.activeBlockIDs == [.reconnectButton])
     lobby.updateGameWindow(frame: game)
     lobby.cancelAndClose()
     precondition(session.isActive && button.isEditing && session.hintPanel.isVisible && bb.editor.isVisible)

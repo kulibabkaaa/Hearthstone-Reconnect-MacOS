@@ -298,11 +298,11 @@ final class OverlayLayoutSession {
   func block(_ id: OverlayBlockID) -> OverlayBlock? { blocks[id] }
   func isEditing(_ id: OverlayBlockID) -> Bool { activeBlockIDs.contains(id) }
 
-  /// Starts layout mode for the given blocks that have a game frame and content. Returns false when
-  /// none could be edited. Does nothing (returns true) when a session is already running.
+  /// Starts layout mode for the given blocks that have a game frame and content. Returns whether a session
+  /// now edits at least one of `ids`. A running session is left as it is (blocks can't join it).
   @discardableResult
   func begin(_ ids: [OverlayBlockID]) -> Bool {
-    guard !isActive else { return true }
+    guard !isActive else { return ids.contains(where: activeBlockIDs.contains) }
     var seen = Set<OverlayBlockID>()
     let editable = ids.filter { seen.insert($0).inserted }.compactMap { blocks[$0] }
       .filter { $0.gameFrame != nil && $0.canBeginEditing() }
