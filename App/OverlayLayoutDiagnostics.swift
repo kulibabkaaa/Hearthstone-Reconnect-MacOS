@@ -34,7 +34,7 @@ enum OverlayLayoutDiagnostics {
     precondition(roughly(panel.frame.size, ReconnectButtonCanvas.baseSize))
     precondition(abs(panel.frame.minX - (game.minX + 0.735 * game.width)) <= 1)
     precondition(abs(panel.frame.maxY - (game.maxY - 0.184 * game.height)) <= 1)
-    print("PASS: default spot is left 73.5% / top 18.4% of the game (within 1 pt; AppKit aligns window frames), 124×38 at scale 1")
+    print("PASS: default spot is left 73.5% / top 18.4% of the game (within 1 pt; AppKit aligns window frames), \(Int(ReconnectButtonCanvas.baseSize.width))×\(Int(ReconnectButtonCanvas.baseSize.height)) at scale 1")
 
     let keyBefore = NSApp.keyWindow
     click(panel)
@@ -58,7 +58,7 @@ enum OverlayLayoutDiagnostics {
     }
     button.render(.ready)
     precondition(!canvas.isSpinning)
-    print("PASS: every phase keeps the 124×38 size; only ready/no game/failed take clicks; only reconnecting animates (\(ReconnectButtonCanvas.reducesMotion ? "Reduce Motion on: fade" : "Reduce Motion off: spin"))")
+    print("PASS: every phase keeps the \(Int(ReconnectButtonCanvas.baseSize.width))×\(Int(ReconnectButtonCanvas.baseSize.height)) size; only ready/no game/failed take clicks; only reconnecting animates (\(ReconnectButtonCanvas.reducesMotion ? "Reduce Motion on: fade" : "Reduce Motion off: spin"))")
 
     precondition(session.begin([.reconnectButton]))
     precondition(button.isEditing && block.editor.isVisible && block.editor.frame == panel.frame)
@@ -313,7 +313,7 @@ enum OverlayLayoutDiagnostics {
   private static func aspectLocked(_ size: NSSize, _ base: NSSize) -> Bool {
     abs(size.height - size.width * base.height / base.width) <= 1
   }
-  /// Within 1 pt: AppKit rounds window frames to whole points, so 0.75 × 38 = 28.5 becomes 29.
+  /// Within 1 pt: AppKit rounds window frames to whole points, so 0.75 × 50 = 37.5 becomes 38.
   private static func roughly(_ a: NSSize, _ b: NSSize) -> Bool {
     abs(a.width - b.width) <= 1 && abs(a.height - b.height) <= 1
   }
