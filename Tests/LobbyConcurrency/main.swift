@@ -20,11 +20,12 @@ final class LobbyOverlayController {
   private(set) var gameWindowUpdates = 0
   private(set) var previews = 0
   private(set) var closes = 0
+  private(set) var shows = 0
   func updateGameWindow(frame: NSRect?) { gameWindowUpdates += 1 }
   func close() { closes += 1 }
   func cancelAndClose() { closes += 1 }
   func showPreview(gameFrame: NSRect) { previews += 1 }
-  func show(rows: [LobbyRatingRow], summary: LobbyAverageSummary?, gameFrame: NSRect?) {}
+  func show(rows: [LobbyRatingRow], summary: LobbyAverageSummary?, gameFrame: NSRect?) { shows += 1 }
 }
 
 private enum TestFailure: Error, CustomStringConvertible {
@@ -277,7 +278,106 @@ private func testLayoutPreparation() throws {
   try require(overlay.closes == 1, "missing game didn't close the lobby overlay")
 }
 
+private func capture(_ uuid: String?, mode: String = "solo") -> LobbyCapture {
+  // Region CN skips the ratings request; no players keeps the resume cache empty.
+  LobbyCapture(gameUUID: uuid, gameType: 0, region: "CN", mode: mode, ownBattleTag: nil,
+               ownAccountID: nil, ownRating: nil, players: [])
+}
+
+/// Lobby info on: the Reconnect button's match signal is on with real Solo rows, a Duos match or a match being
+/// resumed; off when the match ends, the mode is unknown, the game is missing, the reader detaches or stops.
+private func testMatchSignal() throws {
+  UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: true])
+  // Later tests expect lobby info off, so they don't start the real reader.
+  defer { UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: false]) }
+  let overlay = LobbyOverlayController()
+  let lobby = LobbyCoordinator(overlay: overlay, windowTracker: HearthstoneWindowTracker())
+  var changes = 0
+  lobby.onMatchStateChanged = { changes += 1 }
+  try require(!lobby.isInMatch && !lobby.isMatchDetectorAvailable, "a new coordinator reported a match")
+  lobby.start()
+  defer { lobby.stop() }
+  try require(lobby.diagnosticReaderMode == .lobby, "lobby info on didn't run the lobby reader")
+  lobby.diagnosticAttachment(true)
+  try require(lobby.isMatchDetectorAvailable, "attaching didn't make the detector available")
+  lobby.prepareForLayout(gameFrame: NSRect(x: 0, y: 0, width: 1440, height: 900))
+  try require(!lobby.isInMatch, "the layout sample counted as a match")
+  lobby.diagnosticCapture(capture("solo-1"))
+  try require(lobby.isInMatch && overlay.shows == 1, "real Solo rows didn't start a match")
+  let afterStart = changes
+  lobby.diagnosticCapture(capture("solo-1"))
+  try require(changes == afterStart, "the same match reported a change")
+  lobby.diagnosticCapture(capture(nil))
+  try require(!lobby.isInMatch, "the match end didn't end the match")
+  lobby.diagnosticCapture(capture("duos-1", mode: "duos"))
+  try require(lobby.isInMatch, "a Duos match didn't count")
+  let afterDuos = changes
+  lobby.diagnosticCapture(capture("duos-1", mode: "duos"))
+  lobby.diagnosticCapture(capture("solo-2"))
+  try require(lobby.isInMatch && changes == afterDuos, "the Duos match blipped off")
+  lobby.diagnosticCapture(capture("unknown-1", mode: "unknown"))
+  try require(!lobby.isInMatch, "an unknown mode counted as a match")
+  lobby.diagnosticCapture(capture("solo-3"))
+  lobby.closeOverlayForMissingGame()
+  try require(lobby.isInMatch, "a missing game window ended the match")
+  lobby.diagnosticCapture(capture(nil))
+  lobby.diagnosticReconnectDetected()
+  try require(lobby.isInMatch, "a match being resumed didn't count")
+  lobby.diagnosticAttachment(false)
+  try require(!lobby.isInMatch && !lobby.isMatchDetectorAvailable, "detaching kept the match")
+  lobby.diagnosticAttachment(true)
+  lobby.diagnosticCapture(capture("solo-4"))
+  lobby.stop()
+  try require(!lobby.isInMatch && !lobby.isMatchDetectorAvailable, "stopping kept the match")
+}
+
+/// Lobby info off, Reconnect button on: the reader runs for match detection only while Hearthstone runs, and
+/// draws, reports and says nothing.
+private func testMatchDetectionOnly() throws {
+  UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: false])
+  defer { UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: false]) }
+  let overlay = LobbyOverlayController()
+  let lobby = LobbyCoordinator(overlay: overlay, windowTracker: HearthstoneWindowTracker())
+  var inputs = (buttonEnabled: true, hearthstoneRunning: false)
+  lobby.matchDetectionInputs = { inputs }
+  var statuses: [String] = []
+  var displayed = 0
+  lobby.onStatus = { statuses.append($0) }
+  lobby.onLobbyDisplayed = { displayed += 1 }
+  lobby.start()
+  defer { lobby.stop() }
+  try require(lobby.diagnosticReaderMode == .off, "the detector ran without Hearthstone")
+  inputs.hearthstoneRunning = true
+  lobby.refreshReaderMode()
+  try require(lobby.diagnosticReaderMode == .matchDetectionOnly, "the detector didn't start with Hearthstone")
+  lobby.diagnosticAttachment(true)
+  lobby.diagnosticCapture(capture("solo-1"))
+  try require(lobby.isInMatch && lobby.isMatchDetectorAvailable, "match detection missed a Solo match")
+  lobby.diagnosticCapture(capture(nil))
+  try require(!lobby.isInMatch, "match detection missed the match end")
+  lobby.diagnosticCapture(capture("duos-1", mode: "duos"))
+  try require(lobby.isInMatch, "match detection missed a Duos match")
+  lobby.diagnosticStatus("Waiting for Hearthstone")
+  try require(!lobby.isInMatch, "Hearthstone leaving kept the match")
+  lobby.diagnosticStatus("Lobby access needs approval")
+  lobby.diagnosticReconnectDetected()
+  try require(lobby.isInMatch, "match detection missed a match being resumed")
+  try require(overlay.shows == 0 && overlay.previews == 0 && displayed == 0 && statuses.isEmpty,
+              "match detection drew, reported or said something")
+  inputs.buttonEnabled = false
+  lobby.refreshReaderMode()
+  try require(lobby.diagnosticReaderMode == .off && !lobby.isInMatch && !lobby.isMatchDetectorAvailable,
+              "turning the button off left the detector running")
+  inputs.buttonEnabled = true
+  lobby.refreshReaderMode()
+  UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: true])
+  lobby.refreshReaderMode()
+  try require(lobby.diagnosticReaderMode == .lobby, "lobby info on didn't switch to the lobby reader")
+}
+
 do {
+  try testMatchSignal()
+  try testMatchDetectionOnly()
   try testSharedWindowTracker()
   try testLayoutPreparation()
   try testLatestCaptureSelection()

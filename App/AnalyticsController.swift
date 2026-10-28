@@ -33,9 +33,15 @@ final class AnalyticsController {
     isStarted = true
   }
 
-  func signal(_ event: AnalyticsEvent) {
+  /// `parameters`: non-identifying values only (see `ReconnectTelemetry`).
+  func signal(_ event: AnalyticsEvent, parameters: [String: String] = [:]) {
     guard isStarted else { return }
-    TelemetryDeck.signal(event.rawValue)
+    // Tests/ReleaseContract checks for the plain call below.
+    if parameters.isEmpty {
+      TelemetryDeck.signal(event.rawValue)
+    } else {
+      TelemetryDeck.signal(event.rawValue, parameters: parameters)
+    }
   }
 
   func flush() {

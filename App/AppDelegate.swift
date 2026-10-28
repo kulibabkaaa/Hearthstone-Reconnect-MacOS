@@ -241,7 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private func buildWindow() {
     windowController = SettingsWindowController(
       onReconnect: { [weak self] in
-        self?.runReconnect()
+        self?.runReconnect(source: .mainWindow)
       },
       onShortcutChanged: {
         [weak self] keyCode, modifiers, display in
@@ -292,6 +292,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         guard let self else { return }
         self.lobbyCoordinator.setEnabled(enabled)
         self.updateLayoutHotKeyRegistration()
+        self.refreshReconnectButtonVisibility()
       },
       onLobbyOpacityChanged: { [weak self] value in self?.layoutSession.opacityPercent = value },
       onLobbyShortcutChanged: { [weak self] key, modifiers, display in
@@ -314,10 +315,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
 
     hotKeyManager.onHotKey = { [weak self] action in
       guard let self, !self.isRecordingShortcut else { return }
-      switch action { case .reconnect: self.runReconnect(); case .lobbyLayout: self.toggleOverlayLayout() }
+      switch action {
+      case .reconnect: self.runReconnect(source: .shortcut)
+      case .lobbyLayout: self.toggleOverlayLayout()
+      }
     }
     // A click runs exactly what the reconnect shortcut runs.
-    reconnectButton.onReconnect = { [weak self] in self?.runReconnect() }
+    reconnectButton.onReconnect = { [weak self] in self?.runReconnect(source: .overlayButton) }
+    // Outside layout mode the button shows only during a Solo or Duos match, as the lobby reader sees it. With
+    // lobby info off the reader runs for match detection only; without a detector the button shows while the
+    // game is in front.
+    reconnectButton.isEnabled = { [weak self] in self?.isReconnectButtonEnabled ?? false }
+    reconnectButton.isMatchDetectorAvailable = { [weak self] in
+      self?.lobbyCoordinator.isMatchDetectorAvailable ?? false
+    }
+    reconnectButton.isInMatch = { [weak self] in self?.lobbyCoordinator.isInMatch ?? false }
+    lobbyCoordinator.matchDetectionInputs = { [weak self] in
+      (self?.isReconnectButtonEnabled ?? false, self?.isHearthstoneRunning ?? false)
+    }
+    lobbyCoordinator.onMatchStateChanged = { [weak self] in self?.refreshReconnectButtonVisibility() }
     lobbyCoordinator.onStatus = { [weak self] status in
       self?.windowController.setLobbyStatus(
         status,
@@ -717,7 +733,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     }
   }
 
-  private func runReconnect() {
+  /// `source` goes with the success signal only, including a success that arrives after the timeout.
+  private func runReconnect(source: ReconnectSource) {
     let remaining = ReconnectCooldown.remaining(
       lastReconnectAt: UserDefaults.standard.double(
         forKey: DefaultsKey.lastReconnectAt
@@ -751,7 +768,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
           && self.proxyConnectionStatus == .connected,
         didCloseFlow: try? result.get().didCloseFlow
       )
-      self.applyReconnectEffects(self.reconnectAttempts.complete(attempt, completion))
+      self.applyReconnectEffects(self.reconnectAttempts.complete(attempt, completion), source: source)
     }
   }
 
@@ -769,11 +786,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   }
 
   /// Carries out one step of `ReconnectAttemptFlow`, in the order `ReconnectAttemptEffects` documents.
-  private func applyReconnectEffects(_ effects: ReconnectAttemptEffects) {
+  /// `source`: the control that started the attempt these effects finish (only a completion can record success).
+  private func applyReconnectEffects(_ effects: ReconnectAttemptEffects, source: ReconnectSource? = nil) {
     // The button's cooldown starts from the same stamp the shortcut's cooldown reads.
     let now = Date().timeIntervalSince1970
     if effects.recordsFlowClosed {
-      analyticsController.signal(.reconnectSucceeded)
+      analyticsController.signal(
+        .reconnectSucceeded,
+        parameters: source.map { ReconnectTelemetry.successParameters(source: $0) } ?? [:]
+      )
       UserDefaults.standard.set(now, forKey: DefaultsKey.lastReconnectAt)
     }
     if let event = effects.buttonEvent {
@@ -836,15 +857,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private func setReconnectButtonEnabled(_ enabled: Bool) {
     UserDefaults.standard.set(enabled, forKey: DefaultsKey.reconnectButtonEnabled)
     isReconnectButtonEnabled = enabled
+    lobbyCoordinator.refreshReaderMode()
     if enabled {
-      // Show it now if Hearthstone is in front, rather than on the next poll.
-      if windowTracker.isPolling {
-        reconnectButton.updateGameWindow(frame: windowTracker.frame())
-      }
+      refreshReconnectButtonVisibility()
     } else {
       reconnectButton.hide()
     }
     updateLayoutHotKeyRegistration()
+  }
+
+  /// Applies a change (setting on, match started or ended, lobby info switched) now rather than on the next poll.
+  private func refreshReconnectButtonVisibility() {
+    guard isReconnectButtonEnabled, windowTracker.isPolling else { return }
+    reconnectButton.updateGameWindow(frame: windowTracker.frame())
   }
 
   /// Cmd-Shift-L: one layout session for every enabled overlay; pressing it again saves.
@@ -1349,6 +1374,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
           || notification.name == NSWorkspace.didLaunchApplicationNotification
         let wanted = self.wantsLayoutHotKey
         self.isHearthstoneRunning = running
+        // With lobby info off, the match detector runs only while the game does.
+        self.lobbyCoordinator.refreshReaderMode()
         // Only button-only users' registration depends on the game; lobby users are left untouched.
         // Recording a shortcut unregisters every hotkey; uninstalling must not re-register one.
         guard self.wantsLayoutHotKey != wanted, !self.isRecordingShortcut, !self.isUninstalling
@@ -1559,7 +1586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   }
 
   @objc private func menuReconnect() {
-    runReconnect()
+    runReconnect(source: .menu)
   }
 
   @objc private func menuOpenWindow() {
