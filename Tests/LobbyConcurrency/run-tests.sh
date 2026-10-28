@@ -13,6 +13,7 @@ xcrun swiftc \
   "${project_dir}/App/LobbyLeaderboardStore.swift" \
   "${project_dir}/App/LobbyReader.swift" \
   "${project_dir}/App/LobbyCoordinator.swift" \
+  "${project_dir}/App/HearthstoneWindowTracker.swift" \
   "${project_dir}/Tests/LobbyConcurrency/main.swift"
 
 "${build_dir}/LobbyConcurrencyTests"

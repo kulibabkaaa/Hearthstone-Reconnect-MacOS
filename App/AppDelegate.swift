@@ -17,7 +17,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private let systemExtensionController =
     SystemExtensionController()
   private let proxyController = TransparentProxyController()
-  private let lobbyCoordinator = LobbyCoordinator()
+  private let windowTracker = HearthstoneWindowTracker()
+  /// One layout mode (Cmd-Shift-L) for the lobby block and the Reconnect button block.
+  private let layoutSession: OverlayLayoutSession
+  private let lobbyCoordinator: LobbyCoordinator
+  private let reconnectButton: ReconnectButtonOverlayController
   private let analyticsController = AnalyticsController()
   private lazy var updaterController = SPUStandardUpdaterController(
     startingUpdater: false,
@@ -38,7 +42,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private var transientStatusResetWorkItem: DispatchWorkItem?
   private var isRecordingShortcut = false
   private var isReconnectRunning = false
-  private var isProxyReady = false
+  private var isProxyReady = false {
+    didSet {
+      guard isProxyReady != oldValue else { return }
+      sendReconnectButtonEvent(.proxyAvailability(ready: isProxyReady))
+    }
+  }
+  /// What the floating Reconnect button shows. Seeded at launch from `lastReconnectAt`.
+  private var reconnectButtonModel = ReconnectButtonModel(
+    proxyReady: false, lastReconnectAt: 0,
+    cooldownSeconds: ProxyConstants.cooldownSeconds
+  )
+  /// One pending re-render (countdown tick or end of a transient state); replaced, never stacked.
+  private var reconnectButtonRenderTimer: Timer?
+  private var isReconnectButtonEnabled = true
   private var userOpenedWindow = false
   private var isUninstalling = false
   private var isUninstallCleanupStarted = false
@@ -66,6 +83,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
 
   init(launchMode: AppLaunchMode) {
     self.launchMode = launchMode
+    let layoutSession = OverlayLayoutSession()
+    self.layoutSession = layoutSession
+    lobbyCoordinator = LobbyCoordinator(
+      overlay: LobbyOverlayController(layoutSession: layoutSession),
+      windowTracker: windowTracker
+    )
+    reconnectButton = ReconnectButtonOverlayController(layoutSession: layoutSession)
     super.init()
   }
 
@@ -77,6 +101,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     }
     registerDefaults()
     restoreAutomaticLobbyCaptureIfNeeded()
+    isReconnectButtonEnabled = UserDefaults.standard.bool(
+      forKey: DefaultsKey.reconnectButtonEnabled
+    )
+    reconnectButtonModel = ReconnectButtonModel(
+      proxyReady: isProxyReady,
+      lastReconnectAt: UserDefaults.standard.double(forKey: DefaultsKey.lastReconnectAt),
+      cooldownSeconds: ProxyConstants.cooldownSeconds
+    )
+    renderReconnectButton()
     systemExtensionApprovalWasDenied = UserDefaults.standard.bool(
       forKey: DefaultsKey.systemExtensionApprovalWasDenied
     )
@@ -106,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       // Lobby capture is independent of the reconnect system extension. Start
       // it even while that extension is awaiting approval or cannot activate.
       lobbyCoordinator.start()
+      startReconnectButton()
       inspectExistingProxySetup()
 
       if !launchedForHearthstone {
@@ -138,6 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     transientStatusResetWorkItem?.cancel()
     analyticsController.flush()
     lobbyCoordinator.stop()
+    stopReconnectButton()
   }
 
   func applicationDidBecomeActive(
@@ -181,6 +216,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       DefaultsKey.lobbyShortcutModifiers: Int(defaultCarbonModifiers()),
       DefaultsKey.lobbyShortcutDisplay: AppConfiguration.defaultLobbyShortcutDisplay,
       DefaultsKey.lobbyScale: 1.0,
+      DefaultsKey.reconnectButtonEnabled: true,
+      DefaultsKey.reconnectButtonScale: 1.0,
       DefaultsKey.systemExtensionApprovalWasDenied: false,
       DefaultsKey.proxyConfigurationPermissionWasDenied: false,
     ])
@@ -239,17 +276,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       onLobbyEnabledChanged: { [weak self] enabled in
         guard let self else { return }
         self.lobbyCoordinator.setEnabled(enabled)
-        self.hotKeyManager.unregister(action: .lobbyLayout)
-        if enabled {
-          self.registerStoredLobbyHotKey()
-        }
+        self.updateLayoutHotKeyRegistration()
       },
-      onLobbyOpacityChanged: { [weak self] value in self?.lobbyCoordinator.setOpacity(value) },
+      onLobbyOpacityChanged: { [weak self] value in self?.layoutSession.opacityPercent = value },
       onLobbyShortcutChanged: { [weak self] key, modifiers, display in
         self?.changeLobbyShortcut(keyCode: key, modifiers: modifiers, display: display) ?? false
       },
-      onResetLobby: { [weak self] in self?.lobbyCoordinator.resetLayout() },
+      onResetLobby: { [weak self] in self?.layoutSession.resetLayouts() },
       onRetryLobbySetup: { [weak self] in self?.lobbyCoordinator.retrySetup() },
+      onReconnectButtonEnabledChanged: { [weak self] enabled in
+        self?.setReconnectButtonEnabled(enabled)
+      },
       onReportBug: { [weak self] in self?.showBugReport() },
       onCheckForUpdates: { [weak self] in self?.checkForUpdates() },
       automaticUpdateChecksEnabled: { [weak self] in
@@ -262,8 +299,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
 
     hotKeyManager.onHotKey = { [weak self] action in
       guard let self, !self.isRecordingShortcut else { return }
-      switch action { case .reconnect: self.runReconnect(); case .lobbyLayout: self.lobbyCoordinator.toggleEditing() }
+      switch action { case .reconnect: self.runReconnect(); case .lobbyLayout: self.toggleOverlayLayout() }
     }
+    // A click runs exactly what the reconnect shortcut runs.
+    reconnectButton.onReconnect = { [weak self] in self?.runReconnect() }
     lobbyCoordinator.onStatus = { [weak self] status in
       self?.windowController.setLobbyStatus(
         status,
@@ -687,13 +726,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     )
     guard remaining <= 0 else {
       windowController.setStatus(
-        "Please wait \(Int(ceil(remaining))) seconds and try again.",
+        "Please wait \(ReconnectCooldownDisplay.wholeSeconds(remaining: remaining)) seconds and try again.",
         isError: true
       )
       return
     }
 
+    // From here on every exit sends exactly one finish event (`finishReconnectButton`).
     isReconnectRunning = true
+    sendReconnectButtonEvent(.started)
     windowController.setStatus("Reconnecting…")
     updateReconnectAvailability()
 
@@ -702,6 +743,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       target = try GameEndpointResolver().reconnectTarget()
     } catch {
       isReconnectRunning = false
+      finishReconnectButton(.endpointNotFound)
       showTemporaryMissingGameStatus()
       updateReconnectAvailability()
       return
@@ -709,11 +751,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
 
     proxyController.reconnect(target: target) { [weak self] result in
       guard let self else { return }
-      guard !self.isUninstalling else { return }
+      guard !self.isUninstalling else {
+        self.finishReconnectButton(.uninstalling)
+        return
+      }
       self.isReconnectRunning = false
       guard self.lastSystemExtensionState?.isEnabled == true,
         self.proxyConnectionStatus == .connected
       else {
+        self.finishReconnectButton(.extensionUnavailable)
         self.windowController.setStatus(
           "Checking the reconnect extension…"
         )
@@ -723,6 +769,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       }
       switch result {
       case .failure:
+        self.finishReconnectButton(.requestFailed)
         self.windowController.setStatus(
           "Reconnect couldn't be completed. Please try again.",
           isError: true
@@ -730,18 +777,117 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       case .success(let response):
         if response.didCloseFlow {
           self.analyticsController.signal(.reconnectSucceeded)
+          // The button's cooldown starts from the same stamp the shortcut's cooldown reads.
+          let now = Date().timeIntervalSince1970
           UserDefaults.standard.set(
-            Date().timeIntervalSince1970,
+            now,
             forKey: DefaultsKey.lastReconnectAt
           )
+          self.finishReconnectButton(.flowClosed, now: now)
           self.windowController.setStatus(
             "Reconnect triggered."
           )
         } else {
+          self.finishReconnectButton(.noFlowClosed)
           self.showTemporaryMissingGameStatus()
         }
       }
       self.updateReconnectAvailability()
+    }
+  }
+
+  private func finishReconnectButton(
+    _ outcome: ReconnectAttemptOutcome,
+    now: TimeInterval = Date().timeIntervalSince1970
+  ) {
+    sendReconnectButtonEvent(outcome.buttonEvent, now: now)
+  }
+
+  private func sendReconnectButtonEvent(
+    _ event: ReconnectButtonEvent,
+    now: TimeInterval = Date().timeIntervalSince1970
+  ) {
+    reconnectButtonModel.apply(event, now: now)
+    renderReconnectButton()
+  }
+
+  /// Draws the current phase and schedules the next redraw when it changes on its own (countdown, transient end).
+  private func renderReconnectButton() {
+    reconnectButtonRenderTimer?.invalidate()
+    reconnectButtonRenderTimer = nil
+    let now = Date().timeIntervalSince1970
+    reconnectButton.render(reconnectButtonModel.phase(now: now))
+    guard let next = reconnectButtonModel.nextChange(after: now) else { return }
+    let timer = Timer(timeInterval: max(0.01, next - now), repeats: false) {
+      [weak self] _ in
+      self?.renderReconnectButton()
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    reconnectButtonRenderTimer = timer
+  }
+
+  private func startReconnectButton() {
+    windowTracker.subscribe(self) { [weak self] frame in
+      guard let self, self.isReconnectButtonEnabled else { return }
+      self.reconnectButton.updateGameWindow(frame: frame)
+    }
+  }
+
+  private func stopReconnectButton() {
+    windowTracker.unsubscribe(self)
+    reconnectButtonRenderTimer?.invalidate()
+    reconnectButtonRenderTimer = nil
+    reconnectButton.hide()
+  }
+
+  private func setReconnectButtonEnabled(_ enabled: Bool) {
+    UserDefaults.standard.set(enabled, forKey: DefaultsKey.reconnectButtonEnabled)
+    isReconnectButtonEnabled = enabled
+    if enabled {
+      // Show it now if Hearthstone is in front, rather than on the next poll.
+      if windowTracker.isPolling {
+        reconnectButton.updateGameWindow(frame: windowTracker.frame())
+      }
+    } else {
+      reconnectButton.hide()
+    }
+    updateLayoutHotKeyRegistration()
+  }
+
+  /// Cmd-Shift-L: one layout session for every enabled overlay; pressing it again saves.
+  private func toggleOverlayLayout() {
+    if layoutSession.isActive {
+      layoutSession.finish(save: true)
+      return
+    }
+    let blocks = OverlayLayoutPolicy.editableBlocks(
+      lobbyEnabled: lobbyCoordinator.enabled,
+      reconnectButtonEnabled: isReconnectButtonEnabled
+    )
+    guard !blocks.isEmpty else {
+      showLayoutStatus("Enable an overlay to position it", lobbyEnabled: false)
+      return
+    }
+    guard let frame = windowTracker.frame(includeOffscreen: true) else {
+      if blocks.contains(.lobby) { lobbyCoordinator.closeOverlayForMissingGame() }
+      showLayoutStatus(
+        "Open Hearthstone to position the overlay",
+        lobbyEnabled: blocks.contains(.lobby)
+      )
+      return
+    }
+    if blocks.contains(.lobby) { lobbyCoordinator.prepareForLayout(gameFrame: frame) }
+    if blocks.contains(.reconnectButton) { reconnectButton.updateGameWindow(frame: frame) }
+    layoutSession.begin(blocks)
+  }
+
+  /// With lobby info on, layout messages replace the lobby status as they always did. With it off, they show
+  /// briefly and "Lobby info disabled" comes back.
+  private func showLayoutStatus(_ message: String, lobbyEnabled: Bool) {
+    if lobbyEnabled {
+      windowController.setLobbyStatus(message)
+    } else {
+      windowController.showTemporaryOverlayStatus(message)
     }
   }
 
@@ -1042,8 +1188,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         isError: true
       )
     }
+    updateLayoutHotKeyRegistration()
+  }
+
+  /// The layout shortcut positions every overlay, so it stays registered while either one is enabled.
+  private var wantsLayoutHotKey: Bool {
+    UserDefaults.standard.bool(forKey: DefaultsKey.lobbyEnabled) || isReconnectButtonEnabled
+  }
+
+  private func updateLayoutHotKeyRegistration() {
     hotKeyManager.unregister(action: .lobbyLayout)
-    if UserDefaults.standard.bool(forKey: DefaultsKey.lobbyEnabled) {
+    if wantsLayoutHotKey {
       registerStoredLobbyHotKey()
     }
   }
@@ -1110,7 +1265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     guard shortcutValidationMessage(keyCode: keyCode, modifiers: modifiers) == nil else { return false }
     let reconnect = storedShortcut(in: .standard)
     guard keyCode != reconnect.keyCode || modifiers != reconnect.modifiers else { return false }
-    if UserDefaults.standard.bool(forKey: DefaultsKey.lobbyEnabled) {
+    if wantsLayoutHotKey {
       let oldKey = UInt32(clamping: UserDefaults.standard.integer(forKey: DefaultsKey.lobbyShortcutKeyCode))
       let oldModifiers = UInt32(clamping: UserDefaults.standard.integer(forKey: DefaultsKey.lobbyShortcutModifiers))
       let status = hotKeyManager.register(action: .lobbyLayout, keyCode: keyCode, modifiers: modifiers)
@@ -1194,6 +1349,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     isProxyReady = false
     hotKeyManager.unregister()
     lobbyCoordinator.stop()
+    stopReconnectButton()
     windowController.setUninstalling(true)
     windowController.setStatus(
       "Preparing to uninstall HS Reconnect…"
@@ -1225,6 +1381,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         self.recomputeProxyReadiness()
         self.registerStoredHotKey()
         self.lobbyCoordinator.start()
+        self.startReconnectButton()
+        self.renderReconnectButton()
         self.windowController.setUninstalling(false)
         self.windowController.setStatus(
           "HS Reconnect couldn't begin uninstalling. Please try again.",

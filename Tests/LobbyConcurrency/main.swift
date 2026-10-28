@@ -10,16 +10,20 @@ enum DefaultsKey {
   static let lobbyEnabled = "test.lobby.enabled"
 }
 
+enum HearthstoneApp {
+  static let bundleIdentifier = "io.github.kulibabkaaa.HSReconnect.ConcurrencyTests.NoGame"
+}
+
 final class LobbyOverlayController {
   var onStatus: ((String) -> Void)?
-  var opacityPercent = 100.0
   var isEditing = false
-  func updateGameWindow(frame: NSRect?) {}
-  func close() {}
-  func cancelAndClose() {}
-  func toggleEditing() { isEditing.toggle() }
-  func resetLayout() {}
-  func showPreview(gameFrame: NSRect) {}
+  private(set) var gameWindowUpdates = 0
+  private(set) var previews = 0
+  private(set) var closes = 0
+  func updateGameWindow(frame: NSRect?) { gameWindowUpdates += 1 }
+  func close() { closes += 1 }
+  func cancelAndClose() { closes += 1 }
+  func showPreview(gameFrame: NSRect) { previews += 1 }
   func show(rows: [LobbyRatingRow], summary: LobbyAverageSummary?, gameFrame: NSRect?) {}
 }
 
@@ -239,7 +243,43 @@ private func testCancellationCompletesWaiters() throws {
               "cancellation returned the wrong error")
 }
 
+private func testSharedWindowTracker() throws {
+  let tracker = HearthstoneWindowTracker()
+  let overlay = LobbyOverlayController()
+  let lobby = LobbyCoordinator(overlay: overlay, windowTracker: tracker)
+  let button = NSObject()
+  var buttonFrames: [NSRect?] = []
+  try require(!tracker.isPolling, "tracker polled with no subscribers")
+  lobby.start()
+  tracker.subscribe(button) { buttonFrames.append($0) }
+  tracker.subscribe(button) { buttonFrames.append($0) }  // replaces, doesn't double up
+  try require(tracker.isPolling, "tracker didn't start polling")
+  try require(waitUntil { overlay.gameWindowUpdates >= 2 && buttonFrames.count >= 2 },
+              "one poll didn't feed both overlays")
+  try require(buttonFrames.allSatisfy { $0 == nil }, "found a game window that doesn't exist")
+  lobby.stop()
+  try require(tracker.isPolling, "stopping the lobby stopped the button's poll")
+  let lobbyUpdates = overlay.gameWindowUpdates
+  let buttonUpdates = buttonFrames.count
+  try require(waitUntil { buttonFrames.count >= buttonUpdates + 2 }, "button poll stopped with the lobby")
+  try require(overlay.gameWindowUpdates == lobbyUpdates, "stopped lobby still got frames")
+  tracker.unsubscribe(button)
+  try require(!tracker.isPolling, "tracker kept polling with no subscribers")
+}
+
+private func testLayoutPreparation() throws {
+  let overlay = LobbyOverlayController()
+  let lobby = LobbyCoordinator(overlay: overlay, windowTracker: HearthstoneWindowTracker())
+  lobby.prepareForLayout(gameFrame: NSRect(x: 0, y: 0, width: 1440, height: 900))
+  try require(overlay.gameWindowUpdates == 1 && overlay.previews == 1,
+              "layout mode without a match didn't place and preview the lobby")
+  lobby.closeOverlayForMissingGame()
+  try require(overlay.closes == 1, "missing game didn't close the lobby overlay")
+}
+
 do {
+  try testSharedWindowTracker()
+  try testLayoutPreparation()
   try testLatestCaptureSelection()
   try testStableMatchRetriesWithoutAnotherCapture()
   try testReaderGenerations()

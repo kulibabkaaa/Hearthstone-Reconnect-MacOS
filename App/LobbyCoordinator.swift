@@ -96,13 +96,13 @@ final class LobbyCoordinator {
   var onLobbyDisplayed: (() -> Void)?
   private let reader = LobbyReader()
   private let store = LobbyLeaderboardStore()
-  private let overlay = LobbyOverlayController()
+  private let overlay: LobbyOverlayController
+  private let windowTracker: HearthstoneWindowTracker
   private var lifecycle = LobbyLifecycleState()
   private var snapshot: LeaderboardSnapshot?
   private var lastCapture: LobbyCapture?
   private var lastReportedGameUUID: String?
   private var estimator = LobbyAverageEstimator()
-  private var windowTimer: Timer?
   private let resumeCache = LobbyResumeCache()
   private var isRunning = false
   private lazy var leaderboardRetry = LobbyLeaderboardRetryLoop { [weak self] region, completion in
@@ -110,7 +110,9 @@ final class LobbyCoordinator {
     self.store.refreshIfNeeded(region: region, completion: completion)
   }
 
-  init() {
+  init(overlay: LobbyOverlayController, windowTracker: HearthstoneWindowTracker) {
+    self.overlay = overlay
+    self.windowTracker = windowTracker
     overlay.onStatus = { [weak self] in self?.onStatus?($0) }
     reader.onStatus = { [weak self] text in
       guard let self, self.isRunning else { return }
@@ -135,18 +137,12 @@ final class LobbyCoordinator {
     isRunning = true
     _ = resumeCache.load()
     if enabled { reader.start() }
-    guard windowTimer == nil else { return }
-    let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-      guard let self else { return }
-      self.overlay.updateGameWindow(frame: self.hearthstoneFrame())
-    }
-    RunLoop.main.add(timer, forMode: .common)
-    windowTimer = timer
+    windowTracker.subscribe(self) { [weak self] frame in self?.overlay.updateGameWindow(frame: frame) }
   }
-  deinit { windowTimer?.invalidate() }
+  deinit { windowTracker.unsubscribe(self) }
   func stop() {
     isRunning = false
-    windowTimer?.invalidate(); windowTimer = nil
+    windowTracker.unsubscribe(self)
     reader.stop(); lifecycle.deactivate(); snapshot = nil; lastCapture = nil
     estimator.reset(); leaderboardRetry.cancel(); store.cancel(); overlay.close()
   }
@@ -156,27 +152,21 @@ final class LobbyCoordinator {
     if value { _ = resumeCache.load(); if isRunning { reader.start() } }
     else { deactivate(status: "Lobby info disabled"); reader.stop() }
   }
-  func setOpacity(_ percent: Double) { overlay.opacityPercent = percent }
   func retrySetup() {
     guard enabled else { onStatus?("Enable lobby info first"); return }
     onStatus?("Retrying lobby setup…")
     reader.retrySetup()
   }
-  func toggleEditing() {
-    if LobbyOverlayEditCommand.next(isEditing: overlay.isEditing) == .save { overlay.toggleEditing(); return }
-    guard enabled else { onStatus?("Enable lobby info to position the overlay"); return }
-    guard let frame = hearthstoneFrame(includeOffscreen: true) else {
-      overlay.cancelAndClose()
-      onStatus?("Open Hearthstone to position the overlay")
-      return
-    }
-    overlay.updateGameWindow(frame: frame)
+  /// Readies the lobby block before the shared layout session begins: places it on the game and shows the
+  /// sample lobby when no match is active. The session itself is begun by the caller.
+  func prepareForLayout(gameFrame: NSRect) {
+    overlay.updateGameWindow(frame: gameFrame)
     if lifecycle.activeUUID == nil {
-      overlay.showPreview(gameFrame: frame)
+      overlay.showPreview(gameFrame: gameFrame)
     }
-    overlay.toggleEditing()
   }
-  func resetLayout() { overlay.resetLayout() }
+  /// Layout mode was asked for but Hearthstone has no window: drop any stale lobby block.
+  func closeOverlayForMissingGame() { overlay.cancelAndClose() }
 
   private func accept(_ capture: LobbyCapture) {
     guard enabled else { deactivate(status: "Lobby info disabled"); return }
@@ -264,23 +254,5 @@ final class LobbyCoordinator {
     let summary = estimator.summary(rows: rows)
     overlay.show(rows: rows, summary: summary, gameFrame: hearthstoneFrame())
   }
-  private func windowArea(_ item: [String: Any]) -> CGFloat {
-    guard let bounds = item[kCGWindowBounds as String] as? NSDictionary,
-          let rect = CGRect(dictionaryRepresentation: bounds) else { return 0 }
-    return rect.width * rect.height
-  }
-  private func hearthstoneFrame(includeOffscreen: Bool = false) -> NSRect? {
-    guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "unity.Blizzard Entertainment.Hearthstone" }) else { return nil }
-    let options: CGWindowListOption = includeOffscreen ? [.optionAll, .excludeDesktopElements] : [.optionOnScreenOnly, .excludeDesktopElements]
-    let items = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
-    for item in items.sorted(by: { windowArea($0) > windowArea($1) }) where (item[kCGWindowOwnerPID as String] as? Int32) == app.processIdentifier {
-      if let dict = item[kCGWindowBounds as String] as? NSDictionary,
-         let quartz = CGRect(dictionaryRepresentation: dict), quartz.width > 500, quartz.height > 300 {
-        let primaryTop = NSScreen.screens.first?.frame.maxY ?? quartz.maxY
-        return NSRect(x: quartz.minX, y: primaryTop - quartz.maxY,
-                      width: quartz.width, height: quartz.height)
-      }
-    }
-    return nil
-  }
+  private func hearthstoneFrame() -> NSRect? { windowTracker.frame() }
 }
