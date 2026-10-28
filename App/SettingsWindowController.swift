@@ -710,8 +710,41 @@ final class SettingsWindowController: NSWindowController {
         "Restart the current Battlegrounds connection."
     )
     reconnectDescription.textColor = .secondaryLabelColor
+    let reconnectStack = makeVerticalStack(
+      [
+        reconnectHeader,
+        reconnectDescription,
+        reconnectButton,
+      ],
+      spacing: 9
+    )
+    constrainFullWidth(
+      [reconnectHeader, reconnectButton],
+      in: reconnectStack
+    )
+    let reconnectCard = makeCard(
+      containing: reconnectStack
+    )
+
+    // Everything that floats over Hearthstone: one switch per overlay, then the controls they share.
+    let overlaysTitle = makeLabel(
+      "Overlays",
+      size: 16,
+      weight: .semibold
+    )
+    let lobbyLabel = NSTextField(labelWithString: "Lobby info")
+    let lobbyRow = makeHorizontalRow(
+      [lobbyLabel, flexibleSpacer(), lobbySwitch],
+      spacing: 12
+    )
+    let lobbyStatusRow = makeHorizontalRow(
+      [lobbyStatusLabel, flexibleSpacer(), retryLobbySetupButton],
+      spacing: 12
+    )
+    // Indented so the status reads as part of the lobby info row above it.
+    lobbyStatusRow.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 0)
     let reconnectOverlayLabel = NSTextField(
-      labelWithString: "Show Reconnect button over Hearthstone"
+      labelWithString: "Reconnect button"
     )
     let reconnectOverlayRow = makeHorizontalRow(
       [
@@ -719,36 +752,6 @@ final class SettingsWindowController: NSWindowController {
         flexibleSpacer(),
         reconnectOverlaySwitch,
       ],
-      spacing: 12
-    )
-    let reconnectStack = makeVerticalStack(
-      [
-        reconnectHeader,
-        reconnectDescription,
-        reconnectButton,
-        reconnectOverlayRow,
-      ],
-      spacing: 9
-    )
-    constrainFullWidth(
-      [reconnectHeader, reconnectButton, reconnectOverlayRow],
-      in: reconnectStack
-    )
-    let reconnectCard = makeCard(
-      containing: reconnectStack
-    )
-
-    let lobbyTitle = makeLabel(
-      "Lobby info",
-      size: 16,
-      weight: .semibold
-    )
-    let lobbyHeader = makeHorizontalRow(
-      [lobbyTitle, flexibleSpacer(), lobbySwitch],
-      spacing: 12
-    )
-    let lobbyStatusRow = makeHorizontalRow(
-      [lobbyStatusLabel, flexibleSpacer(), retryLobbySetupButton],
       spacing: 12
     )
     let lobbyShortcutLabel = NSTextField(
@@ -764,7 +767,7 @@ final class SettingsWindowController: NSWindowController {
     )
 
     let opacityText = NSTextField(
-      labelWithString: "Overlay opacity"
+      labelWithString: "Opacity"
     )
     opacitySlider.translatesAutoresizingMaskIntoConstraints =
       false
@@ -790,8 +793,10 @@ final class SettingsWindowController: NSWindowController {
     let lobbyDivider = makeDivider()
     let lobbyStack = makeVerticalStack(
       [
-        lobbyHeader,
+        overlaysTitle,
+        lobbyRow,
         lobbyStatusRow,
+        reconnectOverlayRow,
         lobbyDivider,
         lobbyShortcutRow,
         opacityRow,
@@ -800,8 +805,8 @@ final class SettingsWindowController: NSWindowController {
       spacing: 9
     )
     constrainFullWidth(
-      [lobbyHeader, lobbyStatusRow, lobbyDivider,
-        lobbyShortcutRow, opacityRow],
+      [lobbyRow, lobbyStatusRow, reconnectOverlayRow,
+        lobbyDivider, lobbyShortcutRow, opacityRow],
       in: lobbyStack
     )
     let lobbyCard = makeCard(containing: lobbyStack)
