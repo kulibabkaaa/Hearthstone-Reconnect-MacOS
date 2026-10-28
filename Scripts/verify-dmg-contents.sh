@@ -17,6 +17,12 @@ cleanup() {
 
 trap cleanup EXIT
 
+# Xcode 27's lipo takes one architecture per -verify_arch, so check each in turn.
+verify_universal() {
+  lipo "$1" -verify_arch arm64
+  lipo "$1" -verify_arch x86_64
+}
+
 [[ -f "${dmg}" ]] || {
   echo "Disk image not found: ${dmg}" >&2
   exit 1
@@ -50,26 +56,20 @@ codesign --verify --deep --strict --verbose=2 "${app}"
 codesign -dv --verbose=4 "${app}" 2>&1 \
   | grep "Authority=Developer ID Application:" >/dev/null
 
-lipo "${app}/Contents/MacOS/HS Reconnect" \
-  -verify_arch arm64 x86_64
-lipo \
-  "${app}/Contents/Library/LoginItems/HS Reconnect Watcher.app/Contents/MacOS/HS Reconnect Watcher" \
-  -verify_arch arm64 x86_64
-lipo \
-  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe" \
-  -verify_arch arm64 x86_64
-lipo \
-  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/HearthMirror.framework/Versions/A/HearthMirror" \
-  -verify_arch arm64 x86_64
-lipo \
-  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libcoreclr.dylib" \
-  -verify_arch arm64 x86_64
-lipo \
-  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libSystem.Native.dylib" \
-  -verify_arch arm64 x86_64
-lipo \
-  "${app}/Contents/Library/SystemExtensions/io.github.kulibabkaaa.HSReconnect.ProxyExtension.systemextension/Contents/MacOS/io.github.kulibabkaaa.HSReconnect.ProxyExtension" \
-  -verify_arch arm64 x86_64
+verify_universal \
+  "${app}/Contents/MacOS/HS Reconnect"
+verify_universal \
+  "${app}/Contents/Library/LoginItems/HS Reconnect Watcher.app/Contents/MacOS/HS Reconnect Watcher"
+verify_universal \
+  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe"
+verify_universal \
+  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/HearthMirror.framework/Versions/A/HearthMirror"
+verify_universal \
+  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libcoreclr.dylib"
+verify_universal \
+  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libSystem.Native.dylib"
+verify_universal \
+  "${app}/Contents/Library/SystemExtensions/io.github.kulibabkaaa.HSReconnect.ProxyExtension.systemextension/Contents/MacOS/io.github.kulibabkaaa.HSReconnect.ProxyExtension"
 
 hdiutil detach "${mountpoint}" >/dev/null
 mounted=false
