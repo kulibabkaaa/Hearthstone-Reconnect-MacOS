@@ -36,6 +36,9 @@ public enum ReconnectButtonEvent: Equatable, Sendable {
   case succeeded
   case noGameFound
   case failed
+  /// A flow was closed by an attempt that already ended (its reply came after the timeout). Starts the
+  /// cooldown at `now` without touching the running state or the transient.
+  case cooldownStarted
 }
 
 /// Pure reconnect state. The app feeds it events and renders `phase(now:)`; time is always passed in.
@@ -77,15 +80,22 @@ public struct ReconnectButtonModel: Equatable, Sendable {
     case .failed:
       isRunning = false
       transient = (.failed, now + Self.transientDuration)
+    case .cooldownStarted:
+      lastReconnectAt = now
     }
   }
 
-  /// Priority: reconnecting > live transient > unavailable > cooldown > ready.
+  /// Priority: reconnecting > live transient > unavailable > cooldown > ready. A clickable transient
+  /// ("No game found", "Try again") shows only while a click would start a reconnect; otherwise the
+  /// unavailable or cooldown state shows instead, so a click never silently does nothing.
   public func phase(now: TimeInterval) -> ReconnectButtonPhase {
     if isRunning { return .reconnecting }
-    if let transient, now < transient.until { return transient.phase }
-    if !proxyReady { return .unavailable }
     let remaining = max(0, lastReconnectAt + cooldownSeconds - now)
+    if let transient, now < transient.until,
+      !Self.appearance(for: transient.phase).isClickable || (proxyReady && remaining <= 0) {
+      return transient.phase
+    }
+    if !proxyReady { return .unavailable }
     // Cap before converting: a corrupt stored time (inf, 1e19) must not trap in Int().
     if remaining > 0 { return .cooldown(seconds: max(1, Int(min(remaining, 86_400).rounded(.up)))) }
     return .ready

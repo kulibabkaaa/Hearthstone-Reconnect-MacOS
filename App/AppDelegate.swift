@@ -41,7 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private var cooldownTimer: Timer?
   private var transientStatusResetWorkItem: DispatchWorkItem?
   private var isRecordingShortcut = false
-  private var isReconnectRunning = false
+  /// Which reconnect attempt is running; every attempt ends exactly once (reply, no game, or timeout).
+  private var reconnectAttempts = ReconnectAttemptFlow()
+  private var isReconnectRunning: Bool { reconnectAttempts.isRunning }
+  /// Ends the running attempt if the extension never replies.
+  private var reconnectTimeoutTimer: Timer?
   private var isProxyReady = false {
     didSet {
       guard isProxyReady != oldValue else { return }
@@ -709,104 +713,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   }
 
   private func runReconnect() {
-    guard isProxyReady else {
-      windowController.setStatus(
-        "The local proxy is still getting ready.",
-        isError: true
-      )
-      return
-    }
-    guard !isReconnectRunning else {
-      windowController.setStatus(
-        "Reconnect is already in progress.",
-        isError: true
-      )
-      return
-    }
-
     let remaining = ReconnectCooldown.remaining(
       lastReconnectAt: UserDefaults.standard.double(
         forKey: DefaultsKey.lastReconnectAt
       ),
       now: Date().timeIntervalSince1970
     )
-    guard remaining <= 0 else {
-      windowController.setStatus(
-        "Please wait \(ReconnectCooldownDisplay.wholeSeconds(remaining: remaining)) seconds and try again.",
-        isError: true
-      )
+    let attempt: ReconnectAttemptToken
+    switch reconnectAttempts.request(proxyReady: isProxyReady, cooldownRemaining: remaining) {
+    case .refused(let effects):
+      applyReconnectEffects(effects)
       return
+    case .started(let token, let effects):
+      attempt = token
+      applyReconnectEffects(effects)
+      scheduleReconnectTimeout(for: token)
     }
-
-    // From here on every exit sends exactly one finish event (`finishReconnectButton`).
-    isReconnectRunning = true
-    sendReconnectButtonEvent(.started)
-    windowController.setStatus("Reconnecting…")
-    updateReconnectAvailability()
 
     let target: ReconnectTarget
     do {
       target = try GameEndpointResolver().reconnectTarget()
     } catch {
-      isReconnectRunning = false
-      finishReconnectButton(.endpointNotFound)
-      showTemporaryMissingGameStatus()
-      updateReconnectAvailability()
+      applyReconnectEffects(reconnectAttempts.endpointNotFound(attempt))
       return
     }
 
     proxyController.reconnect(target: target) { [weak self] result in
       guard let self else { return }
-      guard !self.isUninstalling else {
-        self.finishReconnectButton(.uninstalling)
-        return
-      }
-      self.isReconnectRunning = false
-      guard self.lastSystemExtensionState?.isEnabled == true,
-        self.proxyConnectionStatus == .connected
-      else {
-        self.finishReconnectButton(.extensionUnavailable)
-        self.windowController.setStatus(
-          "Checking the reconnect extension…"
-        )
-        self.refreshSystemExtensionState()
-        self.updateReconnectAvailability()
-        return
-      }
-      switch result {
-      case .failure:
-        self.finishReconnectButton(.requestFailed)
-        self.windowController.setStatus(
-          "Reconnect couldn't be completed. Please try again.",
-          isError: true
-        )
-      case .success(let response):
-        if response.didCloseFlow {
-          self.analyticsController.signal(.reconnectSucceeded)
-          // The button's cooldown starts from the same stamp the shortcut's cooldown reads.
-          let now = Date().timeIntervalSince1970
-          UserDefaults.standard.set(
-            now,
-            forKey: DefaultsKey.lastReconnectAt
-          )
-          self.finishReconnectButton(.flowClosed, now: now)
-          self.windowController.setStatus(
-            "Reconnect triggered."
-          )
-        } else {
-          self.finishReconnectButton(.noFlowClosed)
-          self.showTemporaryMissingGameStatus()
-        }
-      }
-      self.updateReconnectAvailability()
+      let completion = ReconnectCompletion(
+        isUninstalling: self.isUninstalling,
+        extensionConnected: self.lastSystemExtensionState?.isEnabled == true
+          && self.proxyConnectionStatus == .connected,
+        didCloseFlow: try? result.get().didCloseFlow
+      )
+      self.applyReconnectEffects(self.reconnectAttempts.complete(attempt, completion))
     }
   }
 
-  private func finishReconnectButton(
-    _ outcome: ReconnectAttemptOutcome,
-    now: TimeInterval = Date().timeIntervalSince1970
-  ) {
-    sendReconnectButtonEvent(outcome.buttonEvent, now: now)
+  private func scheduleReconnectTimeout(for attempt: ReconnectAttemptToken) {
+    reconnectTimeoutTimer?.invalidate()
+    let timer = Timer(timeInterval: ReconnectAttemptFlow.timeout, repeats: false) {
+      [weak self] _ in
+      guard let self else { return }
+      self.applyReconnectEffects(
+        self.reconnectAttempts.timeOut(attempt, isUninstalling: self.isUninstalling)
+      )
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    reconnectTimeoutTimer = timer
+  }
+
+  /// Carries out one step of `ReconnectAttemptFlow`, in the order `ReconnectAttemptEffects` documents.
+  private func applyReconnectEffects(_ effects: ReconnectAttemptEffects) {
+    // The button's cooldown starts from the same stamp the shortcut's cooldown reads.
+    let now = Date().timeIntervalSince1970
+    if effects.recordsFlowClosed {
+      analyticsController.signal(.reconnectSucceeded)
+      UserDefaults.standard.set(now, forKey: DefaultsKey.lastReconnectAt)
+    }
+    if let event = effects.buttonEvent {
+      sendReconnectButtonEvent(event, now: now)
+    } else if effects.rendersButton {
+      renderReconnectButton()
+    }
+    if let status = effects.status {
+      if status == .missingGame {
+        showTemporaryMissingGameStatus()
+      } else {
+        windowController.setStatus(status.text, isError: status.isError)
+      }
+    }
+    if effects.refreshesExtensionState { refreshSystemExtensionState() }
+    if effects.updatesAvailability { updateReconnectAvailability() }
+    if !reconnectAttempts.isRunning {
+      reconnectTimeoutTimer?.invalidate()
+      reconnectTimeoutTimer = nil
+    }
   }
 
   private func sendReconnectButtonEvent(
@@ -911,7 +893,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   }
 
   private func showTemporaryMissingGameStatus() {
-    let message = "Start a Battlegrounds game and try again."
+    let message = ReconnectStatusMessage.missingGame.text
     transientStatusResetWorkItem?.cancel()
     windowController.setStatus(message, isError: true)
 
@@ -1417,7 +1399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
 
         self.isUninstalling = false
         self.isUninstallCleanupStarted = false
-        self.isReconnectRunning = false
+        // A reconnect still running ends by its own reply or timeout.
         self.recomputeProxyReadiness()
         self.registerStoredHotKey()
         self.lobbyCoordinator.start()
@@ -1491,7 +1473,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       case .failure(let error):
         self.isUninstalling = false
         self.isUninstallCleanupStarted = false
-        self.isReconnectRunning = false
+        // A reconnect still running ends by its own reply or timeout.
         let shouldRestoreRuntime =
           self.shouldRestoreRuntimeAfterFailedUninstall(error)
         if shouldRestoreRuntime {

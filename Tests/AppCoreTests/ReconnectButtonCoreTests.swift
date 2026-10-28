@@ -26,15 +26,52 @@ struct ReconnectButtonCoreTests {
     #expect(m.phase(now: t0 + 0.5) == .reconnecting)
     #expect(m.nextChange(after: t0 + 0.5) == nil)
   }
-  @Test("a live transient beats unavailable; unavailable beats cooldown; expired transient falls through")
+  @Test("Reconnected beats unavailable; unavailable beats cooldown; expired transient falls through")
   func transientThenUnavailableThenCooldown() {
-    var m = model(last: t0)
-    m.apply(.noGameFound, now: t0)
+    var m = model()
+    m.apply(.succeeded, now: t0)
     m.apply(.proxyAvailability(ready: false), now: t0)
-    #expect(m.phase(now: t0 + 1.9) == .noGameFound)
+    #expect(m.phase(now: t0 + 1.9) == .succeeded)
     #expect(m.phase(now: t0 + 2) == .unavailable)   // expiry is exclusive, cooldown still running underneath
     m.apply(.proxyAvailability(ready: true), now: t0 + 2)
     #expect(m.phase(now: t0 + 2) == .cooldown(seconds: 3))
+  }
+  @Test("a clickable transient gives way to unavailable or cooldown, so its click is never refused",
+        arguments: [ReconnectButtonEvent.noGameFound, .failed])
+  func clickableTransientNeedsAClickThatWorks(_ event: ReconnectButtonEvent) {
+    let shown: ReconnectButtonPhase = event == .failed ? .failed : .noGameFound
+    // Readiness drops while the transient shows.
+    var m = model()
+    m.apply(event, now: t0)
+    #expect(m.phase(now: t0 + 0.5) == shown)
+    m.apply(.proxyAvailability(ready: false), now: t0 + 0.5)
+    #expect(m.phase(now: t0 + 0.5) == .unavailable)
+    m.apply(.proxyAvailability(ready: true), now: t0 + 1)
+    #expect(m.phase(now: t0 + 1) == shown)            // back while it lasts
+    // The attempt ends while the proxy is already down (the extension went away mid-attempt).
+    var down = model(ready: false)
+    down.apply(.started, now: t0)
+    down.apply(event, now: t0 + 1)
+    #expect(down.phase(now: t0 + 1) == .unavailable)
+    // A late closed flow starts the cooldown under the transient.
+    var late = model()
+    late.apply(event, now: t0)
+    late.apply(.cooldownStarted, now: t0 + 0.5)
+    #expect(late.phase(now: t0 + 0.5) == .cooldown(seconds: 5))
+  }
+  @Test("cooldownStarted stamps the cooldown and leaves running and the transient alone")
+  func cooldownStarted() {
+    var running = model()
+    running.apply(.started, now: t0)
+    running.apply(.cooldownStarted, now: t0 + 1)
+    #expect(running.isRunning)
+    #expect(running.lastReconnectAt == t0 + 1)
+    #expect(running.phase(now: t0 + 1) == .reconnecting)
+    var shown = model()
+    shown.apply(.succeeded, now: t0)
+    shown.apply(.cooldownStarted, now: t0 + 1)
+    #expect(shown.phase(now: t0 + 1.5) == .succeeded)
+    #expect(shown.phase(now: t0 + 2) == .cooldown(seconds: 4))
   }
 
   // MARK: Events
