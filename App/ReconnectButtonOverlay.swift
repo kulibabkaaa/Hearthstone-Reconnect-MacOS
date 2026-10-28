@@ -7,7 +7,7 @@ final class ReconnectButtonPanel: NSPanel {
 }
 
 /// Draws the button on a fixed 124×38 canvas scaled to the panel, like `LobbyCanvas`, so a resized
-/// button looks identical. Every phase fits the same width; long titles shrink a little (to 10.5 pt), then truncate.
+/// button looks identical. Every phase fits the same width; long titles shrink a little (to 11 pt), then truncate.
 final class ReconnectButtonCanvas: NSView {
   static let baseSize = NSSize(width: ReconnectButtonLayout.baseSize.width, height: ReconnectButtonLayout.baseSize.height)
   private static let spinPeriod: TimeInterval = 1
@@ -89,23 +89,25 @@ final class ReconnectButtonCanvas: NSView {
     defer { context.restoreGState() }
     context.scaleBy(x: bounds.width / base.width, y: bounds.height / base.height)
     let palette = Palette(tone: buttonAppearance.tone)
-    let shape = NSRect(x: 0.5, y: 0.5, width: base.width - 1, height: base.height - 1)
-    let radius = base.height * 0.18
-    let background = NSBezierPath(roundedRect: shape, xRadius: radius, yRadius: radius)
-    // Same fill and border tokens as the lobby canvas, so both blocks read as one family.
-    let fillAlpha: CGFloat = isPressed ? 0.86 : 0.72
-    let fillWhite: CGFloat = isPressed ? 0.10 : (isHovered && canClick ? 0.21 : 0.16)
-    NSColor(calibratedWhite: fillWhite, alpha: fillAlpha).setFill()
-    background.fill()
+    // Proportions measured from the issue #44 mockup: a light glass rim around a dark inner panel.
+    let rim = NSBezierPath(roundedRect: NSRect(x: 0.5, y: 0.5, width: base.width - 1, height: base.height - 1),
+      xRadius: base.height * 0.26, yRadius: base.height * 0.26)
+    palette.rimFill.setFill()
+    rim.fill()
     palette.border.setStroke()
-    background.lineWidth = 1
-    background.stroke()
+    rim.lineWidth = 1
+    rim.stroke()
+    let inner = NSBezierPath(roundedRect: NSRect(x: 11, y: 8.5, width: base.width - 22, height: base.height - 17),
+      xRadius: 8, yRadius: 8)
+    // The inner panel uses the lobby canvas fill, so both blocks read as one family.
+    let fillAlpha: CGFloat = isPressed ? 0.86 : 0.72
+    let fillWhite: CGFloat = isPressed ? 0.10 : (isHovered && canClick ? 0.22 : 0.16)
+    NSColor(calibratedWhite: fillWhite, alpha: fillAlpha).setFill()
+    inner.fill()
 
-    let iconBox = NSRect(x: 10, y: (base.height - 20) / 2, width: 20, height: 20)
-    drawIcon(in: iconBox, color: palette.icon)
-    // 83 pt fits the longest title ("Reconnecting…") at the smallest size.
-    let label = NSRect(x: 35, y: 0, width: base.width - 35 - 6, height: base.height)
-    drawTitle(buttonAppearance.title, in: label, color: palette.text)
+    drawIcon(in: NSRect(x: 18, y: (base.height - 25) / 2, width: 27, height: 25), color: palette.icon)
+    // 57 pt is where the mockup's text starts; 90 pt fits "Reconnecting…" at the smallest size.
+    drawTitle(buttonAppearance.title, in: NSRect(x: 55, y: 0, width: 92, height: base.height), color: palette.text)
   }
 
   private func drawIcon(in box: NSRect, color: NSColor) {
@@ -130,7 +132,7 @@ final class ReconnectButtonCanvas: NSView {
     let tone = buttonAppearance.tone
     if let iconCache, iconCache.tone == tone { return iconCache.image }
     let symbol = tone == .success ? "checkmark" : "arrow.triangle.2.circlepath"
-    let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+    let configuration = NSImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
       .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
     let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
     iconCache = (tone, image)
@@ -138,15 +140,17 @@ final class ReconnectButtonCanvas: NSView {
   }
 
   private func drawTitle(_ title: String, in rect: NSRect, color: NSColor) {
-    var font = NSFont.systemFont(ofSize: 14, weight: .medium)
-    // Shrink long titles down to 10.5 pt before truncating; the button itself never changes size.
-    while font.pointSize > 10.5, (title as NSString).size(withAttributes: [.font: font]).width > rect.width {
+    var font = NSFont.systemFont(ofSize: 17, weight: .medium)
+    // Shrink long titles down to 11 pt before truncating; the button itself never changes size.
+    while font.pointSize > 11, (title as NSString).size(withAttributes: [.font: font]).width > rect.width {
       font = .systemFont(ofSize: font.pointSize - 0.5, weight: .medium)
     }
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineBreakMode = .byTruncatingTail
+    // Centre the capitals (not the line box) on the button, as the mockup does.
+    let baseline = rect.midY + font.capHeight / 2
     let height = font.ascender - font.descender + font.leading
-    let box = NSRect(x: rect.minX, y: rect.minY + (rect.height - height) / 2, width: rect.width, height: height)
+    let box = NSRect(x: rect.minX, y: baseline - font.ascender, width: rect.width, height: height)
     (title as NSString).draw(in: box, withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
   }
 
@@ -180,29 +184,30 @@ final class ReconnectButtonCanvas: NSView {
     let icon: NSColor
     let text: NSColor
     let border: NSColor
+    let rimFill: NSColor
     init(tone: ReconnectButtonTone) {
-      let lobbyBorder = NSColor(calibratedWhite: 0.62, alpha: 0.45)
+      rimFill = NSColor(calibratedWhite: 1, alpha: tone == .dimmed ? 0.07 : 0.12)
       switch tone {
       case .normal:
-        icon = NSColor(calibratedRed: 0.30, green: 0.64, blue: 1.0, alpha: 1)
-        text = .white
-        border = lobbyBorder
+        icon = NSColor(calibratedRed: 0.05, green: 0.70, blue: 0.95, alpha: 1)
+        text = NSColor(calibratedWhite: 0.97, alpha: 1)
+        border = NSColor(calibratedWhite: 1, alpha: 0.32)
       case .dimmed:
         icon = NSColor(calibratedWhite: 0.62, alpha: 0.75)
         text = NSColor(calibratedWhite: 0.80, alpha: 0.70)
-        border = NSColor(calibratedWhite: 0.62, alpha: 0.30)
+        border = NSColor(calibratedWhite: 1, alpha: 0.16)
       case .success:
         icon = NSColor(calibratedRed: 0.48, green: 0.88, blue: 0.50, alpha: 1)
-        text = .white
-        border = NSColor(calibratedRed: 0.48, green: 0.88, blue: 0.50, alpha: 0.55)
+        text = NSColor(calibratedWhite: 0.97, alpha: 1)
+        border = NSColor(calibratedRed: 0.48, green: 0.88, blue: 0.50, alpha: 0.60)
       case .warning:
         icon = NSColor(calibratedRed: 0.98, green: 0.74, blue: 0.30, alpha: 1)
         text = NSColor(calibratedRed: 1.0, green: 0.88, blue: 0.66, alpha: 1)
-        border = NSColor(calibratedRed: 0.98, green: 0.74, blue: 0.30, alpha: 0.60)
+        border = NSColor(calibratedRed: 0.98, green: 0.74, blue: 0.30, alpha: 0.65)
       case .error:
         icon = NSColor(calibratedRed: 0.95, green: 0.42, blue: 0.42, alpha: 1)
         text = NSColor(calibratedRed: 1.0, green: 0.80, blue: 0.80, alpha: 1)
-        border = NSColor(calibratedRed: 0.95, green: 0.42, blue: 0.42, alpha: 0.60)
+        border = NSColor(calibratedRed: 0.95, green: 0.42, blue: 0.42, alpha: 0.65)
       }
     }
   }
