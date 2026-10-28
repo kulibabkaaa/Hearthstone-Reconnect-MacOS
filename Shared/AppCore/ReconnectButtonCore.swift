@@ -86,7 +86,8 @@ public struct ReconnectButtonModel: Equatable, Sendable {
     if let transient, now < transient.until { return transient.phase }
     if !proxyReady { return .unavailable }
     let remaining = max(0, lastReconnectAt + cooldownSeconds - now)
-    if remaining > 0 { return .cooldown(seconds: max(1, Int(remaining.rounded(.up)))) }
+    // Cap before converting: a corrupt stored time (inf, 1e19) must not trap in Int().
+    if remaining > 0 { return .cooldown(seconds: max(1, Int(min(remaining, 86_400).rounded(.up)))) }
     return .ready
   }
 
