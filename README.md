@@ -36,7 +36,7 @@ HS Reconnect requires **macOS 13 or later** and the **native Mac version of Hear
 
 The lobby overlay works while HSTracker is running. Reconnect works independently of the overlay.
 
-The **Overlays** card in the app turns **Lobby info** and the **Reconnect button** on or off, and sets the position shortcut, opacity, and **Reset Layout** for both. The button is on by default. With lobby info off, the app still checks whether you are in a match so it can show the button; if it cannot tell, the button shows whenever Hearthstone is in front.
+The **Overlays** card in the app turns **Lobby info** and the **Reconnect button** on or off, and sets the position shortcut, opacity, and **Reset Layout** for both. The button is on by default. With lobby info off, the app still reads Hearthstone's game state on your Mac to tell whether you are in a match; turn off the button to stop this. If the app cannot tell whether you are in a match, for example while it is still connecting to the game, the button shows whenever Hearthstone is in front.
 
 ## Updates and privacy
 

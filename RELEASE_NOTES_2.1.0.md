@@ -12,9 +12,12 @@
   switches, the position shortcut, opacity, and Reset Layout.
 - A reconnect that gets no answer now stops after 12 seconds and offers Try
   again.
-- With Lobby info off and the button on, the app checks quietly whether you are
-  in a match. It shows no overlay, downloads no ratings, and asks for no new
-  permissions. If it cannot tell, the button shows whenever Hearthstone is in
+- With Lobby info off and the button on, the app still reads Hearthstone's game
+  state on this Mac to tell whether you are in a match. It uses nothing else,
+  shows no lobby overlay, downloads no ratings, and asks for no new permissions.
+  Turn off the Reconnect button to stop this.
+- If the app cannot tell whether you are in a match, for example while it is
+  still connecting to the game, the button shows whenever Hearthstone is in
   front.
 - A short What's New card introduces the button once, in the app window when
   Reconnect is ready. It never appears over the game.
