@@ -124,6 +124,97 @@ enum OverlayLayoutDiagnostics {
     print("PASS: button hides (spinner stops) when the game isn't frontmost or has no window, keeps tracking the game while hidden, shows again, follows overlay opacity")
   }
 
+  /// The match rule: outside layout mode the button shows only in a match; layout mode shows it at any time and
+  /// it hides again when the session ends; a reconnect result already on screen stays up; without a match
+  /// detector it shows whenever the game is frontmost; the setting hides it.
+  static func verifyMatchRule(_ button: ReconnectButtonOverlayController, gameWindow: NSWindow) {
+    let session = button.layoutSession
+    let panel = button.diagnosticBlock.panel
+    let game = gameWindow.frame
+    var inMatch = false
+    var enabled = true
+    var detector = true
+    button.isGameFrontmost = { true }
+    button.isEnabled = { enabled }
+    button.isMatchDetectorAvailable = { detector }
+    button.isInMatch = { inMatch }
+    session.finish(save: false)
+    button.render(.ready)
+    button.hide()
+    button.updateGameWindow(frame: game)
+    precondition(!panel.isVisible)
+    inMatch = true
+    button.updateGameWindow(frame: game)
+    precondition(panel.isVisible)
+    inMatch = false
+    button.updateGameWindow(frame: game)
+    precondition(!panel.isVisible)
+    print("PASS: hidden with no match, shown during a match, hidden after it ends")
+
+    for save in [true, false] {
+      precondition(session.begin([.reconnectButton]) && button.isEditing && panel.isVisible)
+      button.updateGameWindow(frame: game)
+      precondition(panel.isVisible && session.isActive)
+      session.finish(save: save)
+      precondition(!session.isActive && !panel.isVisible && !button.diagnosticBlock.editor.isVisible)
+    }
+    inMatch = true
+    button.updateGameWindow(frame: game)
+    precondition(session.begin([.reconnectButton]))
+    session.finish(save: true)
+    precondition(panel.isVisible)
+    print("PASS: layout mode shows the button outside a match and hides it again when saved or cancelled; in a match it stays")
+
+    button.render(.reconnecting)
+    inMatch = false
+    button.updateGameWindow(frame: game)
+    precondition(panel.isVisible)
+    button.render(.succeeded)
+    button.updateGameWindow(frame: game)
+    precondition(panel.isVisible)
+    button.render(.cooldown(seconds: 4))
+    button.updateGameWindow(frame: game)
+    precondition(!panel.isVisible)
+    button.render(.noGameFound)
+    button.updateGameWindow(frame: game)
+    precondition(!panel.isVisible)
+    print("PASS: a reconnect result on screen outlasts the match signal; a hidden button doesn't appear for one")
+
+    button.render(.ready)
+    detector = false
+    button.updateGameWindow(frame: game)
+    precondition(panel.isVisible)
+    var frontmost = false
+    button.isGameFrontmost = { frontmost }
+    button.updateGameWindow(frame: game)
+    precondition(!panel.isVisible)
+    frontmost = true
+    button.updateGameWindow(frame: game)
+    precondition(panel.isVisible)
+    detector = true
+    button.updateGameWindow(frame: game)
+    precondition(!panel.isVisible)
+    print("PASS: without a match detector the button shows whenever the game is frontmost; with one it hides outside a match")
+
+    button.render(.ready)
+    inMatch = true
+    enabled = false
+    button.updateGameWindow(frame: game)
+    precondition(!panel.isVisible)
+    enabled = true
+    button.updateGameWindow(frame: game)
+    precondition(panel.isVisible)
+    detector = false
+    enabled = false
+    button.updateGameWindow(frame: game)
+    precondition(!panel.isVisible)
+    button.isInMatch = { true }
+    button.isEnabled = { true }
+    button.isMatchDetectorAvailable = { true }
+    button.isGameFrontmost = { true }
+    print("PASS: the setting off hides the button even in a match or without a detector")
+  }
+
   static func verifySharedLayout(lobby: LobbyOverlayController, button: ReconnectButtonOverlayController, gameWindow: NSWindow) {
     let session = lobby.layoutSession
     precondition(session === button.layoutSession)

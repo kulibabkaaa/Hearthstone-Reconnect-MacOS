@@ -85,6 +85,10 @@ private final class LobbyCaptureProbe {
   private var failedAttachmentPID: Int32?
   private var attachmentRetryAfter: Date?
   private var attachmentFailureCount = 0
+  /// Match detection only (lobby info off, Reconnect button on): never show the lobby access dialog.
+  private let quietAttach = ProcessInfo.processInfo.environment["HS_RECONNECT_QUIET_ATTACH"] == "1"
+  private static let quietRetryInterval: TimeInterval = 30
+  private var quietRetryAfter: Date?
 
   func run() -> Never {
     emit(event: "probe_started", detail: "Waiting for native Hearthstone.")
@@ -113,6 +117,7 @@ private final class LobbyCaptureProbe {
   }
 
   private func attach(to pid: Int32) {
+    if quietAttach, let quietRetryAfter, Date() < quietRetryAfter { return }
     if !LobbyAttachRetryPolicy.canAttempt(
       failedPID: failedAttachmentPID,
       retryAfter: attachmentRetryAfter,
@@ -135,7 +140,16 @@ private final class LobbyCaptureProbe {
         detail: "Hearthstone could not be verified as the signed Blizzard application.")
       return
     }
-    let permissionResult = acquireTaskportRight()
+    // acquireTaskportRight() may show a password dialog. Quiet mode skips it and attaches only when macOS
+    // already grants task_for_pid's right without one (an approval within its 10 h timeout, or developer tools
+    // access enabled), and checks again later.
+    if quietAttach && !Self.taskportRightGrantedWithoutDialog() {
+      quietRetryAfter = Date().addingTimeInterval(Self.quietRetryInterval)
+      emitIfChanged(event: "permission_unavailable", hearthstonePID: pid,
+        detail: "Lobby access isn't granted now; match detection doesn't ask for it.")
+      return
+    }
+    let permissionResult = quietAttach ? 0 : acquireTaskportRight()
     guard permissionResult == 0 else {
       let rejected = permissionResult == errAuthorizationCanceled
         || permissionResult == errAuthorizationDenied
@@ -168,6 +182,23 @@ private final class LobbyCaptureProbe {
     attachmentRetryAfter = nil
     attachmentFailureCount = 0
     emit(event: "attached", hearthstonePID: pid)
+  }
+
+  /// The right task_for_pid (inside HearthMirror's init) is checked against, with no user interaction allowed.
+  /// Not the one `acquireTaskportRight()` asks for: HearthMirror spells it "system.privilege.taskport:", which
+  /// has no rule of its own and falls back to the default admin rule (5 min timeout).
+  private static func taskportRightGrantedWithoutDialog() -> Bool {
+    var authorization: AuthorizationRef?
+    guard AuthorizationCreate(nil, nil, [], &authorization) == errAuthorizationSuccess,
+          let authorization else { return false }
+    defer { AuthorizationFree(authorization, []) }
+    return "system.privilege.taskport".withCString { name in
+      var item = AuthorizationItem(name: name, valueLength: 0, value: nil, flags: 0)
+      return withUnsafeMutablePointer(to: &item) { pointer in
+        var rights = AuthorizationRights(count: 1, items: pointer)
+        return AuthorizationCopyRights(authorization, &rights, nil, [.extendRights], nil) == errAuthorizationSuccess
+      }
+    }
   }
 
   @discardableResult
@@ -273,6 +304,7 @@ private final class LobbyCaptureProbe {
     logSessionDirectory = nil
     attachedAt = nil
     if clearRetry {
+      quietRetryAfter = nil
       failedAttachmentPID = nil
       attachmentRetryAfter = nil
       attachmentFailureCount = 0

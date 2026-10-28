@@ -266,8 +266,10 @@ final class ReconnectButtonCanvas: NSView {
 /// like the shortcut; the owner decides what that does. It moves and resizes only in layout mode.
 ///
 /// API for the app:
-/// - `updateGameWindow(frame:)` on every game-frame poll: shows the button over the game while Hearthstone
-///   is frontmost, hides it otherwise (and cancels a running layout session it is part of).
+/// - `updateGameWindow(frame:)` on every game-frame poll, and when the match state changes: shows the button
+///   over the game while `ReconnectButtonVisibilityPolicy.shouldShow` says so (setting on, Hearthstone
+///   frontmost, and in a match, in layout mode, or no match detector), hides it otherwise (and cancels a
+///   running layout session it is part of).
 /// - `hide()` when the setting is turned off.
 /// - `render(_:)` with the current `ReconnectButtonPhase` (call again on each `nextChange`).
 /// - `onReconnect` fires only for a clickable phase and only while layout mode is off.
@@ -279,6 +281,12 @@ final class ReconnectButtonOverlayController: NSObject {
   var onReconnect: (() -> Void)?
   /// Whether Hearthstone is frontmost. The harness swaps this to simulate focus changes.
   var isGameFrontmost: () -> Bool = { HearthstoneApp.isFrontmost }
+  /// Whether the Reconnect button setting is on.
+  var isEnabled: () -> Bool = { true }
+  /// Whether the match detector is attached. Without it the button shows whenever Hearthstone is frontmost.
+  var isMatchDetectorAvailable: () -> Bool = { true }
+  /// Whether the player is in a match. With a detector, the button shows outside layout mode only then.
+  var isInMatch: () -> Bool = { false }
   private(set) var phase: ReconnectButtonPhase = .ready
   var isEditing: Bool { block.isEditing }
   var isVisible: Bool { block.panel.isVisible }
@@ -304,16 +312,21 @@ final class ReconnectButtonOverlayController: NSObject {
     canvas.onClick = { [weak self] in self?.onReconnect?() }
     block.onPanelResize = { [weak self] in self?.canvas.needsDisplay = true }
     block.onEditingPresented = { [weak self] in self?.canvas.visibilityChanged() }
+    // A layout session begun outside a match shows the button; when it ends the button goes away again.
+    block.onEditingFinished = { [weak self] in
+      guard let self, !self.shouldShow(hasGameWindow: true) else { return }
+      self.hide()
+    }
     layoutSession.register(block)
   }
 
   func updateGameWindow(frame: NSRect?) {
     let changed = frame != block.gameFrame
     if let frame { block.gameFrame = frame }
-    guard frame != nil, isGameFrontmost() else {
+    guard shouldShow(hasGameWindow: frame != nil) else {
       hide()
       // Keep the hidden button placed on the game, so a layout session begun before the next frontmost
-      // poll starts (and saves) from the right spot.
+      // poll (or outside a match) starts (and saves) from the right spot.
       if changed, frame != nil { block.restoreFrame() }
       return
     }
@@ -321,6 +334,12 @@ final class ReconnectButtonOverlayController: NSObject {
     block.panel.orderFrontRegardless()
     canvas.visibilityChanged()
     if isEditing { layoutSession.refreshHint(); block.editor.orderFrontRegardless() }
+  }
+  private func shouldShow(hasGameWindow: Bool) -> Bool {
+    ReconnectButtonVisibilityPolicy.shouldShow(buttonEnabled: isEnabled(), hasGameWindow: hasGameWindow,
+      gameFrontmost: isGameFrontmost(), detectorAvailable: isMatchDetectorAvailable(), inMatch: isInMatch(),
+      isEditingLayout: isEditing,
+      isShowingFeedback: isVisible && ReconnectButtonVisibilityPolicy.isReconnectFeedback(phase))
   }
   /// Hides the button. A layout session it is part of is cancelled for every block.
   func hide() {

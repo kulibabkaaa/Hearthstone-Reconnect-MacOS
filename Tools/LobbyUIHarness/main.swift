@@ -109,6 +109,8 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
     let game = makeGameWindow(size: size, image: argument("game-image").flatMap { NSImage(contentsOfFile: $0) })
     gameWindow = game
     button.isGameFrontmost = { true }
+    // The fake game is in a match, so the button shows outside layout mode (`verifyMatchRule` covers the rest).
+    button.isInMatch = { true }
     overlay.isGameFrontmost = { true }
     var clicks = 0
     button.onReconnect = { clicks += 1; print("Reconnect clicked (\(clicks))") }
@@ -125,6 +127,7 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
           OverlayLayoutDiagnostics.verifySharedLayout(lobby: overlay, button: button, gameWindow: game)
         } else {
           OverlayLayoutDiagnostics.verifyButton(button, gameWindow: game)
+          OverlayLayoutDiagnostics.verifyMatchRule(button, gameWindow: game)
         }
         if !arguments.contains("--fullscreen-test") { NSApp.terminate(nil); return }
       }
