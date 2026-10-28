@@ -157,7 +157,7 @@ struct ReconnectAttemptFlowTests {
 
   @Test("the timeout ends a silent attempt with Try again and the usual failure text")
   func timeout() {
-    #expect(ReconnectAttemptFlow.timeout == 10)
+    #expect(ReconnectAttemptFlow.timeout == 12)
     #expect(ReconnectAttemptOutcome.timedOut.buttonEvent == .failed)
     var flow = ReconnectAttemptFlow()
     guard case .started(let token, _) = flow.request(proxyReady: true, cooldownRemaining: 0) else { return }
@@ -253,27 +253,33 @@ struct ReconnectAttemptFlowTests {
 
   @Test("whenever the button looks clickable, a click starts an attempt (no silent clicks)")
   func clickableAlwaysStarts() {
-    // Every ending, with readiness dropping before, during or after, and a late closed flow.
+    // Every ending (on time, or after a timeout with the reply arriving late), with readiness dropping
+    // before, during or after.
     let completions: [ReconnectCompletion?] = [nil, .extensionUnavailable, .failed, .response(didCloseFlow: false),
                                                .response(didCloseFlow: true)]
     for completion in completions {
-      for dropAt in [nil, 0.5, 1.5, 2.5] as [Double?] {
-        var app = AppSim()
-        guard let token = app.press(now: t0) else { continue }
-        if dropAt == 0.5 { app.setProxyReady(false, now: t0 + 0.5) }
-        if let completion {
-          app.apply(app.flow.complete(token, completion), now: t0 + 1)
-        } else {
-          app.apply(app.flow.endpointNotFound(token), now: t0 + 1)
-        }
-        if dropAt == 1.5 { app.setProxyReady(false, now: t0 + 1.5) }
-        for step in stride(from: 1.0, through: 9.0, by: 0.25) {
-          let now = t0 + step
-          if dropAt == 2.5, step == 2.5 { app.setProxyReady(false, now: now) }
-          let phase = app.model.phase(now: now)
-          guard ReconnectButtonModel.appearance(for: phase).isClickable else { continue }
-          var probe = app
-          #expect(probe.press(now: now) != nil, "\(String(describing: completion)) drop \(String(describing: dropAt)) at +\(step): \(phase)")
+      for timesOut in [false, true] {
+        for dropAt in [nil, 0.5, 1.5, 2.5] as [Double?] {
+          var app = AppSim()
+          guard let token = app.press(now: t0) else { continue }
+          if dropAt == 0.5 { app.setProxyReady(false, now: t0 + 0.5) }
+          if timesOut { app.apply(app.flow.timeOut(token, isUninstalling: false), now: t0 + 0.75) }
+          if let completion {
+            app.apply(app.flow.complete(token, completion), now: t0 + 1)
+          } else {
+            app.apply(app.flow.endpointNotFound(token), now: t0 + 1)
+          }
+          #expect(app.finishEvents == 1)
+          if dropAt == 1.5 { app.setProxyReady(false, now: t0 + 1.5) }
+          for step in stride(from: 1.0, through: 9.0, by: 0.25) {
+            let now = t0 + step
+            if dropAt == 2.5, step == 2.5 { app.setProxyReady(false, now: now) }
+            let phase = app.model.phase(now: now)
+            guard ReconnectButtonModel.appearance(for: phase).isClickable else { continue }
+            var probe = app
+            #expect(probe.press(now: now) != nil,
+                    "\(String(describing: completion)) timeout \(timesOut) drop \(String(describing: dropAt)) at +\(step): \(phase)")
+          }
         }
       }
     }

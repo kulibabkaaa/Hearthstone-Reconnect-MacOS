@@ -137,8 +137,9 @@ public struct ReconnectAttemptToken: Hashable, Sendable {
 /// Every started attempt ends exactly once: by its reply, by "no game endpoint", or by the timeout,
 /// whichever comes first. Anything that arrives for an attempt that already ended is ignored for the UI.
 public struct ReconnectAttemptFlow: Equatable, Sendable {
-  /// How long the app waits for the extension's reply before showing a failure.
-  public static let timeout: TimeInterval = 10
+  /// How long the app waits for the extension's reply before showing a failure. Longer than the proxy
+  /// controller's own 10 s wait for the tunnel to start, so a slow start isn't shown as a failure.
+  public static let timeout: TimeInterval = 12
 
   public private(set) var activeAttempt: ReconnectAttemptToken?
   private var lastIssued: UInt64 = 0
