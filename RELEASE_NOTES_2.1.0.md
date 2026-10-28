@@ -16,7 +16,8 @@
   in a match. It shows no overlay, downloads no ratings, and asks for no new
   permissions. If it cannot tell, the button shows whenever Hearthstone is in
   front.
-- What's New appears once after an update.
+- A short What's New card introduces the button once, in the app window when
+  Reconnect is ready. It never appears over the game.
 - Successful reconnects now record which control started them: the shortcut,
   the button, the app window, or the menu bar menu. No other analytics change.
 
