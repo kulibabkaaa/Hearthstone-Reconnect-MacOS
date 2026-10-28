@@ -50,8 +50,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     didSet {
       guard isProxyReady != oldValue else { return }
       sendReconnectButtonEvent(.proxyAvailability(ready: isProxyReady))
+      presentWhatsNewIfNeeded()
     }
   }
+  /// The one-time What's New spotlight on the Reconnect button switch.
+  private let whatsNew = WhatsNewPresenter()
   /// What the floating Reconnect button shows. Seeded at launch from `lastReconnectAt`.
   private var reconnectButtonModel = ReconnectButtonModel(
     proxyReady: false, lastReconnectAt: 0,
@@ -1361,6 +1364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     windowController.window?.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
     windowController.refresh()
+    presentWhatsNewIfNeeded()
     // The conflict message is easily overwritten while the window is closed. Retry the shortcut (the other
     // app may have let go of it) and, if it still fails, repeat the message briefly so the lobby status and
     // its Retry button come back.
@@ -1370,6 +1374,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         windowController.showTemporaryOverlayStatus(Self.layoutHotKeyConflictMessage)
       }
     }
+  }
+
+  /// Once, over the open main window, after setup has made Reconnect ready; never while uninstalling.
+  private func presentWhatsNewIfNeeded() {
+    guard launchMode.uninstallProcessIdentifier == nil, let window = windowController?.window else { return }
+    whatsNew.presentIfNeeded(over: window, isReconnectReady: isProxyReady && !isUninstalling)
   }
 
   private func confirmUninstall() {

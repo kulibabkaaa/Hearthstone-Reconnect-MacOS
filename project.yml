@@ -49,6 +49,7 @@ targets:
       - path: App/OverlayLayout.swift
       - path: App/OverlayLayoutDiagnostics.swift
       - path: App/ReconnectButtonOverlay.swift
+      - path: App/WhatsNewWindowController.swift
       - path: Shared/AppCore
     info:
       path: Tools/LobbyUIHarness/Info.plist

@@ -9,8 +9,11 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
   private var fullScreenObserver: NSObjectProtocol?
   private var settings: SettingsWindowController!
   private var bugReport: BugReportWindowController?
+  private var whatsNew: WhatsNewPresenter?
+  private var reconnectPresses = 0
 
   func applicationDidFinishLaunching(_ notification: Notification) {
+    if let name = argument("appearance") { NSApp.appearance = NSAppearance(named: name == "dark" ? .darkAqua : .aqua) }
     if ProcessInfo.processInfo.arguments.contains("--bug-report")
       || UserDefaults.standard.bool(forKey: "HarnessBugReportMode")
     {
@@ -31,7 +34,9 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
       : nil)
     UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: true,
       DefaultsKey.lobbyOpacity: opacity, DefaultsKey.lobbyScale: scale,
-      DefaultsKey.lobbyShortcutDisplay: AppConfiguration.defaultLobbyShortcutDisplay])
+      DefaultsKey.lobbyShortcutDisplay: AppConfiguration.defaultLobbyShortcutDisplay,
+      DefaultsKey.reconnectButtonEnabled: true,
+      DefaultsKey.hotkeyDisplay: AppConfiguration.defaultShortcutDisplay])
     UserDefaults.standard.set(scale, forKey: DefaultsKey.lobbyScale)
     UserDefaults.standard.set(opacity, forKey: DefaultsKey.lobbyOpacity)
     UserDefaults.standard.removeObject(forKey: DefaultsKey.lobbyOriginX)
@@ -39,7 +44,7 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
     UserDefaults.standard.removeObject(forKey: DefaultsKey.reconnectButtonOriginX)
     UserDefaults.standard.removeObject(forKey: DefaultsKey.reconnectButtonOriginY)
     UserDefaults.standard.set(argument("button-scale").flatMap(Double.init) ?? 1.0, forKey: DefaultsKey.reconnectButtonScale)
-    settings = SettingsWindowController(onReconnect: {}, onShortcutChanged: { _,_,_ in true },
+    settings = SettingsWindowController(onReconnect: { [weak self] in self?.reconnectPresses += 1 }, onShortcutChanged: { _,_,_ in true },
       onShortcutRecordingChanged: { _ in }, onOpenWithHearthstoneChanged: { _ in .success(()) },
       onShowInDockChanged: { value, done in done(value) }, onOpenSystemSettings: {},
       onRetrySystemExtensionApproval: {}, onRetryProxySetup: {},
@@ -73,6 +78,7 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
       return
     }
     if firstRun { return }
+    if arguments.contains("--whats-new") { runWhatsNew(); return }
     if arguments.contains("--reconnect-button") || arguments.contains("--both-blocks") {
       runOverlayBlocks(withLobby: arguments.contains("--both-blocks"))
       return
@@ -95,6 +101,36 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
   private var arguments: [String] { ProcessInfo.processInfo.arguments }
   private func argument(_ name: String) -> String? {
     arguments.first { $0.hasPrefix("--\(name)=") }.map { String($0.dropFirst(name.count + 3)) }
+  }
+
+  /// `--whats-new` shows the one-time What's New spotlight over the main window, as with Reconnect ready.
+  /// Options: `--appearance=<light|dark>`, `--capture=<png>` (captures the main window's area, then quits), `--self-test`.
+  private func runWhatsNew() {
+    guard let host = settings.window else { return }
+    // What the window says once setup is done, the moment the spotlight appears.
+    settings.setStatus("Ready. Start a Battlegrounds game.")
+    settings.setLobbyStatus("Waiting for a Solo match")
+    settings.setReconnectEnabled(true)
+    if arguments.contains("--self-test") {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [self] in
+        WhatsNewDiagnostics.verify(host: host, reconnectPresses: { [weak self] in self?.reconnectPresses ?? 0 },
+          reopenWindow: { [weak self] in
+            self?.settings.showWindow(nil); self?.settings.window?.makeKeyAndOrderFront(nil)
+          })
+        NSApp.terminate(nil)
+      }
+      return
+    }
+    let presenter = WhatsNewPresenter(defaults: WhatsNewDiagnostics.defaults())
+    whatsNew = presenter
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [self] in
+      presenter.presentIfNeeded(over: host, isReconnectReady: true)
+      guard let path = argument("capture") else { return }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        WhatsNewDiagnostics.capture(host: host, to: path)
+        NSApp.terminate(nil)
+      }
+    }
   }
 
   /// `--reconnect-button` shows the button over a fake game window; `--both-blocks` adds the lobby block and
