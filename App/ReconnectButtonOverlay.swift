@@ -79,7 +79,7 @@ final class ReconnectButtonCanvas: NSView {
   }
   /// Called by the controller after the panel is shown or hidden, so the spinner only runs on screen.
   func visibilityChanged() { updateSpinner() }
-  /// With Reduce Motion on, "Reconnecting…" shows a still icon instead of a spinning one.
+  /// With Reduce Motion on, "Reconnecting…" fades the icon in and out instead of spinning it.
   static var reducesMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
   override func draw(_ dirtyRect: NSRect) {
@@ -115,9 +115,12 @@ final class ReconnectButtonCanvas: NSView {
     let drawSize = NSSize(width: size.width * fit, height: size.height * fit)
     context.saveGState()
     context.translateBy(x: box.midX, y: box.midY)
-    if isSpinning { context.rotate(by: spinAngle) }
+    var fraction: CGFloat = 1
+    if isSpinning {
+      if Self.reducesMotion { fraction = 0.6 + 0.4 * cos(spinAngle) } else { context.rotate(by: spinAngle) }
+    }
     image.draw(in: NSRect(x: -drawSize.width / 2, y: -drawSize.height / 2, width: drawSize.width, height: drawSize.height),
-      from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+      from: .zero, operation: .sourceOver, fraction: fraction, respectFlipped: true, hints: nil)
     context.restoreGState()
   }
 
@@ -148,7 +151,7 @@ final class ReconnectButtonCanvas: NSView {
   }
 
   private func updateSpinner() {
-    let shouldSpin = buttonAppearance.spinsIcon && window?.isVisible == true && !Self.reducesMotion
+    let shouldSpin = buttonAppearance.spinsIcon && window?.isVisible == true
     if shouldSpin, spinTimer == nil {
       let started = Date()
       let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
@@ -246,6 +249,7 @@ final class ReconnectButtonOverlayController: NSObject {
     canvas.allowsClick = { [weak self] in !(self?.layoutSession.isActive ?? true) }
     canvas.onClick = { [weak self] in self?.onReconnect?() }
     block.onPanelResize = { [weak self] in self?.canvas.needsDisplay = true }
+    block.onEditingPresented = { [weak self] in self?.canvas.visibilityChanged() }
     layoutSession.register(block)
   }
 

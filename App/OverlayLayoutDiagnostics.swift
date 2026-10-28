@@ -53,12 +53,12 @@ enum OverlayLayoutDiagnostics {
       click(panel)
       precondition(clicks == before + (appearance.isClickable ? 1 : 0))
       precondition(roughly(panel.frame.size, ReconnectButtonCanvas.baseSize))
-      precondition(canvas.isSpinning == (appearance.spinsIcon && !ReconnectButtonCanvas.reducesMotion))
+      precondition(canvas.isSpinning == appearance.spinsIcon)
       precondition(canvas.accessibilityLabel() == appearance.title)
     }
     button.render(.ready)
     precondition(!canvas.isSpinning)
-    print("PASS: every phase keeps the 124×38 size; only ready/no game/failed take clicks; only reconnecting spins (\(ReconnectButtonCanvas.reducesMotion ? "Reduce Motion on: static icon" : "Reduce Motion off"))")
+    print("PASS: every phase keeps the 124×38 size; only ready/no game/failed take clicks; only reconnecting animates (\(ReconnectButtonCanvas.reducesMotion ? "Reduce Motion on: fade" : "Reduce Motion off: spin"))")
 
     precondition(session.begin([.reconnectButton]))
     precondition(button.isEditing && block.editor.isVisible && block.editor.frame == panel.frame)
@@ -105,7 +105,7 @@ enum OverlayLayoutDiagnostics {
     let expected = panel.frame.offsetBy(dx: 30, dy: -20)
     button.updateGameWindow(frame: movedGame)
     precondition(!panel.isVisible && panel.frame == expected)
-    precondition(session.begin([.reconnectButton]) && panel.frame == expected && panel.isVisible)
+    precondition(session.begin([.reconnectButton]) && panel.frame == expected && panel.isVisible && canvas.isSpinning)
     session.finish(save: false)
     precondition(panel.frame == expected)
     button.render(.ready)

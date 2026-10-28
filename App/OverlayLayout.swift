@@ -120,6 +120,8 @@ final class OverlayBlock: NSObject, NSWindowDelegate {
   /// Runs after a layout session ends for this block, saved or cancelled.
   var onEditingFinished: (() -> Void)?
   var onPanelResize: (() -> Void)?
+  /// Runs after layout mode puts the panel on screen (it may have been hidden).
+  var onEditingPresented: (() -> Void)?
   /// Enter (true) or Esc (false) pressed in this block's editor. Set by the layout session.
   var onEditCommand: ((Bool) -> Void)?
   private(set) var isEditing = false
@@ -184,6 +186,7 @@ final class OverlayBlock: NSObject, NSWindowDelegate {
     panel.orderFrontRegardless()
     editor.orderFrontRegardless()
     applyOpacity()
+    onEditingPresented?()
   }
   func finishEditing(save: Bool) {
     guard isEditing else { return }
