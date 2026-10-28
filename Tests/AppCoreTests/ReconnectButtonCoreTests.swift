@@ -249,14 +249,14 @@ struct ReconnectButtonCoreTests {
   @Test("default origin is anchored by the top edge and clamps the scale")
   func defaultOrigin() {
     let game = CGRect(x: -1440, y: 50, width: 1000, height: 800)   // origin offset must not matter
-    #expect(ReconnectButtonLayout.baseSize == CGSize(width: 160, height: 50))
+    #expect(ReconnectButtonLayout.baseSize == CGSize(width: 176, height: 60))
     let one = ReconnectButtonLayout.defaultNormalizedOrigin(scale: 1, gameFrame: game)
     #expect(one.x == 0.735)
-    #expect(abs(one.y - (1 - 0.184 - 50.0 / 800)) < 1e-9)
+    #expect(abs(one.y - (1 - 0.184 - 60.0 / 800)) < 1e-9)
     // The top edge sits at 18.4% from the game's top for every scale.
     for scale in [0.75, 1, 1.5, 9, -3, .nan, .infinity] {
       let o = ReconnectButtonLayout.defaultNormalizedOrigin(scale: scale, gameFrame: game)
-      let top = o.y + 50.0 * LobbyOverlayGeometry.clampScale(scale) / 800
+      let top = o.y + 60.0 * LobbyOverlayGeometry.clampScale(scale) / 800
       #expect(abs((1 - top) - 0.184) < 1e-9)
     }
     #expect(ReconnectButtonLayout.defaultNormalizedOrigin(scale: 9, gameFrame: game)

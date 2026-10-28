@@ -116,7 +116,8 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
     // Let activation settle so the fake game is the key window, as Hearthstone would be.
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [self] in
       button.updateGameWindow(frame: game.frame)
-      if withLobby { overlay.showPreview(gameFrame: game.frame) }
+      // Like the app's game-frame poll, which is what puts a lobby with content on screen.
+      if withLobby { overlay.showPreview(gameFrame: game.frame); overlay.updateGameWindow(frame: game.frame) }
       if arguments.contains("--self-test") {
         if withLobby {
           overlay.beginDiagnosticEditing()

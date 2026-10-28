@@ -144,8 +144,8 @@ public enum OverlayLayoutPolicy {
 
 /// Size and default spot of the Reconnect button, measured from the issue #44 mockup.
 public enum ReconnectButtonLayout {
-  /// The mockup's 175×55 px button at a 1584-px-wide game, scaled to a 1440-pt game.
-  public static let baseSize = CGSize(width: 160, height: 50)
+  /// The mockup's button at its native size: 176×60 px in its 1584×993 px game, used as points.
+  public static let baseSize = CGSize(width: 176, height: 60)
   /// Left edge, as a fraction of the game width from the game's left edge.
   public static let defaultLeftFraction = 0.735
   /// Top edge, as a fraction of the game height from the game's top edge.
