@@ -117,7 +117,7 @@ struct ReconnectButtonCoreTests {
     #expect(m.phase(now: t0 + 5) == .ready)
     #expect(ReconnectButtonModel.appearance(for: m.phase(now: t0 + 2)).title == "Wait 3s…")
   }
-  @Test("nextChange is nil when stable and never earlier than the next real change")
+  @Test("nextChange is nil when idle or after expiry, and wakes for the transient and each countdown second")
   func nextChangeBasics() {
     #expect(model().nextChange(after: t0) == nil)
     var m = model()
@@ -138,6 +138,26 @@ struct ReconnectButtonCoreTests {
     #expect(m.nextChange(after: t0 + 1) == t0 + 2)              // remaining 4.0 exactly -> next is 3.0, not now
     #expect(m.nextChange(after: t0 + 4.5) == t0 + 5)            // remaining 0.5 -> ready
     #expect(m.nextChange(after: t0 + 4.999) == t0 + 5)
+  }
+  @Test("nextChange is nil while running or unavailable, even mid-cooldown")
+  func nextChangeGuards() {
+    var running = model(last: t0)
+    running.apply(.started, now: t0 + 1)
+    #expect(running.nextChange(after: t0 + 1) == nil)
+    let unavailable = model(ready: false, last: t0)
+    #expect(unavailable.nextChange(after: t0 + 1) == nil)
+  }
+  @Test("a custom cooldown length is honoured and a corrupt stored time does not crash")
+  func customAndCorruptCooldown() {
+    let m = ReconnectButtonModel(proxyReady: true, lastReconnectAt: t0, cooldownSeconds: 12)
+    #expect(m.phase(now: t0 + 1.5) == .cooldown(seconds: 11))
+    #expect(m.phase(now: t0 + 12) == .ready)
+    #expect(m.nextChange(after: t0) == t0 + 1)
+    for corrupt in [Double.infinity, 1e19] {
+      let bad = ReconnectButtonModel(proxyReady: true, lastReconnectAt: corrupt, cooldownSeconds: 5)
+      guard case .cooldown(let seconds) = bad.phase(now: t0) else { Issue.record("expected cooldown"); continue }
+      #expect(seconds >= 1)
+    }
   }
   @Test("following nextChange from a success walks every phase change with no busy loop")
   func nextChangeWalk() {
