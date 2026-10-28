@@ -313,7 +313,7 @@ enum OverlayLayoutDiagnostics {
   private static func aspectLocked(_ size: NSSize, _ base: NSSize) -> Bool {
     abs(size.height - size.width * base.height / base.width) <= 1
   }
-  /// Within 1 pt: AppKit rounds window frames to whole points, so 0.75 × 38 = 28.5 becomes 29.
+  /// Within 1 pt: AppKit rounds window frames to whole points, so 0.75 × 50 = 37.5 becomes 38.
   private static func roughly(_ a: NSSize, _ b: NSSize) -> Bool {
     abs(a.width - b.width) <= 1 && abs(a.height - b.height) <= 1
   }

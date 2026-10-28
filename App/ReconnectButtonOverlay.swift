@@ -6,7 +6,7 @@ final class ReconnectButtonPanel: NSPanel {
   override var canBecomeMain: Bool { false }
 }
 
-/// Draws the button on a fixed 124×38 canvas scaled to the panel, like `LobbyCanvas`, so a resized
+/// Draws the button on a fixed 160×50 canvas scaled to the panel, like `LobbyCanvas`, so a resized
 /// button looks identical. Every phase fits the same width; long titles shrink a little (to 11 pt), then truncate.
 final class ReconnectButtonCanvas: NSView {
   static let baseSize = NSSize(width: ReconnectButtonLayout.baseSize.width, height: ReconnectButtonLayout.baseSize.height)
