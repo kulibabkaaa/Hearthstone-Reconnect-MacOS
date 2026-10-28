@@ -67,13 +67,15 @@ enum OverlayLayoutDiagnostics {
     click(panel)
     precondition(clicks == before && !canvas.accessibilityPerformPress())
     // The editor proxy owns the button's inside, including most of the 24 pt grip under the hidden title bar.
-    // Like the lobby editor (same window style), the outer ~4 pt edge and ~16 pt corners stay with the window
-    // frame's own resize, which `windowWillResize` keeps aspect-locked.
+    // Like the lobby editor (same window style), the outer ~4 pt edge and the corners stay with the window
+    // frame's own resize, which `windowWillResize` keeps aspect-locked. The corner zone grows with the window:
+    // at 176×60 it covers about half of the drawn grip (both resize the same way), so the grip check point
+    // sits in the grip's inner half.
     func verifyEditorOwnsInside() {
       let size = block.editor.frame.size
       let root = block.editor.contentView?.superview
       for point in [NSPoint(x: size.width / 2, y: size.height / 2), NSPoint(x: size.width / 2, y: size.height - 6),
-                    NSPoint(x: 20, y: size.height / 2), NSPoint(x: size.width - 12, y: 9),
+                    NSPoint(x: 20, y: size.height / 2), NSPoint(x: size.width - 18, y: 12),
                     NSPoint(x: size.width - 20, y: min(20, size.height - 6))] {
         precondition(root?.hitTest(point) === block.editSurface)
       }
@@ -261,10 +263,15 @@ enum OverlayLayoutDiagnostics {
     button.isGameFrontmost = { true }
     showBoth()
     precondition(lb.panel.isVisible && bb.panel.isVisible)
+    // Outside layout mode the lobby shows only real match rows; `show(rows:)` puts it on screen itself.
+    lobby.cancelAndClose()
+    lobby.show(rows: [LobbyRatingRow(position: 0, name: "Your player", rating: .exact(9_000), rank: 1, isLocalPlayer: true)],
+      summary: nil, gameFrame: game)
+    precondition(lb.panel.isVisible && !session.isActive && !lb.editor.isVisible)
     lobby.cancelAndClose()
     button.hide()
     precondition(!lb.panel.isVisible && !bb.panel.isVisible && !session.hintPanel.isVisible)
-    print("PASS: both blocks hide (and layout mode cancels) when the game isn't frontmost; cleanup")
+    print("PASS: both blocks hide (and layout mode cancels) when the game isn't frontmost; real lobby rows show outside layout mode; cleanup")
   }
 
   // MARK: - Helpers
@@ -313,7 +320,7 @@ enum OverlayLayoutDiagnostics {
   private static func aspectLocked(_ size: NSSize, _ base: NSSize) -> Bool {
     abs(size.height - size.width * base.height / base.width) <= 1
   }
-  /// Within 1 pt: AppKit rounds window frames to whole points, so 0.75 × 50 = 37.5 becomes 38.
+  /// Within 1 pt: AppKit rounds window frames to whole points, so a 28.5 pt height becomes 29.
   private static func roughly(_ a: NSSize, _ b: NSSize) -> Bool {
     abs(a.width - b.width) <= 1 && abs(a.height - b.height) <= 1
   }

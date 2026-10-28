@@ -6,8 +6,8 @@ final class ReconnectButtonPanel: NSPanel {
   override var canBecomeMain: Bool { false }
 }
 
-/// Draws the button on a fixed 160×50 canvas scaled to the panel, like `LobbyCanvas`, so a resized
-/// button looks identical. Every phase fits the same width; long titles shrink a little (to 11 pt), then truncate.
+/// Draws the button on a fixed 176×60 canvas scaled to the panel, like `LobbyCanvas`, so a resized
+/// button looks identical. Every phase fits the same width; one 18 pt title size; only a title too long to fit shrinks.
 final class ReconnectButtonCanvas: NSView {
   static let baseSize = NSSize(width: ReconnectButtonLayout.baseSize.width, height: ReconnectButtonLayout.baseSize.height)
   private static let spinPeriod: TimeInterval = 1
@@ -89,69 +89,112 @@ final class ReconnectButtonCanvas: NSView {
     defer { context.restoreGState() }
     context.scaleBy(x: bounds.width / base.width, y: bounds.height / base.height)
     let palette = Palette(tone: buttonAppearance.tone)
-    // Proportions measured from the issue #44 mockup: a light glass rim around a dark inner panel.
-    let rim = NSBezierPath(roundedRect: NSRect(x: 0.5, y: 0.5, width: base.width - 1, height: base.height - 1),
-      xRadius: base.height * 0.26, yRadius: base.height * 0.26)
+    // Proportions measured from the issue #44 mockup at its native size: a frosted rim (~11 pt) around
+    // a near-opaque dark pill. The rim's edge is soft: a few faint strokes, no crisp hairline.
+    let rimRect = NSRect(origin: .zero, size: base)
     palette.rimFill.setFill()
-    rim.fill()
-    palette.border.setStroke()
-    rim.lineWidth = 1
-    rim.stroke()
-    let inner = NSBezierPath(roundedRect: NSRect(x: 11, y: 8.5, width: base.width - 22, height: base.height - 17),
-      xRadius: 8, yRadius: 8)
-    // The inner panel uses the lobby canvas fill, so both blocks read as one family.
-    let fillAlpha: CGFloat = isPressed ? 0.86 : 0.72
-    let fillWhite: CGFloat = isPressed ? 0.10 : (isHovered && canClick ? 0.22 : 0.16)
-    NSColor(calibratedWhite: fillWhite, alpha: fillAlpha).setFill()
-    inner.fill()
-
-    drawIcon(in: NSRect(x: 18, y: (base.height - 25) / 2, width: 27, height: 25), color: palette.icon)
-    // 57 pt is where the mockup's text starts; 90 pt fits "Reconnecting…" at the smallest size.
-    drawTitle(buttonAppearance.title, in: NSRect(x: 55, y: 0, width: 92, height: base.height), color: palette.text)
-  }
-
-  private func drawIcon(in box: NSRect, color: NSColor) {
-    guard let image = icon(color: color), let context = NSGraphicsContext.current?.cgContext else { return }
-    let size = image.size
-    let fit = min(box.width / max(size.width, 1), box.height / max(size.height, 1), 1)
-    let drawSize = NSSize(width: size.width * fit, height: size.height * fit)
-    context.saveGState()
-    context.translateBy(x: box.midX, y: box.midY)
-    var fraction: CGFloat = 1
-    if isSpinning {
-      if Self.reducesMotion { fraction = 0.6 + 0.4 * cos(spinAngle) } else { context.rotate(by: spinAngle) }
+    NSBezierPath(roundedRect: rimRect, xRadius: 15, yRadius: 15).fill()
+    for (inset, alpha) in [(0.5, 0.20), (1.5, 0.12), (2.5, 0.06)] as [(CGFloat, CGFloat)] {
+      let edge = NSBezierPath(roundedRect: rimRect.insetBy(dx: inset, dy: inset), xRadius: 15 - inset, yRadius: 15 - inset)
+      edge.lineWidth = 1
+      palette.edge.withAlphaComponent(palette.edge.alphaComponent * alpha / 0.20).setStroke()
+      edge.stroke()
     }
-    image.draw(in: NSRect(x: -drawSize.width / 2, y: -drawSize.height / 2, width: drawSize.width, height: drawSize.height),
-      from: .zero, operation: .sourceOver, fraction: fraction, respectFlipped: true, hints: nil)
-    context.restoreGState()
+    let pillWhite: CGFloat = isPressed ? 0.12 : (isHovered && canClick ? 0.24 : 0.184)
+    NSColor(calibratedWhite: pillWhite, alpha: 0.93).setFill()
+    NSBezierPath(roundedRect: NSRect(x: 11, y: 10.5, width: base.width - 22, height: base.height - 21),
+      xRadius: 10, yRadius: 10).fill()
+
+    drawIcon(center: NSPoint(x: 35, y: base.height / 2), palette: palette)
+    // The mockup's text starts at 64 pt; the box runs to 6 pt inside the pill's right edge.
+    drawTitle(buttonAppearance.title, in: NSRect(x: 64, y: 0, width: base.width - 11 - 6 - 64, height: base.height),
+      color: palette.text)
   }
 
-  // The spinner redraws 60 times a second, so the tinted symbol is built once per tone.
-  private var iconCache: (tone: ReconnectButtonTone, image: NSImage?)?
-  private func icon(color: NSColor) -> NSImage? {
-    let tone = buttonAppearance.tone
-    if let iconCache, iconCache.tone == tone { return iconCache.image }
-    let symbol = tone == .success ? "checkmark" : "arrow.triangle.2.circlepath"
-    let configuration = NSImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
-      .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
-    let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
-    iconCache = (tone, image)
-    return image
+  /// The mockup's icon: two bold arcs with arrowheads, about 30 pt across, filled top-to-bottom with a
+  /// gradient. Success shows a check mark in the same style.
+  private func drawIcon(center: NSPoint, palette: Palette) {
+    guard let context = NSGraphicsContext.current?.cgContext else { return }
+    context.saveGState()
+    defer { context.restoreGState() }
+    context.translateBy(x: center.x, y: center.y)
+    context.scaleBy(x: 1, y: -1)   // y up from here, so angles read like a clock face
+    var alpha: CGFloat = 1
+    if isSpinning {
+      if Self.reducesMotion { alpha = 0.6 + 0.4 * cos(spinAngle) } else { context.rotate(by: -spinAngle) }
+    }
+    let colors = [palette.iconTop.cgColor, palette.iconBottom.cgColor] as CFArray
+    guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) else { return }
+    // Fill each piece solid, then paint the gradient over just those pixels. Filling pieces one by one
+    // keeps the overlap where an arrowhead meets its arc filled, whatever the outlines' winding.
+    context.setAlpha(alpha)
+    context.beginTransparencyLayer(auxiliaryInfo: nil)
+    context.setFillColor(CGColor(gray: 1, alpha: 1))
+    for piece in buttonAppearance.tone == .success ? [Self.checkPath] : Self.arrowPieces {
+      context.addPath(piece)
+      context.fillPath()
+    }
+    context.setBlendMode(.sourceIn)
+    context.drawLinearGradient(gradient, start: CGPoint(x: 0, y: 15), end: CGPoint(x: 0, y: -15), options: [])
+    context.endTransparencyLayer()
   }
 
-  private func drawTitle(_ title: String, in rect: NSRect, color: NSColor) {
-    var font = NSFont.systemFont(ofSize: 17, weight: .medium)
-    // Shrink long titles down to 11 pt before truncating; the button itself never changes size.
-    while font.pointSize > 11, (title as NSString).size(withAttributes: [.font: font]).width > rect.width {
+  private static let arrowPieces: [CGPath] = {
+    let radius: CGFloat = 11.2, width: CGFloat = 4.4
+    var pieces: [CGPath] = []
+    for turn in [0.0, CGFloat.pi] {
+      // Each arc runs clockwise over ~140° and ends in an arrowhead pointing along the turn.
+      let start = 160 * CGFloat.pi / 180 + turn, end = 20 * CGFloat.pi / 180 + turn
+      let arc = CGMutablePath()
+      arc.addArc(center: .zero, radius: radius, startAngle: start, endAngle: end, clockwise: true)
+      pieces.append(arc.copy(strokingWithWidth: width, lineCap: .butt, lineJoin: .round, miterLimit: 1))
+      let tip = CGPoint(x: radius * cos(end), y: radius * sin(end))
+      let along = CGPoint(x: sin(end), y: -cos(end)), out = CGPoint(x: cos(end), y: sin(end))
+      let head: CGFloat = 5.4, length: CGFloat = 6.2
+      let arrowhead = CGMutablePath()
+      arrowhead.move(to: CGPoint(x: tip.x + along.x * length * 0.75, y: tip.y + along.y * length * 0.75))
+      arrowhead.addLine(to: CGPoint(x: tip.x - along.x * length * 0.25 + out.x * head, y: tip.y - along.y * length * 0.25 + out.y * head))
+      arrowhead.addLine(to: CGPoint(x: tip.x - along.x * length * 0.25 - out.x * head, y: tip.y - along.y * length * 0.25 - out.y * head))
+      arrowhead.closeSubpath()
+      pieces.append(arrowhead)
+    }
+    return pieces
+  }()
+  private static let checkPath: CGPath = {
+    let line = CGMutablePath()
+    line.move(to: CGPoint(x: -10, y: 0))
+    line.addLine(to: CGPoint(x: -3.5, y: -7))
+    line.addLine(to: CGPoint(x: 10.5, y: 8))
+    return line.copy(strokingWithWidth: 4, lineCap: .round, lineJoin: .round, miterLimit: 1)
+  }()
+
+  /// One size for every state, as the mockup's; only a title that can't fit at 18 pt shrinks (to 11 pt at most).
+  static let titleFontSize: CGFloat = 18
+  static func titleFont(for title: String, width: CGFloat) -> NSFont {
+    var font = NSFont.systemFont(ofSize: titleFontSize, weight: .medium)
+    while font.pointSize > 11, (title as NSString).size(withAttributes: titleAttributes(font)).width > width {
       font = .systemFont(ofSize: font.pointSize - 0.5, weight: .medium)
     }
+    return font
+  }
+  private static func titleAttributes(_ font: NSFont) -> [NSAttributedString.Key: Any] {
+    // The mockup's text is set a little wider than the system default.
+    [.font: font, .kern: font.pointSize * 0.015]
+  }
+  static var titleWidth: CGFloat { baseSize.width - 11 - 6 - 64 }
+
+  private func drawTitle(_ title: String, in rect: NSRect, color: NSColor) {
+    let font = Self.titleFont(for: title, width: rect.width)
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineBreakMode = .byTruncatingTail
     // Centre the capitals (not the line box) on the button, as the mockup does.
     let baseline = rect.midY + font.capHeight / 2
     let height = font.ascender - font.descender + font.leading
     let box = NSRect(x: rect.minX, y: baseline - font.ascender, width: rect.width, height: height)
-    (title as NSString).draw(in: box, withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
+    var attributes = Self.titleAttributes(font)
+    attributes[.foregroundColor] = color
+    attributes[.paragraphStyle] = paragraph
+    (title as NSString).draw(in: box, withAttributes: attributes)
   }
 
   private func updateSpinner() {
@@ -181,33 +224,39 @@ final class ReconnectButtonCanvas: NSView {
   }
 
   private struct Palette {
-    let icon: NSColor
+    let iconTop: NSColor
+    let iconBottom: NSColor
     let text: NSColor
-    let border: NSColor
+    let edge: NSColor
     let rimFill: NSColor
     init(tone: ReconnectButtonTone) {
-      rimFill = NSColor(calibratedWhite: 1, alpha: tone == .dimmed ? 0.07 : 0.12)
+      rimFill = NSColor(calibratedRed: 1, green: 0.94, blue: 0.86, alpha: tone == .dimmed ? 0.12 : 0.20)
       switch tone {
       case .normal:
-        icon = NSColor(calibratedRed: 0.05, green: 0.70, blue: 0.95, alpha: 1)
-        text = NSColor(calibratedWhite: 0.97, alpha: 1)
-        border = NSColor(calibratedWhite: 1, alpha: 0.32)
+        iconTop = NSColor(calibratedRed: 0.0, green: 0.85, blue: 0.96, alpha: 1)
+        iconBottom = NSColor(calibratedRed: 0.05, green: 0.40, blue: 0.88, alpha: 1)
+        text = NSColor(calibratedWhite: 0.91, alpha: 1)
+        edge = NSColor(calibratedWhite: 1, alpha: 0.20)
       case .dimmed:
-        icon = NSColor(calibratedWhite: 0.62, alpha: 0.75)
-        text = NSColor(calibratedWhite: 0.80, alpha: 0.70)
-        border = NSColor(calibratedWhite: 1, alpha: 0.16)
+        iconTop = NSColor(calibratedWhite: 0.66, alpha: 0.8)
+        iconBottom = NSColor(calibratedWhite: 0.48, alpha: 0.8)
+        text = NSColor(calibratedWhite: 0.80, alpha: 0.65)
+        edge = NSColor(calibratedWhite: 1, alpha: 0.10)
       case .success:
-        icon = NSColor(calibratedRed: 0.48, green: 0.88, blue: 0.50, alpha: 1)
-        text = NSColor(calibratedWhite: 0.97, alpha: 1)
-        border = NSColor(calibratedRed: 0.48, green: 0.88, blue: 0.50, alpha: 0.60)
+        iconTop = NSColor(calibratedRed: 0.62, green: 0.95, blue: 0.58, alpha: 1)
+        iconBottom = NSColor(calibratedRed: 0.22, green: 0.72, blue: 0.36, alpha: 1)
+        text = NSColor(calibratedWhite: 0.91, alpha: 1)
+        edge = NSColor(calibratedRed: 0.48, green: 0.88, blue: 0.50, alpha: 0.60)
       case .warning:
-        icon = NSColor(calibratedRed: 0.98, green: 0.74, blue: 0.30, alpha: 1)
-        text = NSColor(calibratedRed: 1.0, green: 0.88, blue: 0.66, alpha: 1)
-        border = NSColor(calibratedRed: 0.98, green: 0.74, blue: 0.30, alpha: 0.65)
+        iconTop = NSColor(calibratedRed: 1.0, green: 0.84, blue: 0.40, alpha: 1)
+        iconBottom = NSColor(calibratedRed: 0.95, green: 0.58, blue: 0.16, alpha: 1)
+        text = NSColor(calibratedRed: 1.0, green: 0.87, blue: 0.64, alpha: 1)
+        edge = NSColor(calibratedRed: 0.98, green: 0.74, blue: 0.30, alpha: 0.60)
       case .error:
-        icon = NSColor(calibratedRed: 0.95, green: 0.42, blue: 0.42, alpha: 1)
+        iconTop = NSColor(calibratedRed: 1.0, green: 0.55, blue: 0.52, alpha: 1)
+        iconBottom = NSColor(calibratedRed: 0.86, green: 0.26, blue: 0.28, alpha: 1)
         text = NSColor(calibratedRed: 1.0, green: 0.80, blue: 0.80, alpha: 1)
-        border = NSColor(calibratedRed: 0.95, green: 0.42, blue: 0.42, alpha: 0.65)
+        edge = NSColor(calibratedRed: 0.95, green: 0.42, blue: 0.42, alpha: 0.60)
       }
     }
   }
