@@ -174,7 +174,7 @@ struct ReconnectAttemptFlowTests {
     #expect(!flow.isRunning)
   }
 
-  @Test("a late reply after the timeout changes nothing visible; only a really closed flow is recorded",
+  @Test("a late reply after the timeout is ignored unless it really closed a flow, which is recorded once",
         arguments: [ReconnectCompletion.uninstalling, .extensionUnavailable, .failed,
                     .response(didCloseFlow: false), .response(didCloseFlow: true)])
   func lateReply(_ completion: ReconnectCompletion) {
@@ -183,11 +183,11 @@ struct ReconnectAttemptFlowTests {
     _ = flow.timeOut(token, isUninstalling: false)
     let effects = flow.complete(token, completion)
     if completion == .response(didCloseFlow: true) {
-      #expect(effects == .init(recordsFlowClosed: true, buttonEvent: .cooldownStarted, updatesAvailability: true))
+      #expect(effects == .init(recordsFlowClosed: true, buttonEvent: .cooldownStarted, status: .triggered,
+                               updatesAvailability: true))
     } else {
       #expect(effects.isNone)
     }
-    #expect(effects.status == nil)
     #expect(!flow.isRunning)
     #expect(flow.complete(token, completion).isNone, "a repeated late reply is recorded at most once")
   }
@@ -210,7 +210,7 @@ struct ReconnectAttemptFlowTests {
 
   // MARK: The app's whole loop (flow + button model), as AppDelegate wires it
 
-  @Test("timeout then late success: button shows Try again, then the cooldown, never Reconnected; one finish")
+  @Test("timeout then late success: Try again, then the cooldown and the success text, never Reconnected; one finish")
   func timeoutThenLateSuccess() {
     var app = AppSim()
     guard let token = app.press(now: t0) else { Issue.record("expected start"); return }
@@ -222,7 +222,8 @@ struct ReconnectAttemptFlowTests {
     #expect(app.finishEvents == 1)
     #expect(app.recorded == 1)
     #expect(app.lastReconnectAt == t0 + 11)
-    #expect(app.statuses == [.reconnecting, .failed])                // no "Reconnect triggered."
+    #expect(app.statuses == [.reconnecting, .failed, .triggered])    // the window matches what really happened
+    #expect(!ReconnectStatusMessage.triggered.isError)
     #expect(app.model.phase(now: t0 + 11) == .cooldown(seconds: 5))  // honest: a click now would be refused
     #expect(app.model.phase(now: t0 + 16) == .ready)
   }

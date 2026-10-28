@@ -135,7 +135,8 @@ public struct ReconnectAttemptToken: Hashable, Sendable {
 
 /// The decisions behind the app's reconnect action (shortcut, menu, main window, floating button).
 /// Every started attempt ends exactly once: by its reply, by "no game endpoint", or by the timeout,
-/// whichever comes first. Anything that arrives for an attempt that already ended is ignored for the UI.
+/// whichever comes first. Anything that arrives for an attempt that already ended is ignored, except the one
+/// late reply of a timed-out attempt that really closed a flow.
 public struct ReconnectAttemptFlow: Equatable, Sendable {
   /// How long the app waits for the extension's reply before showing a failure. Longer than the proxy
   /// controller's own 10 s wait for the tunnel to start, so a slow start isn't shown as a failure.
@@ -176,9 +177,10 @@ public struct ReconnectAttemptFlow: Equatable, Sendable {
                  updatesAvailability: true)
   }
 
-  /// The extension replied. The late reply of an attempt that timed out changes nothing the user sees, but a
-  /// flow it really closed still counts: the stamp and the cooldown, so no click is offered that the cooldown
-  /// would refuse. Any other reply for an attempt that already ended is ignored.
+  /// The extension replied. The late reply of an attempt that timed out is ignored unless it really closed a
+  /// flow; then it still counts: the stamp, the cooldown (so no click is offered that the cooldown would
+  /// refuse) and the success status, replacing the timeout's failure text. The button shows the countdown,
+  /// never "Reconnected". Any other reply for an attempt that already ended is ignored.
   public mutating func complete(_ token: ReconnectAttemptToken, _ completion: ReconnectCompletion)
     -> ReconnectAttemptEffects
   {
@@ -186,7 +188,8 @@ public struct ReconnectAttemptFlow: Equatable, Sendable {
       guard timedOutAttempts.remove(token) != nil, completion == .response(didCloseFlow: true) else {
         return .none
       }
-      return .init(recordsFlowClosed: true, buttonEvent: .cooldownStarted, updatesAvailability: true)
+      return .init(recordsFlowClosed: true, buttonEvent: .cooldownStarted, status: .triggered,
+                   updatesAvailability: true)
     }
     switch completion {
     case .uninstalling:

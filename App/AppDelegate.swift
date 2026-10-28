@@ -64,6 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   /// for other apps while the game isn't running.
   private var isHearthstoneRunning = false
   private var isObservingHearthstoneRunning = false
+  /// The layout shortcut is re-registered often; its conflict is reported once, not on every game launch.
+  private var layoutHotKeyConflicts = HotKeyConflictReporter()
   private var userOpenedWindow = false
   private var isUninstalling = false
   private var isUninstallCleanupStarted = false
@@ -1196,8 +1198,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private func registerStoredLobbyHotKey() {
     let key = UInt32(clamping: UserDefaults.standard.integer(forKey: DefaultsKey.lobbyShortcutKeyCode))
     let modifiers = UInt32(clamping: UserDefaults.standard.integer(forKey: DefaultsKey.lobbyShortcutModifiers))
-    if hotKeyManager.register(action: .lobbyLayout, keyCode: key, modifiers: modifiers) != noErr {
-      windowController?.setStatus("Position shortcut is already in use. Choose another one.", isError: true)
+    let registered = hotKeyManager.register(action: .lobbyLayout, keyCode: key, modifiers: modifiers) == noErr
+    // Shown on the overlay status line, like the recorder's conflicts, so reconnect feedback stays put.
+    if layoutHotKeyConflicts.shouldReport(keyCode: key, modifiers: modifiers, registered: registered) {
+      showLayoutStatus(
+        "Position shortcut is already in use. Choose another one.",
+        lobbyEnabled: lobbyCoordinator.enabled
+      )
     }
   }
 
