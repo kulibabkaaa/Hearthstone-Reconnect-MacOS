@@ -23,7 +23,9 @@ public enum WhatsNewPolicy {
   public static func seenVersion(from value: Any?) -> Int {
     switch value {
     case let number as Int: return number
-    case let number as Double where number.isFinite:
+    case let number as Double:
+      // NaN and infinity count as never seen; NSNumber.intValue on them differs between Intel and Apple Silicon.
+      guard number.isFinite else { return 0 }
       // Double(Int.max) rounds up past Int.max, so clamp with a margin before converting.
       if number >= 9.0e18 { return Int.max }
       if number <= -9.0e18 { return Int.min }
