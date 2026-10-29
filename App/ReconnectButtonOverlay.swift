@@ -283,8 +283,9 @@ final class ReconnectButtonOverlayController: NSObject {
   var isGameFrontmost: () -> Bool = { HearthstoneApp.isFrontmost }
   /// Whether the Reconnect button setting is on.
   var isEnabled: () -> Bool = { true }
-  /// Whether the match detector is attached. Without it the button shows whenever Hearthstone is frontmost.
-  var isMatchDetectorAvailable: () -> Bool = { true }
+  /// What the match detector can say. Connecting hides the button; unavailable shows it whenever Hearthstone is
+  /// frontmost.
+  var matchDetectorState: () -> MatchDetectorState = { .attached }
   /// Whether the player is in a match. With a detector, the button shows outside layout mode only then.
   var isInMatch: () -> Bool = { false }
   private(set) var phase: ReconnectButtonPhase = .ready
@@ -337,7 +338,7 @@ final class ReconnectButtonOverlayController: NSObject {
   }
   private func shouldShow(hasGameWindow: Bool) -> Bool {
     ReconnectButtonVisibilityPolicy.shouldShow(buttonEnabled: isEnabled(), hasGameWindow: hasGameWindow,
-      gameFrontmost: isGameFrontmost(), detectorAvailable: isMatchDetectorAvailable(), inMatch: isInMatch(),
+      gameFrontmost: isGameFrontmost(), detector: matchDetectorState(), inMatch: isInMatch(),
       isEditingLayout: isEditing,
       isShowingFeedback: isVisible && ReconnectButtonVisibilityPolicy.isReconnectFeedback(phase))
   }

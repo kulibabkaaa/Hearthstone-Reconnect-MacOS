@@ -83,8 +83,9 @@ final class LobbyReader {
   var onCapture: ((LobbyCapture) -> Void)?
   var onReconnectDetected: (() -> Void)?
   var onStatus: ((String) -> Void)?
-  /// Whether the helper is attached to Hearthstone and reading it, so its match events can be trusted.
-  var onAttachmentChanged: ((Bool) -> Void)?
+  /// How attaching goes, so the coordinator can tell "still connecting" from "won't attach"
+  /// (`MatchDetectorTracker`).
+  var onDetectorSignal: ((MatchDetectorSignal) -> Void)?
 
   private let queue = DispatchQueue(label: "HSReconnect.LobbyReader")
   private let decoder = JSONDecoder()
@@ -172,6 +173,7 @@ final class LobbyReader {
     process?.terminationHandler = nil
     if process?.isRunning == true { process?.terminate() }
     process = nil
+    detector(.starting, token: runToken)
     status("Restarting lobby capture…", token: runToken)
     queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
       self?.launchIfNeeded(runToken: runToken)
@@ -190,7 +192,7 @@ final class LobbyReader {
       .appendingPathComponent("Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app")
       .appendingPathComponent("Contents/MacOS/HS Reconnect Lobby Capture Probe")
     guard FileManager.default.isExecutableFile(atPath: helper.path) else {
-      attachment(false, token: runToken)
+      detector(.gaveUp, token: runToken)
       status("Lobby capture helper is missing", token: runToken)
       return
     }
@@ -229,7 +231,7 @@ final class LobbyReader {
         self.process = nil
         self.outputBuffer.removeAll(keepingCapacity: false)
         guard self.shouldRun, self.deliveryGeneration.accepts(runToken) else { return }
-        self.attachment(false, token: runToken)
+        self.detector(.helperFailed, token: runToken)
         self.status("Restarting lobby capture…", token: runToken)
         self.queue.asyncAfter(deadline: .now() + 2) {
           self.launchIfNeeded(runToken: runToken)
@@ -244,7 +246,7 @@ final class LobbyReader {
     } catch {
       deliveryGeneration.invalidateProcess(for: runToken)
       activeProcessToken = nil
-      attachment(false, token: runToken)
+      detector(.helperFailed, token: runToken)
       status("Lobby capture could not start", token: runToken)
       queue.asyncAfter(deadline: .now() + 2) { [weak self] in
         self?.launchIfNeeded(runToken: runToken)
@@ -281,31 +283,32 @@ final class LobbyReader {
     guard deliveryGeneration.accepts(token) else { return }
     switch event.event {
     case "probe_started", "waiting_for_hearthstone", "match_suspended":
-      attachment(false, token: token)
+      detector(.waiting, token: token)
       status("Waiting for Hearthstone", token: token)
     case "permission_unavailable":
       // Quiet mode only: access isn't granted and the helper won't ask. No status: lobby info is off.
-      attachment(false, token: token)
+      detector(.gaveUp, token: token)
     case "permission_failed", "attachment_failed":
-      attachment(false, token: token)
+      // The helper sends these only once it has stopped retrying for this Hearthstone process.
+      detector(.gaveUp, token: token)
       logger.error("\(event.event, privacy: .public): \(event.detail ?? "No detail", privacy: .public)")
       emitEmptyCaptureIfNeeded(for: event, token: token)
       status(event.event == "permission_failed"
         ? "Lobby access needs approval" : "Lobby capture couldn't start", token: token)
     case "attachment_retrying":
-      attachment(false, token: token)
+      detector(.waiting, token: token)
       logger.warning("\(event.event, privacy: .public): \(event.detail ?? "No detail", privacy: .public)")
       emitEmptyCaptureIfNeeded(for: event, token: token)
       status("Getting lobby info ready…", token: token)
     case "attached":
-      attachment(true, token: token)
+      detector(.attached, token: token)
       status("Waiting for a Solo match", token: token)
     case "reconnecting_match":
-      attachment(true, token: token)
+      detector(.attached, token: token)
       status("Restoring lobby info…", token: token)
       deliver(token: token) { $0.onReconnectDetected?() }
     case "match_started", "match_snapshot", "waiting_for_match", "match_ended":
-      attachment(true, token: token)
+      detector(.attached, token: token)
       emitCapture(event, token: token)
     default:
       break
@@ -356,8 +359,8 @@ final class LobbyReader {
     }
   }
 
-  private func attachment(_ attached: Bool, token: LobbyReaderDeliveryToken) {
-    deliver(token: token) { $0.onAttachmentChanged?(attached) }
+  private func detector(_ signal: MatchDetectorSignal, token: LobbyReaderDeliveryToken) {
+    deliver(token: token) { $0.onDetectorSignal?(signal) }
   }
 
   private func status(_ text: String, token: LobbyReaderDeliveryToken) {

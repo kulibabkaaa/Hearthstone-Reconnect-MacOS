@@ -294,12 +294,19 @@ private func testMatchSignal() throws {
   let lobby = LobbyCoordinator(overlay: overlay, windowTracker: HearthstoneWindowTracker())
   var changes = 0
   lobby.onMatchStateChanged = { changes += 1 }
-  try require(!lobby.isInMatch && !lobby.isMatchDetectorAvailable, "a new coordinator reported a match")
+  try require(!lobby.isInMatch && lobby.matchDetectorState == .connecting, "a new coordinator reported a match")
   lobby.start()
   defer { lobby.stop() }
   try require(lobby.diagnosticReaderMode == .lobby, "lobby info on didn't run the lobby reader")
-  lobby.diagnosticAttachment(true)
-  try require(lobby.isMatchDetectorAvailable, "attaching didn't make the detector available")
+  // Launch and login: the helper waits for Hearthstone and retries its first attach. Still connecting, never
+  // the fallback.
+  for signal: MatchDetectorSignal in [.starting, .waiting, .waiting] {
+    lobby.diagnosticDetectorSignal(signal)
+    try require(lobby.matchDetectorState == .connecting && !lobby.isInMatch,
+                "the detector left connecting before it attached")
+  }
+  lobby.diagnosticDetectorSignal(.attached)
+  try require(lobby.matchDetectorState == .attached, "attaching didn't make the detector available")
   lobby.prepareForLayout(gameFrame: NSRect(x: 0, y: 0, width: 1440, height: 900))
   try require(!lobby.isInMatch, "the layout sample counted as a match")
   lobby.diagnosticCapture(capture("solo-1"))
@@ -323,12 +330,22 @@ private func testMatchSignal() throws {
   lobby.diagnosticCapture(capture(nil))
   lobby.diagnosticReconnectDetected()
   try require(lobby.isInMatch, "a match being resumed didn't count")
-  lobby.diagnosticAttachment(false)
-  try require(!lobby.isInMatch && !lobby.isMatchDetectorAvailable, "detaching kept the match")
-  lobby.diagnosticAttachment(true)
+  lobby.diagnosticDetectorSignal(.helperFailed)
+  try require(!lobby.isInMatch && lobby.matchDetectorState == .connecting,
+              "a helper restart kept the match or fell back")
+  lobby.diagnosticDetectorSignal(.attached)
   lobby.diagnosticCapture(capture("solo-4"))
+  lobby.diagnosticDetectorSignal(.gaveUp)
+  try require(!lobby.isInMatch && lobby.matchDetectorState == .unavailable,
+              "an attach that gave up didn't become unavailable")
+  lobby.diagnosticDetectorSignal(.starting)
+  try require(lobby.matchDetectorState == .connecting, "a retry didn't go back to connecting")
+  for _ in 0..<MatchDetectorTracker.helperFailuresBeforeGivingUp { lobby.diagnosticDetectorSignal(.helperFailed) }
+  try require(lobby.matchDetectorState == .unavailable, "a helper that kept failing didn't become unavailable")
+  lobby.diagnosticDetectorSignal(.attached)
+  lobby.diagnosticCapture(capture("solo-5"))
   lobby.stop()
-  try require(!lobby.isInMatch && !lobby.isMatchDetectorAvailable, "stopping kept the match")
+  try require(!lobby.isInMatch && lobby.matchDetectorState == .connecting, "stopping kept the match")
 }
 
 /// Lobby info off, Reconnect button on: the reader runs for match detection only while Hearthstone runs, and
@@ -350,9 +367,12 @@ private func testMatchDetectionOnly() throws {
   inputs.hearthstoneRunning = true
   lobby.refreshReaderMode()
   try require(lobby.diagnosticReaderMode == .matchDetectionOnly, "the detector didn't start with Hearthstone")
-  lobby.diagnosticAttachment(true)
+  try require(lobby.matchDetectorState == .connecting, "starting the detector didn't begin connecting")
+  lobby.diagnosticDetectorSignal(.gaveUp)
+  try require(lobby.matchDetectorState == .unavailable, "access not granted didn't make the detector unavailable")
+  lobby.diagnosticDetectorSignal(.attached)
   lobby.diagnosticCapture(capture("solo-1"))
-  try require(lobby.isInMatch && lobby.isMatchDetectorAvailable, "match detection missed a Solo match")
+  try require(lobby.isInMatch && lobby.matchDetectorState == .attached, "match detection missed a Solo match")
   lobby.diagnosticCapture(capture(nil))
   try require(!lobby.isInMatch, "match detection missed the match end")
   lobby.diagnosticCapture(capture("duos-1", mode: "duos"))
@@ -366,7 +386,7 @@ private func testMatchDetectionOnly() throws {
               "match detection drew, reported or said something")
   inputs.buttonEnabled = false
   lobby.refreshReaderMode()
-  try require(lobby.diagnosticReaderMode == .off && !lobby.isInMatch && !lobby.isMatchDetectorAvailable,
+  try require(lobby.diagnosticReaderMode == .off && !lobby.isInMatch && lobby.matchDetectorState == .connecting,
               "turning the button off left the detector running")
   inputs.buttonEnabled = true
   lobby.refreshReaderMode()

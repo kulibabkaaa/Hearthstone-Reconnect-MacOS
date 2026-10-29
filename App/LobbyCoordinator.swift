@@ -94,7 +94,7 @@ final class LobbyLeaderboardRetryLoop {
 final class LobbyCoordinator {
   var onStatus: ((String) -> Void)?
   var onLobbyDisplayed: (() -> Void)?
-  /// Called when `isInMatch` or `isMatchDetectorAvailable` changes.
+  /// Called when `isInMatch` or `matchDetectorState` changes.
   var onMatchStateChanged: (() -> Void)?
   /// Whether the Reconnect button is on and Hearthstone runs. With lobby info off they decide whether the reader
   /// runs for match detection only (`ReconnectButtonVisibilityPolicy.readerMode`). Call `refreshReaderMode()`
@@ -106,11 +106,12 @@ final class LobbyCoordinator {
   private(set) var isInMatch = false {
     didSet { if isInMatch != oldValue { onMatchStateChanged?() } }
   }
-  /// The reader is attached to Hearthstone, so `isInMatch` can be trusted. False while it is off, starting,
-  /// failing, or (match detection only) lobby access isn't granted without a dialog.
-  private(set) var isMatchDetectorAvailable = false {
-    didSet { if isMatchDetectorAvailable != oldValue { onMatchStateChanged?() } }
+  /// Whether `isInMatch` can be trusted (`.attached`), the reader is still connecting (off, starting, the game
+  /// loading, the helper restarting), or it won't attach (access not granted or declined, the helper gave up).
+  private(set) var matchDetectorState = MatchDetectorState.connecting {
+    didSet { if matchDetectorState != oldValue { onMatchStateChanged?() } }
   }
+  private var detectorTracker = MatchDetectorTracker()
   private var readerMode = LobbyReaderMode.off
   private let reader = LobbyReader()
   private let store = LobbyLeaderboardStore()
@@ -135,7 +136,7 @@ final class LobbyCoordinator {
     reader.onStatus = { [weak self] in self?.readerStatus($0) }
     reader.onCapture = { [weak self] in self?.readerCapture($0) }
     reader.onReconnectDetected = { [weak self] in self?.readerReconnectDetected() }
-    reader.onAttachmentChanged = { [weak self] in self?.readerAttachmentChanged($0) }
+    reader.onDetectorSignal = { [weak self] in self?.readerDetectorSignal($0) }
     store.onSnapshotInvalidated = { [weak self] region in
       guard let self, self.isRunning, self.lastCapture?.region == region else { return }
       self.snapshot = nil
@@ -152,7 +153,7 @@ final class LobbyCoordinator {
   func stop() {
     isRunning = false
     windowTracker.unsubscribe(self)
-    isMatchDetectorAvailable = false; isInMatch = false
+    resetDetector(); isInMatch = false
     reader.stop(); readerMode = .off; lifecycle.deactivate(); snapshot = nil; lastCapture = nil
     estimator.reset(); leaderboardRetry.cancel(); store.cancel(); overlay.close()
   }
@@ -163,7 +164,7 @@ final class LobbyCoordinator {
     refreshReaderMode()
   }
   /// Starts, stops or switches the reader for lobby info, match detection only, or neither. Switching restarts
-  /// the helper, so the detector is unavailable until it attaches again.
+  /// the helper, so the detector is connecting until it attaches again.
   func refreshReaderMode() {
     let inputs = matchDetectionInputs()
     let wanted = isRunning ? ReconnectButtonVisibilityPolicy.readerMode(lobbyEnabled: enabled,
@@ -171,7 +172,7 @@ final class LobbyCoordinator {
     if wanted != readerMode {
       if readerMode != .off { reader.stop() }
       readerMode = wanted
-      isMatchDetectorAvailable = false
+      resetDetector()
       isInMatch = false
     }
     // Starting a running reader again is harmless; lobby mode always retried a stopped helper this way.
@@ -273,10 +274,15 @@ final class LobbyCoordinator {
     if readerMode == .lobby { restoreInterruptedMatch() }
     isInMatch = true
   }
-  private func readerAttachmentChanged(_ attached: Bool) {
+  private func readerDetectorSignal(_ signal: MatchDetectorSignal) {
     guard isRunning else { return }
-    isMatchDetectorAvailable = attached
-    if !attached { isInMatch = false }
+    detectorTracker.handle(signal)
+    if detectorTracker.state != .attached { isInMatch = false }
+    matchDetectorState = detectorTracker.state
+  }
+  private func resetDetector() {
+    detectorTracker = MatchDetectorTracker()
+    matchDetectorState = detectorTracker.state
   }
   /// Match detection only: nothing is drawn, saved, downloaded or reported.
   private func detectMatch(_ capture: LobbyCapture) {
@@ -324,7 +330,7 @@ final class LobbyCoordinator {
   func diagnosticCapture(_ capture: LobbyCapture) { readerCapture(capture) }
   func diagnosticStatus(_ text: String) { readerStatus(text) }
   func diagnosticReconnectDetected() { readerReconnectDetected() }
-  func diagnosticAttachment(_ attached: Bool) { readerAttachmentChanged(attached) }
+  func diagnosticDetectorSignal(_ signal: MatchDetectorSignal) { readerDetectorSignal(signal) }
   var diagnosticReaderMode: LobbyReaderMode { readerMode }
   #endif
 }

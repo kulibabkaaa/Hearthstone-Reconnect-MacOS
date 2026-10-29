@@ -125,18 +125,19 @@ enum OverlayLayoutDiagnostics {
   }
 
   /// The match rule: outside layout mode the button shows only in a match; layout mode shows it at any time and
-  /// it hides again when the session ends; a reconnect result already on screen stays up; without a match
-  /// detector it shows whenever the game is frontmost; the setting hides it.
+  /// it hides again when the session ends; a reconnect result already on screen stays up; while the detector
+  /// connects it stays hidden; a detector that won't attach shows it whenever the game is frontmost; the setting
+  /// hides it.
   static func verifyMatchRule(_ button: ReconnectButtonOverlayController, gameWindow: NSWindow) {
     let session = button.layoutSession
     let panel = button.diagnosticBlock.panel
     let game = gameWindow.frame
     var inMatch = false
     var enabled = true
-    var detector = true
+    var detector = MatchDetectorState.attached
     button.isGameFrontmost = { true }
     button.isEnabled = { enabled }
-    button.isMatchDetectorAvailable = { detector }
+    button.matchDetectorState = { detector }
     button.isInMatch = { inMatch }
     session.finish(save: false)
     button.render(.ready)
@@ -180,8 +181,42 @@ enum OverlayLayoutDiagnostics {
     precondition(!panel.isVisible)
     print("PASS: a reconnect result on screen outlasts the match signal; a hidden button doesn't appear for one")
 
+    // Launch and login: the detector is still connecting, so the game in front doesn't show the button, nor
+    // does a match signal it can't vouch for; layout mode and a reconnect result still do.
     button.render(.ready)
-    detector = false
+    detector = .connecting
+    button.hide()
+    button.updateGameWindow(frame: game)
+    precondition(!panel.isVisible)
+    inMatch = true
+    button.updateGameWindow(frame: game)
+    precondition(!panel.isVisible)
+    inMatch = false
+    precondition(session.begin([.reconnectButton]) && panel.isVisible)
+    session.finish(save: false)
+    precondition(!panel.isVisible)
+    detector = .attached
+    inMatch = true
+    button.updateGameWindow(frame: game)
+    button.render(.reconnecting)
+    inMatch = false
+    detector = .connecting
+    button.updateGameWindow(frame: game)
+    precondition(panel.isVisible)
+    button.render(.ready)
+    button.updateGameWindow(frame: game)
+    precondition(!panel.isVisible)
+    detector = .attached
+    inMatch = true
+    button.updateGameWindow(frame: game)
+    precondition(panel.isVisible)
+    inMatch = false
+    button.updateGameWindow(frame: game)
+    precondition(!panel.isVisible)
+    print("PASS: while the detector connects (launch, login, helper restart) the button stays hidden; a result on screen outlasts it; attached it follows the match")
+
+    button.render(.ready)
+    detector = .unavailable
     button.updateGameWindow(frame: game)
     precondition(panel.isVisible)
     var frontmost = false
@@ -191,10 +226,10 @@ enum OverlayLayoutDiagnostics {
     frontmost = true
     button.updateGameWindow(frame: game)
     precondition(panel.isVisible)
-    detector = true
+    detector = .attached
     button.updateGameWindow(frame: game)
     precondition(!panel.isVisible)
-    print("PASS: without a match detector the button shows whenever the game is frontmost; with one it hides outside a match")
+    print("PASS: a detector that won't attach shows the button whenever the game is frontmost; attached it hides outside a match")
 
     button.render(.ready)
     inMatch = true
@@ -204,13 +239,13 @@ enum OverlayLayoutDiagnostics {
     enabled = true
     button.updateGameWindow(frame: game)
     precondition(panel.isVisible)
-    detector = false
+    detector = .unavailable
     enabled = false
     button.updateGameWindow(frame: game)
     precondition(!panel.isVisible)
     button.isInMatch = { true }
     button.isEnabled = { true }
-    button.isMatchDetectorAvailable = { true }
+    button.matchDetectorState = { .attached }
     button.isGameFrontmost = { true }
     print("PASS: the setting off hides the button even in a match or without a detector")
   }

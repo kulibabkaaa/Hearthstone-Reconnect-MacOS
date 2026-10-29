@@ -323,11 +323,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     // A click runs exactly what the reconnect shortcut runs.
     reconnectButton.onReconnect = { [weak self] in self?.runReconnect(source: .overlayButton) }
     // Outside layout mode the button shows only during a Solo or Duos match, as the lobby reader sees it. With
-    // lobby info off the reader runs for match detection only; without a detector the button shows while the
-    // game is in front.
+    // lobby info off the reader runs for match detection only. While it connects the button stays hidden; if it
+    // won't attach at all the button shows while the game is in front.
     reconnectButton.isEnabled = { [weak self] in self?.isReconnectButtonEnabled ?? false }
-    reconnectButton.isMatchDetectorAvailable = { [weak self] in
-      self?.lobbyCoordinator.isMatchDetectorAvailable ?? false
+    reconnectButton.matchDetectorState = { [weak self] in
+      self?.lobbyCoordinator.matchDetectorState ?? .connecting
     }
     reconnectButton.isInMatch = { [weak self] in self?.lobbyCoordinator.isInMatch ?? false }
     lobbyCoordinator.matchDetectionInputs = { [weak self] in
