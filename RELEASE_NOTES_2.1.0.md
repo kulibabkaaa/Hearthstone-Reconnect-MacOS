@@ -16,9 +16,9 @@
   state on this Mac to tell whether you are in a match. It uses nothing else,
   shows no lobby overlay, downloads no ratings, and asks for no new permissions.
   Turn off the Reconnect button to stop this.
-- If the app cannot tell whether you are in a match, for example while it is
-  still connecting to the game, the button shows whenever Hearthstone is in
-  front.
+- While the app is still connecting to the game, the button stays hidden. If it
+  can't read the game at all, for example because lobby access isn't allowed,
+  the button shows whenever Hearthstone is in front.
 - A short What's New card introduces the button once, in the app window when
   Reconnect is ready. It never appears over the game.
 - Successful reconnects now record which control started them: the shortcut,
