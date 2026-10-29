@@ -83,6 +83,17 @@ struct ReconnectButtonVisibilityTests {
     #expect(state([.starting] + belowLimit + [.starting, .helperFailed]) == .connecting)
     #expect(state([.starting] + belowLimit + [.helperFailed, .starting]) == .connecting)
   }
+  @Test("connecting with no progress for the timeout counts as unavailable; attached or given up stays put")
+  func connectingTimeout() {
+    #expect(MatchDetectorTracker.connectingTimeout == 60)
+    #expect(state([.starting, .waiting, .timedOut]) == .unavailable)
+    #expect(show(detector: state([.starting, .waiting, .timedOut])))
+    #expect(state([.starting, .attached, .timedOut]) == .attached)
+    #expect(state([.starting, .gaveUp, .timedOut]) == .unavailable)
+    // Attaching later still wins; a fresh start goes back to connecting.
+    #expect(state([.starting, .timedOut, .attached]) == .attached)
+    #expect(state([.starting, .timedOut, .starting]) == .connecting)
+  }
   @Test("helper restart mid-session hides the button while it reconnects, unless a result is showing")
   func helperRestartMidSession() {
     let restarting = state([.starting, .attached, .helperFailed])

@@ -279,36 +279,42 @@ final class LobbyReader {
     }
   }
 
+  /// What a helper event says about attaching. `permission_failed` and `attachment_failed` come only once the
+  /// helper has stopped retrying for this Hearthstone process.
+  static func detectorSignal(forEvent name: String) -> MatchDetectorSignal? {
+    switch name {
+    case "probe_started", "waiting_for_hearthstone", "match_suspended", "attachment_retrying": .waiting
+    case "permission_unavailable", "permission_failed", "attachment_failed": .gaveUp
+    case "attached", "reconnecting_match", "match_started", "match_snapshot", "waiting_for_match", "match_ended":
+      .attached
+    default: nil
+    }
+  }
+
   private func accept(_ event: LobbyHelperEvent, token: LobbyReaderDeliveryToken) {
     guard deliveryGeneration.accepts(token) else { return }
+    if let signal = Self.detectorSignal(forEvent: event.event) { detector(signal, token: token) }
     switch event.event {
     case "probe_started", "waiting_for_hearthstone", "match_suspended":
-      detector(.waiting, token: token)
       status("Waiting for Hearthstone", token: token)
     case "permission_unavailable":
       // Quiet mode only: access isn't granted and the helper won't ask. No status: lobby info is off.
-      detector(.gaveUp, token: token)
+      break
     case "permission_failed", "attachment_failed":
-      // The helper sends these only once it has stopped retrying for this Hearthstone process.
-      detector(.gaveUp, token: token)
       logger.error("\(event.event, privacy: .public): \(event.detail ?? "No detail", privacy: .public)")
       emitEmptyCaptureIfNeeded(for: event, token: token)
       status(event.event == "permission_failed"
         ? "Lobby access needs approval" : "Lobby capture couldn't start", token: token)
     case "attachment_retrying":
-      detector(.waiting, token: token)
       logger.warning("\(event.event, privacy: .public): \(event.detail ?? "No detail", privacy: .public)")
       emitEmptyCaptureIfNeeded(for: event, token: token)
       status("Getting lobby info ready…", token: token)
     case "attached":
-      detector(.attached, token: token)
       status("Waiting for a Solo match", token: token)
     case "reconnecting_match":
-      detector(.attached, token: token)
       status("Restoring lobby info…", token: token)
       deliver(token: token) { $0.onReconnectDetected?() }
     case "match_started", "match_snapshot", "waiting_for_match", "match_ended":
-      detector(.attached, token: token)
       emitCapture(event, token: token)
     default:
       break

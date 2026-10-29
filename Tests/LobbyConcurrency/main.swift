@@ -340,12 +340,26 @@ private func testMatchSignal() throws {
               "an attach that gave up didn't become unavailable")
   lobby.diagnosticDetectorSignal(.starting)
   try require(lobby.matchDetectorState == .connecting, "a retry didn't go back to connecting")
+  // Stuck connecting (hung helper, unanswered access dialog): the timeout counts only while Hearthstone runs.
+  lobby.diagnosticDetectorSignal(.starting)
+  try require(lobby.diagnosticHasConnectingTimeout, "connecting didn't start the timeout")
+  lobby.diagnosticConnectingTimedOut()
+  try require(lobby.matchDetectorState == .connecting, "the timeout counted without Hearthstone running")
+  lobby.matchDetectionInputs = { (true, true) }
+  lobby.diagnosticConnectingTimedOut()
+  try require(lobby.matchDetectorState == .unavailable && !lobby.diagnosticHasConnectingTimeout,
+              "a detector stuck connecting didn't become unavailable")
+  lobby.diagnosticDetectorSignal(.attached)
+  try require(lobby.matchDetectorState == .attached && !lobby.diagnosticHasConnectingTimeout,
+              "attaching left the timeout running")
+  lobby.diagnosticDetectorSignal(.starting)
   for _ in 0..<MatchDetectorTracker.helperFailuresBeforeGivingUp { lobby.diagnosticDetectorSignal(.helperFailed) }
   try require(lobby.matchDetectorState == .unavailable, "a helper that kept failing didn't become unavailable")
   lobby.diagnosticDetectorSignal(.attached)
   lobby.diagnosticCapture(capture("solo-5"))
   lobby.stop()
-  try require(!lobby.isInMatch && lobby.matchDetectorState == .connecting, "stopping kept the match")
+  try require(!lobby.isInMatch && lobby.matchDetectorState == .connecting && !lobby.diagnosticHasConnectingTimeout,
+              "stopping kept the match or the timeout")
 }
 
 /// Lobby info off, Reconnect button on: the reader runs for match detection only while Hearthstone runs, and
@@ -395,7 +409,23 @@ private func testMatchDetectionOnly() throws {
   try require(lobby.diagnosticReaderMode == .lobby, "lobby info on didn't switch to the lobby reader")
 }
 
+/// Every helper event that says something about attaching maps to the detector signal the button relies on.
+private func testDetectorSignalMapping() throws {
+  let expected: [String: MatchDetectorSignal?] = [
+    "probe_started": .waiting, "waiting_for_hearthstone": .waiting, "match_suspended": .waiting,
+    "attachment_retrying": .waiting,
+    "permission_unavailable": .gaveUp, "permission_failed": .gaveUp, "attachment_failed": .gaveUp,
+    "attached": .attached, "reconnecting_match": .attached, "match_started": .attached,
+    "match_snapshot": .attached, "waiting_for_match": .attached, "match_ended": .attached,
+    "something_new": nil,
+  ]
+  for (event, signal) in expected {
+    try require(LobbyReader.detectorSignal(forEvent: event) == signal, "\(event) mapped to the wrong signal")
+  }
+}
+
 do {
+  try testDetectorSignalMapping()
   try testMatchSignal()
   try testMatchDetectionOnly()
   try testSharedWindowTracker()

@@ -268,7 +268,7 @@ final class ReconnectButtonCanvas: NSView {
 /// API for the app:
 /// - `updateGameWindow(frame:)` on every game-frame poll, and when the match state changes: shows the button
 ///   over the game while `ReconnectButtonVisibilityPolicy.shouldShow` says so (setting on, Hearthstone
-///   frontmost, and in a match, in layout mode, or no match detector), hides it otherwise (and cancels a
+///   frontmost, and in a match, in layout mode, or the match detector unavailable), hides it otherwise (and cancels a
 ///   running layout session it is part of).
 /// - `hide()` when the setting is turned off.
 /// - `render(_:)` with the current `ReconnectButtonPhase` (call again on each `nextChange`).

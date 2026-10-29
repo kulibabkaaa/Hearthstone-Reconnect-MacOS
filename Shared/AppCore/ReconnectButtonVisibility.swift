@@ -34,13 +34,20 @@ public enum MatchDetectorSignal: Equatable, Sendable {
   case gaveUp
   /// The helper exited or couldn't launch; the reader launches it again.
   case helperFailed
+  /// No progress for `MatchDetectorTracker.connectingTimeout` while Hearthstone runs: the helper hangs, or a lobby
+  /// access dialog is left unanswered.
+  case timedOut
 }
 
 /// Turns reader signals into a `MatchDetectorState`. Start a new tracker whenever the reader starts or switches
 /// mode. A helper that exits now and then reads as connecting; one that fails
-/// `helperFailuresBeforeGivingUp` times in a row without attaching counts as unavailable.
+/// `helperFailuresBeforeGivingUp` times in a row without attaching, or stays connecting with no new signal for
+/// `connectingTimeout` while Hearthstone runs, counts as unavailable.
 public struct MatchDetectorTracker: Equatable, Sendable {
   public static let helperFailuresBeforeGivingUp = 3
+  /// Well past the helper's attach (about 1 s after Hearthstone opens, or its one retry 8 s later), and
+  /// independent of how long the login screen takes.
+  public static let connectingTimeout: TimeInterval = 60
   public private(set) var state = MatchDetectorState.connecting
   private var helperFailures = 0
 
@@ -61,6 +68,8 @@ public struct MatchDetectorTracker: Equatable, Sendable {
     case .helperFailed:
       helperFailures += 1
       state = helperFailures >= Self.helperFailuresBeforeGivingUp ? .unavailable : .connecting
+    case .timedOut:
+      if state == .connecting { state = .unavailable }
     }
   }
 }

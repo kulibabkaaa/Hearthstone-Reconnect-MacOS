@@ -112,6 +112,7 @@ final class LobbyCoordinator {
     didSet { if matchDetectorState != oldValue { onMatchStateChanged?() } }
   }
   private var detectorTracker = MatchDetectorTracker()
+  private var connectingTimeout: DispatchWorkItem?
   private var readerMode = LobbyReaderMode.off
   private let reader = LobbyReader()
   private let store = LobbyLeaderboardStore()
@@ -279,10 +280,26 @@ final class LobbyCoordinator {
     detectorTracker.handle(signal)
     if detectorTracker.state != .attached { isInMatch = false }
     matchDetectorState = detectorTracker.state
+    restartConnectingTimeout()
   }
   private func resetDetector() {
     detectorTracker = MatchDetectorTracker()
     matchDetectorState = detectorTracker.state
+    restartConnectingTimeout()
+  }
+  /// Every signal that leaves the detector connecting restarts the clock; when it runs out with Hearthstone
+  /// running, the detector counts as unavailable.
+  private func restartConnectingTimeout() {
+    connectingTimeout?.cancel()
+    connectingTimeout = nil
+    guard isRunning, readerMode != .off, detectorTracker.state == .connecting else { return }
+    let item = DispatchWorkItem { [weak self] in self?.connectingTimedOut() }
+    connectingTimeout = item
+    DispatchQueue.main.asyncAfter(deadline: .now() + MatchDetectorTracker.connectingTimeout, execute: item)
+  }
+  private func connectingTimedOut() {
+    guard isRunning, readerMode != .off, matchDetectionInputs().hearthstoneRunning else { return }
+    readerDetectorSignal(.timedOut)
   }
   /// Match detection only: nothing is drawn, saved, downloaded or reported.
   private func detectMatch(_ capture: LobbyCapture) {
@@ -331,6 +348,8 @@ final class LobbyCoordinator {
   func diagnosticStatus(_ text: String) { readerStatus(text) }
   func diagnosticReconnectDetected() { readerReconnectDetected() }
   func diagnosticDetectorSignal(_ signal: MatchDetectorSignal) { readerDetectorSignal(signal) }
+  func diagnosticConnectingTimedOut() { connectingTimedOut() }
+  var diagnosticHasConnectingTimeout: Bool { connectingTimeout != nil }
   var diagnosticReaderMode: LobbyReaderMode { readerMode }
   #endif
 }
