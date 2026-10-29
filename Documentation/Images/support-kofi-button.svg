@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="72" viewBox="0 0 320 72" role="img" aria-label="Buy me a coffee on Ko-fi">
+  <defs>
+    <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF7370"/>
+      <stop offset="1" stop-color="#F0484A"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="pill">
+      <rect x="6" y="4" width="308" height="60" rx="30"/>
+    </clipPath>
+    <filter id="shadow" x="-10%" y="-20%" width="120%" height="160%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#C2282B" flood-opacity="0.35"/>
+    </filter>
+    <style>
+      .steam { fill: none; stroke: #FFFFFF; stroke-width: 2.4; stroke-linecap: round; opacity: 0; animation: rise 2.8s ease-out infinite; }
+      .s2 { animation-delay: 0.9s; }
+      @keyframes rise {
+        0% { opacity: 0; transform: translateY(3px); }
+        35% { opacity: 0.85; }
+        100% { opacity: 0; transform: translateY(-5px); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .steam { animation: none; opacity: 0.7; transform: none; }
+      }
+    </style>
+  </defs>
+
+  <!-- Button body -->
+  <rect x="6" y="4" width="308" height="60" rx="30" fill="url(#fill)" filter="url(#shadow)"/>
+  <rect x="6" y="4" width="308" height="30" fill="url(#gloss)" clip-path="url(#pill)"/>
+  <rect x="6.5" y="4.5" width="307" height="59" rx="29.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.22"/>
+
+  <!-- Cup icon with heart -->
+  <g transform="translate(34 16)">
+    <path class="steam" d="M9 5 q-2.5 -3 0 -6"/>
+    <path class="steam s2" d="M16 5 q-2.5 -3 0 -6"/>
+    <path d="M1 9 h24 v12 a10 10 0 0 1 -10 10 h-4 a10 10 0 0 1 -10 -10 z" fill="#FFFFFF"/>
+    <path d="M25 12 h3 a5.5 5.5 0 0 1 0 11 h-3.6" fill="none" stroke="#FFFFFF" stroke-width="3"/>
+    <path d="M13 26.5 l-5.2 -5.1 a3.2 3.2 0 0 1 5.2 -3.8 a3.2 3.2 0 0 1 5.2 3.8 z" fill="#F0484A"/>
+  </g>
+
+  <!-- Label -->
+  <text x="186" y="42" text-anchor="middle" fill="#FFFFFF"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="22" font-weight="700" letter-spacing="0.2">Buy me a coffee</text>
+</svg>
