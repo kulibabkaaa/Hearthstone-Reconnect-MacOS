@@ -6,20 +6,42 @@
     <description>Signed updates for HS Reconnect.</description>
     <language>en</language>
     <item>
-      <title>Version 2.0.1</title>
-      <pubDate>Tue, 06 Oct 2026 14:10:59 +0100</pubDate>
-      <sparkle:version>48</sparkle:version>
-      <sparkle:shortVersionString>2.0.1</sparkle:shortVersionString>
+      <title>Version 2.1.0</title>
+      <pubDate>Thu, 29 Oct 2026 01:05:43 +0000</pubDate>
+      <sparkle:version>49</sparkle:version>
+      <sparkle:shortVersionString>2.1.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<pre># HS Reconnect 2.0.1
+      <description><![CDATA[<pre># HS Reconnect 2.1.0
 
-- The Solo lobby overlay now works while HSTracker is running. You no longer
-  need to quit HSTracker to see lobby names and ratings.
+- Reconnect with one click. A Reconnect button now floats near the top right of
+  the Battlegrounds board during Solo and Duos matches. It works like the
+  shortcut and leaves the keyboard with the game. It shows Reconnecting…,
+  Reconnected, or a short countdown. The button is on by default; turn it off
+  under Overlays in the app.
+- Layout mode (Command-Shift-L) now moves and resizes both the lobby overlay
+  and the Reconnect button. Enter saves, Esc cancels. Reset Layout and Opacity
+  apply to both.
+- The new Overlays card in the app holds the Lobby info and Reconnect button
+  switches, the position shortcut, opacity, and Reset Layout.
+- A reconnect that gets no answer now stops after 12 seconds and offers Try
+  again.
+- With Lobby info off and the button on, the app still reads Hearthstone's game
+  state on this Mac to tell whether you are in a match. It uses nothing else,
+  shows no lobby overlay, downloads no ratings, and asks for no new permissions.
+  Turn off the Reconnect button to stop this.
+- While the app is still connecting to the game, the button stays hidden. If it
+  can't read the game at all, for example because lobby access isn't allowed,
+  the button shows whenever Hearthstone is in front.
+- A short What's New card introduces the button once, in the app window when
+  Reconnect is ready. It never appears over the game.
+- Successful reconnects now record which control started them: the shortcut,
+  the button, the app window, or the menu bar menu. No other analytics change.
 
 Requires macOS 13 or later and the native macOS version of Hearthstone. Supports
-Apple silicon and Intel Macs. The app is unofficial and is not affiliated with
-Blizzard Entertainment.</pre>]]></description>
-      <enclosure url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v2.0.1/HS-Reconnect-2.0.1.zip" type="application/octet-stream" sparkle:edSignature="gYjbm7FFKyAXM5ztScafwaJCSjQnOFvCszSPoIfO1/FG0IBFVfcphVhWjHNTAXh7IXegwvPafhkkq9XVEFzlDQ==" length="14625612" />
+Apple silicon and Intel Macs. Version 2.0.0 and later can install this update
+from the app. For earlier versions, run the new installer over the old app. The
+app is unofficial and is not affiliated with Blizzard Entertainment.</pre>]]></description>
+      <enclosure url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v2.1.0/HS-Reconnect-2.1.0.zip" type="application/octet-stream" sparkle:edSignature="kTdR8gdVf7SwpFnzCW9uKpBtpdTqGL3rhYtp+OvsvgpCWtpDj/E6zBlmaiyDxsjH+0gT5t2GNbpKXKILq758Aw==" length="14738249" />
     </item>
   </channel>
 </rss>

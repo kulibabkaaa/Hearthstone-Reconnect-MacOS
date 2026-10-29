@@ -83,6 +83,9 @@ final class LobbyReader {
   var onCapture: ((LobbyCapture) -> Void)?
   var onReconnectDetected: (() -> Void)?
   var onStatus: ((String) -> Void)?
+  /// How attaching goes, so the coordinator can tell "still connecting" from "won't attach"
+  /// (`MatchDetectorTracker`).
+  var onDetectorSignal: ((MatchDetectorSignal) -> Void)?
 
   private let queue = DispatchQueue(label: "HSReconnect.LobbyReader")
   private let decoder = JSONDecoder()
@@ -92,14 +95,18 @@ final class LobbyReader {
   private var outputHandle: FileHandle?
   private var outputBuffer = Data()
   private var shouldRun = false
+  private var quietAttach = false
   private var observedHearthstonePID: Int32?
   private var hearthstoneMonitor: DispatchSourceTimer?
 
-  func start() {
+  /// `quiet`: match detection only; the helper never asks for lobby access. Takes effect for the next helper
+  /// launch, so call `stop()` first to switch a running reader.
+  func start(quiet: Bool = false) {
     let runToken = deliveryGeneration.startRun()
     queue.async {
       guard self.deliveryGeneration.accepts(runToken) else { return }
       if !self.shouldRun {
+        self.quietAttach = quiet
         self.shouldRun = true
         self.observedHearthstonePID = self.currentHearthstonePID()
         self.startHearthstoneMonitor(runToken: runToken)
@@ -166,6 +173,7 @@ final class LobbyReader {
     process?.terminationHandler = nil
     if process?.isRunning == true { process?.terminate() }
     process = nil
+    detector(.starting, token: runToken)
     status("Restarting lobby capture…", token: runToken)
     queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
       self?.launchIfNeeded(runToken: runToken)
@@ -184,6 +192,7 @@ final class LobbyReader {
       .appendingPathComponent("Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app")
       .appendingPathComponent("Contents/MacOS/HS Reconnect Lobby Capture Probe")
     guard FileManager.default.isExecutableFile(atPath: helper.path) else {
+      detector(.gaveUp, token: runToken)
       status("Lobby capture helper is missing", token: runToken)
       return
     }
@@ -199,6 +208,7 @@ final class LobbyReader {
       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
       "TMPDIR": FileManager.default.temporaryDirectory.path,
       "HS_RECONNECT_PARENT_PID": String(ProcessInfo.processInfo.processIdentifier),
+      "HS_RECONNECT_QUIET_ATTACH": quietAttach ? "1" : "0",
     ]
     process.standardOutput = output
     process.standardError = FileHandle.nullDevice
@@ -221,6 +231,7 @@ final class LobbyReader {
         self.process = nil
         self.outputBuffer.removeAll(keepingCapacity: false)
         guard self.shouldRun, self.deliveryGeneration.accepts(runToken) else { return }
+        self.detector(.helperFailed, token: runToken)
         self.status("Restarting lobby capture…", token: runToken)
         self.queue.asyncAfter(deadline: .now() + 2) {
           self.launchIfNeeded(runToken: runToken)
@@ -235,6 +246,7 @@ final class LobbyReader {
     } catch {
       deliveryGeneration.invalidateProcess(for: runToken)
       activeProcessToken = nil
+      detector(.helperFailed, token: runToken)
       status("Lobby capture could not start", token: runToken)
       queue.asyncAfter(deadline: .now() + 2) { [weak self] in
         self?.launchIfNeeded(runToken: runToken)
@@ -267,11 +279,27 @@ final class LobbyReader {
     }
   }
 
+  /// What a helper event says about attaching. `permission_failed` and `attachment_failed` come only once the
+  /// helper has stopped retrying for this Hearthstone process.
+  static func detectorSignal(forEvent name: String) -> MatchDetectorSignal? {
+    switch name {
+    case "probe_started", "waiting_for_hearthstone", "match_suspended", "attachment_retrying": .waiting
+    case "permission_unavailable", "permission_failed", "attachment_failed": .gaveUp
+    case "attached", "reconnecting_match", "match_started", "match_snapshot", "waiting_for_match", "match_ended":
+      .attached
+    default: nil
+    }
+  }
+
   private func accept(_ event: LobbyHelperEvent, token: LobbyReaderDeliveryToken) {
     guard deliveryGeneration.accepts(token) else { return }
+    if let signal = Self.detectorSignal(forEvent: event.event) { detector(signal, token: token) }
     switch event.event {
     case "probe_started", "waiting_for_hearthstone", "match_suspended":
       status("Waiting for Hearthstone", token: token)
+    case "permission_unavailable":
+      // Quiet mode only: access isn't granted and the helper won't ask. No status: lobby info is off.
+      break
     case "permission_failed", "attachment_failed":
       logger.error("\(event.event, privacy: .public): \(event.detail ?? "No detail", privacy: .public)")
       emitEmptyCaptureIfNeeded(for: event, token: token)
@@ -335,6 +363,10 @@ final class LobbyReader {
     case "EU", "US", "AP", "CN": return value ?? "unknown"
     default: return "unknown"
     }
+  }
+
+  private func detector(_ signal: MatchDetectorSignal, token: LobbyReaderDeliveryToken) {
+    deliver(token: token) { $0.onDetectorSignal?(signal) }
   }
 
   private func status(_ text: String, token: LobbyReaderDeliveryToken) {

@@ -43,7 +43,12 @@ enum DefaultsKey {
   static let lobbyOriginX = "lobby.layout.originX"
   static let lobbyOriginY = "lobby.layout.originY"
   static let lobbyScale = "lobby.layout.scale"
+  static let reconnectButtonEnabled = "reconnectButton.enabled"
+  static let reconnectButtonOriginX = "reconnectButton.layout.originX"
+  static let reconnectButtonOriginY = "reconnectButton.layout.originY"
+  static let reconnectButtonScale = "reconnectButton.layout.scale"
   static let lobbyResumeCapture = "lobby.resume.capture"
+  static let whatsNewSeenVersion = "whatsNew.seenVersion"
 }
 
 func defaultCarbonModifiers() -> UInt32 {

@@ -15,8 +15,8 @@ settings:
     MACOSX_DEPLOYMENT_TARGET: "13.0"
     ARCHS: "$(ARCHS_STANDARD)"
     ONLY_ACTIVE_ARCH: NO
-    CURRENT_PROJECT_VERSION: 48
-    MARKETING_VERSION: 2.0.1
+    CURRENT_PROJECT_VERSION: 49
+    MARKETING_VERSION: 2.1.0
     CLANG_ENABLE_MODULES: YES
     ENABLE_HARDENED_RUNTIME: YES
   configs:
@@ -46,6 +46,10 @@ targets:
       - path: App/BugReportClient.swift
       - path: App/BugReportWindowController.swift
       - path: App/LobbyOverlayController.swift
+      - path: App/OverlayLayout.swift
+      - path: App/OverlayLayoutDiagnostics.swift
+      - path: App/ReconnectButtonOverlay.swift
+      - path: App/WhatsNewWindowController.swift
       - path: Shared/AppCore
     info:
       path: Tools/LobbyUIHarness/Info.plist

@@ -94,15 +94,35 @@ final class LobbyLeaderboardRetryLoop {
 final class LobbyCoordinator {
   var onStatus: ((String) -> Void)?
   var onLobbyDisplayed: (() -> Void)?
+  /// Called when `isInMatch` or `matchDetectorState` changes.
+  var onMatchStateChanged: (() -> Void)?
+  /// Whether the Reconnect button is on and Hearthstone runs. With lobby info off they decide whether the reader
+  /// runs for match detection only (`ReconnectButtonVisibilityPolicy.readerMode`). Call `refreshReaderMode()`
+  /// when either changes.
+  var matchDetectionInputs: () -> (buttonEnabled: Bool, hearthstoneRunning: Bool) = { (false, false) }
+  /// The player is in a Battlegrounds match. With lobby info on: real lobby rows are up (never the layout
+  /// sample), a Duos match the lobby doesn't draw (`ReconnectButtonVisibilityPolicy.countsAsMatch`), or a match
+  /// being resumed. With it off: the same matches, seen by the reader in match-detection-only mode.
+  private(set) var isInMatch = false {
+    didSet { if isInMatch != oldValue { onMatchStateChanged?() } }
+  }
+  /// Whether `isInMatch` can be trusted (`.attached`), the reader is still connecting (off, starting, the game
+  /// loading, the helper restarting), or it won't attach (access not granted or declined, the helper gave up).
+  private(set) var matchDetectorState = MatchDetectorState.connecting {
+    didSet { if matchDetectorState != oldValue { onMatchStateChanged?() } }
+  }
+  private var detectorTracker = MatchDetectorTracker()
+  private var connectingTimeout: DispatchWorkItem?
+  private var readerMode = LobbyReaderMode.off
   private let reader = LobbyReader()
   private let store = LobbyLeaderboardStore()
-  private let overlay = LobbyOverlayController()
+  private let overlay: LobbyOverlayController
+  private let windowTracker: HearthstoneWindowTracker
   private var lifecycle = LobbyLifecycleState()
   private var snapshot: LeaderboardSnapshot?
   private var lastCapture: LobbyCapture?
   private var lastReportedGameUUID: String?
   private var estimator = LobbyAverageEstimator()
-  private var windowTimer: Timer?
   private let resumeCache = LobbyResumeCache()
   private var isRunning = false
   private lazy var leaderboardRetry = LobbyLeaderboardRetryLoop { [weak self] region, completion in
@@ -110,21 +130,14 @@ final class LobbyCoordinator {
     self.store.refreshIfNeeded(region: region, completion: completion)
   }
 
-  init() {
+  init(overlay: LobbyOverlayController, windowTracker: HearthstoneWindowTracker) {
+    self.overlay = overlay
+    self.windowTracker = windowTracker
     overlay.onStatus = { [weak self] in self?.onStatus?($0) }
-    reader.onStatus = { [weak self] text in
-      guard let self, self.isRunning else { return }
-      if text == "Waiting for Hearthstone" { self.suspend(status: text) }
-      else { self.onStatus?(text) }
-    }
-    reader.onCapture = { [weak self] capture in
-      guard let self, self.isRunning else { return }
-      self.accept(capture)
-    }
-    reader.onReconnectDetected = { [weak self] in
-      guard let self, self.isRunning else { return }
-      self.restoreInterruptedMatch()
-    }
+    reader.onStatus = { [weak self] in self?.readerStatus($0) }
+    reader.onCapture = { [weak self] in self?.readerCapture($0) }
+    reader.onReconnectDetected = { [weak self] in self?.readerReconnectDetected() }
+    reader.onDetectorSignal = { [weak self] in self?.readerDetectorSignal($0) }
     store.onSnapshotInvalidated = { [weak self] region in
       guard let self, self.isRunning, self.lastCapture?.region == region else { return }
       self.snapshot = nil
@@ -134,53 +147,59 @@ final class LobbyCoordinator {
   func start() {
     isRunning = true
     _ = resumeCache.load()
-    if enabled { reader.start() }
-    guard windowTimer == nil else { return }
-    let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-      guard let self else { return }
-      self.overlay.updateGameWindow(frame: self.hearthstoneFrame())
-    }
-    RunLoop.main.add(timer, forMode: .common)
-    windowTimer = timer
+    refreshReaderMode()
+    windowTracker.subscribe(self) { [weak self] frame in self?.overlay.updateGameWindow(frame: frame) }
   }
-  deinit { windowTimer?.invalidate() }
+  deinit { windowTracker.unsubscribe(self) }
   func stop() {
     isRunning = false
-    windowTimer?.invalidate(); windowTimer = nil
-    reader.stop(); lifecycle.deactivate(); snapshot = nil; lastCapture = nil
+    windowTracker.unsubscribe(self)
+    resetDetector(); isInMatch = false
+    reader.stop(); readerMode = .off; lifecycle.deactivate(); snapshot = nil; lastCapture = nil
     estimator.reset(); leaderboardRetry.cancel(); store.cancel(); overlay.close()
   }
   var enabled: Bool { UserDefaults.standard.bool(forKey: DefaultsKey.lobbyEnabled) }
   func setEnabled(_ value: Bool) {
     UserDefaults.standard.set(value, forKey: DefaultsKey.lobbyEnabled)
-    if value { _ = resumeCache.load(); if isRunning { reader.start() } }
-    else { deactivate(status: "Lobby info disabled"); reader.stop() }
+    if value { _ = resumeCache.load() } else { deactivate(status: "Lobby info disabled") }
+    refreshReaderMode()
   }
-  func setOpacity(_ percent: Double) { overlay.opacityPercent = percent }
+  /// Starts, stops or switches the reader for lobby info, match detection only, or neither. Switching restarts
+  /// the helper, so the detector is connecting until it attaches again.
+  func refreshReaderMode() {
+    let inputs = matchDetectionInputs()
+    let wanted = isRunning ? ReconnectButtonVisibilityPolicy.readerMode(lobbyEnabled: enabled,
+      buttonEnabled: inputs.buttonEnabled, hearthstoneRunning: inputs.hearthstoneRunning) : .off
+    if wanted != readerMode {
+      if readerMode != .off { reader.stop() }
+      readerMode = wanted
+      resetDetector()
+      isInMatch = false
+    }
+    // Starting a running reader again is harmless; lobby mode always retried a stopped helper this way.
+    if wanted != .off { reader.start(quiet: wanted == .matchDetectionOnly) }
+  }
   func retrySetup() {
     guard enabled else { onStatus?("Enable lobby info first"); return }
     onStatus?("Retrying lobby setup…")
     reader.retrySetup()
   }
-  func toggleEditing() {
-    if LobbyOverlayEditCommand.next(isEditing: overlay.isEditing) == .save { overlay.toggleEditing(); return }
-    guard enabled else { onStatus?("Enable lobby info to position the overlay"); return }
-    guard let frame = hearthstoneFrame(includeOffscreen: true) else {
-      overlay.cancelAndClose()
-      onStatus?("Open Hearthstone to position the overlay")
-      return
-    }
-    overlay.updateGameWindow(frame: frame)
+  /// Readies the lobby block before the shared layout session begins: places it on the game and shows the
+  /// sample lobby when no match is active. The session itself is begun by the caller.
+  func prepareForLayout(gameFrame: NSRect) {
+    overlay.updateGameWindow(frame: gameFrame)
     if lifecycle.activeUUID == nil {
-      overlay.showPreview(gameFrame: frame)
+      overlay.showPreview(gameFrame: gameFrame)
     }
-    overlay.toggleEditing()
   }
-  func resetLayout() { overlay.resetLayout() }
+  /// Layout mode was asked for but Hearthstone has no window: drop any stale lobby block. The match itself goes
+  /// on, so `isInMatch` is kept (the button checks for a game window itself).
+  func closeOverlayForMissingGame() { overlay.cancelAndClose() }
 
   private func accept(_ capture: LobbyCapture) {
     guard enabled else { deactivate(status: "Lobby info disabled"); return }
     guard capture.gameUUID != nil else {
+      isInMatch = false
       if lifecycle.handleMenuTick(isEditingPreview: overlay.isEditing,
                                   hasGameWindow: hearthstoneFrame() != nil) {
         onStatus?("Positioning sample lobby overlay")
@@ -196,7 +215,8 @@ final class LobbyCoordinator {
       suspend(status: "Waiting for lobby details…")
       return
     case .unsupported:
-      deactivate(status: "Lobby info supports Solo")
+      deactivate(status: "Lobby info supports Solo",
+                 inMatch: ReconnectButtonVisibilityPolicy.countsAsMatch(.unsupported))
       return
     }
     lastCapture = capture
@@ -236,10 +256,64 @@ final class LobbyCoordinator {
       return true
     }
   }
-  private func deactivate(status: String) {
-    lifecycle.deactivate(); clearAfterLifecycleChange(status: status)
+  private func readerStatus(_ text: String) {
+    guard isRunning else { return }
+    guard readerMode == .lobby else {
+      // Match detection only: lobby info is off, so its status line keeps saying so.
+      if text == "Waiting for Hearthstone" { isInMatch = false }
+      return
+    }
+    if text == "Waiting for Hearthstone" { suspend(status: text) }
+    else { onStatus?(text) }
   }
+  private func readerCapture(_ capture: LobbyCapture) {
+    guard isRunning else { return }
+    if readerMode == .lobby { accept(capture) } else { detectMatch(capture) }
+  }
+  private func readerReconnectDetected() {
+    guard isRunning else { return }
+    if readerMode == .lobby { restoreInterruptedMatch() }
+    isInMatch = true
+  }
+  private func readerDetectorSignal(_ signal: MatchDetectorSignal) {
+    guard isRunning else { return }
+    detectorTracker.handle(signal)
+    if detectorTracker.state != .attached { isInMatch = false }
+    matchDetectorState = detectorTracker.state
+    restartConnectingTimeout()
+  }
+  private func resetDetector() {
+    detectorTracker = MatchDetectorTracker()
+    matchDetectorState = detectorTracker.state
+    restartConnectingTimeout()
+  }
+  /// Every signal that leaves the detector connecting restarts the clock; when it runs out with Hearthstone
+  /// running, the detector counts as unavailable.
+  private func restartConnectingTimeout() {
+    connectingTimeout?.cancel()
+    connectingTimeout = nil
+    guard isRunning, readerMode != .off, detectorTracker.state == .connecting else { return }
+    let item = DispatchWorkItem { [weak self] in self?.connectingTimedOut() }
+    connectingTimeout = item
+    DispatchQueue.main.asyncAfter(deadline: .now() + MatchDetectorTracker.connectingTimeout, execute: item)
+  }
+  private func connectingTimedOut() {
+    connectingTimeout = nil
+    guard isRunning, readerMode != .off, matchDetectionInputs().hearthstoneRunning else { return }
+    readerDetectorSignal(.timedOut)
+  }
+  /// Match detection only: nothing is drawn, saved, downloaded or reported.
+  private func detectMatch(_ capture: LobbyCapture) {
+    isInMatch = capture.gameUUID != nil && ReconnectButtonVisibilityPolicy.countsAsMatch(
+      LobbyReconnectPolicy.liveCaptureDisposition(mode: capture.mode))
+  }
+  private func deactivate(status: String, inMatch: Bool = false) {
+    lifecycle.deactivate(); clearAfterLifecycleChange(status: status, inMatch: inMatch)
+  }
+  // The match signal changes before the overlay closes: closing may end a layout session, and the button
+  // decides then whether it stays up.
   private func suspend(status: String) {
+    isInMatch = false
     lifecycle.deactivate(); snapshot = nil; lastCapture = nil; estimator.reset()
     leaderboardRetry.cancel(); store.cancel(); overlay.cancelAndClose(); onStatus?(status)
   }
@@ -251,7 +325,9 @@ final class LobbyCoordinator {
     accept(capture)
     onStatus?("Lobby info restored")
   }
-  private func clearAfterLifecycleChange(status: String) {
+  /// `inMatch`: a match goes on that the lobby doesn't draw (Duos), so `isInMatch` stays true without a blip.
+  private func clearAfterLifecycleChange(status: String, inMatch: Bool = false) {
+    isInMatch = inMatch
     snapshot = nil; lastCapture = nil; estimator.reset(); leaderboardRetry.cancel()
     store.cancel(); overlay.cancelAndClose()
     resumeCache.clear()
@@ -263,24 +339,18 @@ final class LobbyCoordinator {
       now: Date(), region: capture.region)
     let summary = estimator.summary(rows: rows)
     overlay.show(rows: rows, summary: summary, gameFrame: hearthstoneFrame())
+    isInMatch = true
   }
-  private func windowArea(_ item: [String: Any]) -> CGFloat {
-    guard let bounds = item[kCGWindowBounds as String] as? NSDictionary,
-          let rect = CGRect(dictionaryRepresentation: bounds) else { return 0 }
-    return rect.width * rect.height
-  }
-  private func hearthstoneFrame(includeOffscreen: Bool = false) -> NSRect? {
-    guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "unity.Blizzard Entertainment.Hearthstone" }) else { return nil }
-    let options: CGWindowListOption = includeOffscreen ? [.optionAll, .excludeDesktopElements] : [.optionOnScreenOnly, .excludeDesktopElements]
-    let items = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
-    for item in items.sorted(by: { windowArea($0) > windowArea($1) }) where (item[kCGWindowOwnerPID as String] as? Int32) == app.processIdentifier {
-      if let dict = item[kCGWindowBounds as String] as? NSDictionary,
-         let quartz = CGRect(dictionaryRepresentation: dict), quartz.width > 500, quartz.height > 300 {
-        let primaryTop = NSScreen.screens.first?.frame.maxY ?? quartz.maxY
-        return NSRect(x: quartz.minX, y: primaryTop - quartz.maxY,
-                      width: quartz.width, height: quartz.height)
-      }
-    }
-    return nil
-  }
+  private func hearthstoneFrame() -> NSRect? { windowTracker.frame() }
+
+  #if DEBUG
+  /// Reader events as the reader delivers them, for `Tests/LobbyConcurrency`.
+  func diagnosticCapture(_ capture: LobbyCapture) { readerCapture(capture) }
+  func diagnosticStatus(_ text: String) { readerStatus(text) }
+  func diagnosticReconnectDetected() { readerReconnectDetected() }
+  func diagnosticDetectorSignal(_ signal: MatchDetectorSignal) { readerDetectorSignal(signal) }
+  func diagnosticConnectingTimedOut() { connectingTimedOut() }
+  var diagnosticHasConnectingTimeout: Bool { connectingTimeout != nil }
+  var diagnosticReaderMode: LobbyReaderMode { readerMode }
+  #endif
 }

@@ -19,6 +19,12 @@ output_dmg="${output_dir}/HS-Reconnect-${version}.dmg"
 output_update_archive="${output_dir}/HS-Reconnect-${version}.zip"
 exported_app="${export_path}/HS Reconnect.app"
 
+# Xcode 27's lipo takes one architecture per -verify_arch, so check each in turn.
+verify_universal() {
+  lipo "$1" -verify_arch arm64
+  lipo "$1" -verify_arch x86_64
+}
+
 installer_identity="${INSTALLER_SIGNING_IDENTITY:-$(
   security find-identity -v \
     | sed -n 's/.*"\(Developer ID Installer:[^"]*\)".*/\1/p' \
@@ -78,42 +84,32 @@ if codesign -d --entitlements - "${exported_app}" 2>&1 \
   exit 1
 fi
 
-lipo \
-  "${exported_app}/Contents/MacOS/HS Reconnect" \
-  -verify_arch arm64 x86_64
-lipo \
-  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Watcher.app/Contents/MacOS/HS Reconnect Watcher" \
-  -verify_arch arm64 x86_64
-lipo \
-  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe" \
-  -verify_arch arm64 x86_64
+verify_universal \
+  "${exported_app}/Contents/MacOS/HS Reconnect"
+verify_universal \
+  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Watcher.app/Contents/MacOS/HS Reconnect Watcher"
+verify_universal \
+  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe"
 if strings \
   "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe" \
   | grep -q 'HS_LOBBY_CAPTURE_LOG'; then
   echo "Release lobby helper contains debug file logging." >&2
   exit 1
 fi
-lipo \
-  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/HearthMirror.framework/Versions/A/HearthMirror" \
-  -verify_arch arm64 x86_64
-lipo \
-  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libcoreclr.dylib" \
-  -verify_arch arm64 x86_64
-lipo \
-  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libSystem.Native.dylib" \
-  -verify_arch arm64 x86_64
-lipo \
-  "${exported_app}/Contents/Library/SystemExtensions/io.github.kulibabkaaa.HSReconnect.ProxyExtension.systemextension/Contents/MacOS/io.github.kulibabkaaa.HSReconnect.ProxyExtension" \
-  -verify_arch arm64 x86_64
-lipo \
-  "${exported_app}/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle" \
-  -verify_arch arm64 x86_64
-lipo \
-  "${exported_app}/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate" \
-  -verify_arch arm64 x86_64
-lipo \
-  "${exported_app}/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater" \
-  -verify_arch arm64 x86_64
+verify_universal \
+  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/HearthMirror.framework/Versions/A/HearthMirror"
+verify_universal \
+  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libcoreclr.dylib"
+verify_universal \
+  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libSystem.Native.dylib"
+verify_universal \
+  "${exported_app}/Contents/Library/SystemExtensions/io.github.kulibabkaaa.HSReconnect.ProxyExtension.systemextension/Contents/MacOS/io.github.kulibabkaaa.HSReconnect.ProxyExtension"
+verify_universal \
+  "${exported_app}/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle"
+verify_universal \
+  "${exported_app}/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+verify_universal \
+  "${exported_app}/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater"
 
 ditto --norsrc --noextattr \
   "${exported_app}" \

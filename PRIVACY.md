@@ -7,6 +7,9 @@ events together with a randomly generated installation identifier that is
 hashed before transmission. TelemetryDeck also receives standard technical
 details supplied by its macOS SDK, such as the app version, macOS version,
 device model and architecture, display size, language, region, and time zone.
+The successful-reconnect event also records which control started the
+reconnect: the shortcut, the Reconnect button, the main window, or the menu bar
+menu.
 
 Analytics never includes player names, BattleTags, MMR, lobby identifiers,
 Blizzard account details, game traffic, logs, file paths, or captured game
@@ -18,6 +21,15 @@ To identify the current Battlegrounds connection and lobby, the app reads
 Hearthstone's local game state. Captured player names and identifiers stay on
 this Mac. The last complete lobby roster is stored locally for up to three
 hours so it can be restored if Hearthstone restarts during that match.
+
+When lobby info is off but the Reconnect button is on, the app still reads
+Hearthstone's local game state while Hearthstone runs, in the same way as lobby
+info, to tell whether a Battlegrounds match is in progress so it can show the
+button. The app uses only whether a match is in progress and discards the rest
+of the captured lobby: it shows no lobby overlay, requests no ratings, stores no
+lobby roster, and sends no lobby analytics. It reads the game only when macOS
+already allows it without a new prompt; otherwise the button shows whenever
+Hearthstone is in front. Turning off the Reconnect button stops this reading.
 
 To show public ratings, the app requests the selected region's public
 Battlegrounds leaderboard directly from Blizzard and keeps a short-lived local

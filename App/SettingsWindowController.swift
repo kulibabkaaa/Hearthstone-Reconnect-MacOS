@@ -46,6 +46,7 @@ final class SettingsWindowController: NSWindowController {
     (UInt32, UInt32, String) -> Bool
   private let onResetLobby: () -> Void
   private let onRetryLobbySetup: () -> Void
+  private let onReconnectButtonEnabledChanged: (Bool) -> Void
   private let onReportBug: () -> Void
   private let onCheckForUpdates: () -> Void
   private let automaticUpdateChecksEnabled: () -> Bool
@@ -109,6 +110,7 @@ final class SettingsWindowController: NSWindowController {
     action: nil
   )
   private let lobbySwitch = NSSwitch()
+  private let reconnectOverlaySwitch = NSSwitch()
   private let lobbyShortcutButton = RecorderButton(
     title: "",
     target: nil,
@@ -171,6 +173,7 @@ final class SettingsWindowController: NSWindowController {
       @escaping (UInt32, UInt32, String) -> Bool,
     onResetLobby: @escaping () -> Void,
     onRetryLobbySetup: @escaping () -> Void,
+    onReconnectButtonEnabledChanged: @escaping (Bool) -> Void = { _ in },
     onReportBug: @escaping () -> Void,
     onCheckForUpdates: @escaping () -> Void,
     automaticUpdateChecksEnabled: @escaping () -> Bool,
@@ -194,6 +197,8 @@ final class SettingsWindowController: NSWindowController {
     self.onLobbyShortcutChanged = onLobbyShortcutChanged
     self.onResetLobby = onResetLobby
     self.onRetryLobbySetup = onRetryLobbySetup
+    self.onReconnectButtonEnabledChanged =
+      onReconnectButtonEnabledChanged
     self.onReportBug = onReportBug
     self.onCheckForUpdates = onCheckForUpdates
     self.automaticUpdateChecksEnabled =
@@ -248,6 +253,10 @@ final class SettingsWindowController: NSWindowController {
     lobbySwitch.state =
       UserDefaults.standard.bool(
         forKey: DefaultsKey.lobbyEnabled
+      ) ? .on : .off
+    reconnectOverlaySwitch.state =
+      UserDefaults.standard.bool(
+        forKey: DefaultsKey.reconnectButtonEnabled
       ) ? .on : .off
     lobbyShortcutButton.title =
       UserDefaults.standard.string(
@@ -396,6 +405,7 @@ final class SettingsWindowController: NSWindowController {
       !uninstalling && reconnectIsEnabled
     systemExtensionSettingsButton.isEnabled = !uninstalling
     lobbySwitch.isEnabled = !uninstalling
+    reconnectOverlaySwitch.isEnabled = !uninstalling
     lobbyShortcutButton.isEnabled = !uninstalling
     opacitySlider.isEnabled = !uninstalling
     resetLobbyButton.isEnabled = !uninstalling
@@ -481,11 +491,19 @@ final class SettingsWindowController: NSWindowController {
     lobbySwitch.target = self
     lobbySwitch.action = #selector(lobbyEnabledChanged)
     lobbySwitch.setAccessibilityLabel("Show lobby info")
+    reconnectOverlaySwitch.target = self
+    reconnectOverlaySwitch.action =
+      #selector(reconnectOverlayEnabledChanged)
+    reconnectOverlaySwitch.setAccessibilityLabel(
+      "Show Reconnect button over Hearthstone"
+    )
 
     lobbyShortcutButton.bezelStyle = .rounded
     lobbyShortcutButton.setAccessibilityLabel(
-      "Change lobby positioning shortcut"
+      "Change overlay positioning shortcut"
     )
+    lobbyShortcutButton.toolTip =
+      "Moves and resizes lobby info and the Reconnect button over Hearthstone."
     lobbyShortcutButton.onRecordingStateChanged = {
       [weak self] recording in
       self?.onShortcutRecordingChanged(recording)
@@ -513,9 +531,13 @@ final class SettingsWindowController: NSWindowController {
     opacitySlider.target = self
     opacitySlider.action = #selector(opacityChanged)
     opacitySlider.setAccessibilityLabel("Overlay opacity")
+    opacitySlider.toolTip =
+      "Applies to lobby info and the Reconnect button over Hearthstone."
     resetLobbyButton.target = self
     resetLobbyButton.action = #selector(resetLobby)
-    resetLobbyButton.setAccessibilityLabel("Reset lobby layout")
+    resetLobbyButton.setAccessibilityLabel("Reset overlay layout")
+    resetLobbyButton.toolTip =
+      "Puts lobby info and the Reconnect button back in their default spots."
     retryLobbySetupButton.target = self
     retryLobbySetupButton.action =
       #selector(retryLobbySetup)
@@ -704,17 +726,32 @@ final class SettingsWindowController: NSWindowController {
       containing: reconnectStack
     )
 
-    let lobbyTitle = makeLabel(
-      "Lobby info",
+    // Everything that floats over Hearthstone: one switch per overlay, then the controls they share.
+    let overlaysTitle = makeLabel(
+      "Overlays",
       size: 16,
       weight: .semibold
     )
-    let lobbyHeader = makeHorizontalRow(
-      [lobbyTitle, flexibleSpacer(), lobbySwitch],
+    let lobbyLabel = NSTextField(labelWithString: "Lobby info")
+    let lobbyRow = makeHorizontalRow(
+      [lobbyLabel, flexibleSpacer(), lobbySwitch],
       spacing: 12
     )
     let lobbyStatusRow = makeHorizontalRow(
       [lobbyStatusLabel, flexibleSpacer(), retryLobbySetupButton],
+      spacing: 12
+    )
+    // Indented so the status reads as part of the lobby info row above it.
+    lobbyStatusRow.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 0)
+    let reconnectOverlayLabel = NSTextField(
+      labelWithString: "Reconnect button"
+    )
+    let reconnectOverlayRow = makeHorizontalRow(
+      [
+        reconnectOverlayLabel,
+        flexibleSpacer(),
+        reconnectOverlaySwitch,
+      ],
       spacing: 12
     )
     let lobbyShortcutLabel = NSTextField(
@@ -730,7 +767,7 @@ final class SettingsWindowController: NSWindowController {
     )
 
     let opacityText = NSTextField(
-      labelWithString: "Overlay opacity"
+      labelWithString: "Opacity"
     )
     opacitySlider.translatesAutoresizingMaskIntoConstraints =
       false
@@ -756,8 +793,10 @@ final class SettingsWindowController: NSWindowController {
     let lobbyDivider = makeDivider()
     let lobbyStack = makeVerticalStack(
       [
-        lobbyHeader,
+        overlaysTitle,
+        lobbyRow,
         lobbyStatusRow,
+        reconnectOverlayRow,
         lobbyDivider,
         lobbyShortcutRow,
         opacityRow,
@@ -766,8 +805,8 @@ final class SettingsWindowController: NSWindowController {
       spacing: 9
     )
     constrainFullWidth(
-      [lobbyHeader, lobbyStatusRow, lobbyDivider,
-        lobbyShortcutRow, opacityRow],
+      [lobbyRow, lobbyStatusRow, reconnectOverlayRow,
+        lobbyDivider, lobbyShortcutRow, opacityRow],
       in: lobbyStack
     )
     let lobbyCard = makeCard(containing: lobbyStack)
@@ -1278,6 +1317,12 @@ final class SettingsWindowController: NSWindowController {
     onLobbyEnabledChanged(lobbySwitch.state == .on)
   }
 
+  @objc private func reconnectOverlayEnabledChanged() {
+    onReconnectButtonEnabledChanged(
+      reconnectOverlaySwitch.state == .on
+    )
+  }
+
   @objc private func opacityChanged() {
     opacityLabel.stringValue =
       "\(Int(opacitySlider.doubleValue.rounded()))%"
@@ -1313,7 +1358,7 @@ final class SettingsWindowController: NSWindowController {
         direction: .fromTop
       )
       self.resetLobbyButton.setAccessibilityLabel(
-        "Reset lobby layout"
+        "Reset overlay layout"
       )
       self.resetLobbyButton.isInteractionAvailable = true
       self.resetLobbyButton.disabledAlphaValue = 0.55
@@ -1347,6 +1392,13 @@ final class SettingsWindowController: NSWindowController {
       deadline: .now() + 4,
       execute: workItem
     )
+  }
+
+  /// A layout-mode message shown in the lobby card for a few seconds, then the lobby's own status returns.
+  /// Used while lobby info is off, so it doesn't replace "Lobby info disabled" for good.
+  func showTemporaryOverlayStatus(_ message: String) {
+    showTemporaryLobbyShortcutStatus(message)
+    scheduleMainWindowResize()
   }
 
   private func showTemporaryLobbyShortcutStatus(

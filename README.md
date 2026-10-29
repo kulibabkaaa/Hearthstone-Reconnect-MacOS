@@ -5,11 +5,11 @@
 <h1 align="center">HS Reconnect and lobby ratings for Mac</h1>
 
 <p align="center">
-  Reconnect to Hearthstone Battlegrounds with a shortcut. See Solo lobby ratings in a movable overlay.
+  Reconnect to Hearthstone Battlegrounds with a shortcut or one click. See Solo lobby ratings in a movable overlay.
 </p>
 
 <h3 align="center">
-  <a href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/latest/download/HS-Reconnect-2.0.1.dmg">Download HS Reconnect</a>
+  <a href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/latest/download/HS-Reconnect-2.1.0.dmg">Download HS Reconnect</a>
   &nbsp;·&nbsp;
   <a href="https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/">Visit the website</a>
 </h3>
@@ -21,18 +21,22 @@
 ## What it does
 
 - **Reconnect:** Press **Command-Shift-W** during a Battlegrounds match to restart its connection without quitting Hearthstone. You can change the shortcut.
-- **Lobby ratings:** See player names, public leaderboard ranks and ratings, and an estimated Solo lobby average. Press **Command-Shift-L** to move or resize the overlay.
+- **Reconnect button:** Click the button that floats near the top right of the board during Solo and Duos matches. It does the same as the shortcut and leaves the keyboard with the game.
+- **Lobby ratings:** See player names, public leaderboard ranks and ratings, and an estimated Solo lobby average.
+- **Layout mode:** Press **Command-Shift-L** to move or resize the lobby overlay and the Reconnect button. Press Enter to save or Esc to cancel.
 - **Stay ready:** Open with Hearthstone and keep the app in the menu bar, the Dock, or both.
 
 HS Reconnect requires **macOS 13 or later** and the **native Mac version of Hearthstone**. It supports Apple silicon and Intel Macs.
 
 ## Install
 
-1. [Download the DMG](https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/latest/download/HS-Reconnect-2.0.1.dmg), open it, and run **Install HS Reconnect.pkg** inside.
+1. [Download the DMG](https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/latest/download/HS-Reconnect-2.1.0.dmg), open it, and run **Install HS Reconnect.pkg** inside.
 2. Open HS Reconnect and choose **Set Up Reconnect**. Follow the app's directions to allow its Network Extension and proxy configuration in macOS.
 3. To use lobby info, open Hearthstone and approve the macOS prompts when they appear. If you cancel, the app offers a retry.
 
 The lobby overlay works while HSTracker is running. Reconnect works independently of the overlay.
+
+The **Overlays** card in the app turns **Lobby info** and the **Reconnect button** on or off, and sets the position shortcut, opacity, and **Reset Layout** for both. The button is on by default. With lobby info off, the app still reads Hearthstone's game state on your Mac to tell whether you are in a match; turn off the button to stop this. While the app is still connecting to the game, the button stays hidden. If it can't read the game at all, for example because lobby access isn't allowed, the button shows whenever Hearthstone is in front.
 
 ## Updates and privacy
 

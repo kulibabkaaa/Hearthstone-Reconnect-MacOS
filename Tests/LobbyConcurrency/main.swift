@@ -10,17 +10,22 @@ enum DefaultsKey {
   static let lobbyEnabled = "test.lobby.enabled"
 }
 
+enum HearthstoneApp {
+  static let bundleIdentifier = "io.github.kulibabkaaa.HSReconnect.ConcurrencyTests.NoGame"
+}
+
 final class LobbyOverlayController {
   var onStatus: ((String) -> Void)?
-  var opacityPercent = 100.0
   var isEditing = false
-  func updateGameWindow(frame: NSRect?) {}
-  func close() {}
-  func cancelAndClose() {}
-  func toggleEditing() { isEditing.toggle() }
-  func resetLayout() {}
-  func showPreview(gameFrame: NSRect) {}
-  func show(rows: [LobbyRatingRow], summary: LobbyAverageSummary?, gameFrame: NSRect?) {}
+  private(set) var gameWindowUpdates = 0
+  private(set) var previews = 0
+  private(set) var closes = 0
+  private(set) var shows = 0
+  func updateGameWindow(frame: NSRect?) { gameWindowUpdates += 1 }
+  func close() { closes += 1 }
+  func cancelAndClose() { closes += 1 }
+  func showPreview(gameFrame: NSRect) { previews += 1 }
+  func show(rows: [LobbyRatingRow], summary: LobbyAverageSummary?, gameFrame: NSRect?) { shows += 1 }
 }
 
 private enum TestFailure: Error, CustomStringConvertible {
@@ -239,7 +244,194 @@ private func testCancellationCompletesWaiters() throws {
               "cancellation returned the wrong error")
 }
 
+private func testSharedWindowTracker() throws {
+  let tracker = HearthstoneWindowTracker()
+  let overlay = LobbyOverlayController()
+  let lobby = LobbyCoordinator(overlay: overlay, windowTracker: tracker)
+  let button = NSObject()
+  var buttonFrames: [NSRect?] = []
+  try require(!tracker.isPolling, "tracker polled with no subscribers")
+  lobby.start()
+  tracker.subscribe(button) { buttonFrames.append($0) }
+  tracker.subscribe(button) { buttonFrames.append($0) }  // replaces, doesn't double up
+  try require(tracker.isPolling, "tracker didn't start polling")
+  try require(waitUntil { overlay.gameWindowUpdates >= 2 && buttonFrames.count >= 2 },
+              "one poll didn't feed both overlays")
+  try require(buttonFrames.allSatisfy { $0 == nil }, "found a game window that doesn't exist")
+  lobby.stop()
+  try require(tracker.isPolling, "stopping the lobby stopped the button's poll")
+  let lobbyUpdates = overlay.gameWindowUpdates
+  let buttonUpdates = buttonFrames.count
+  try require(waitUntil { buttonFrames.count >= buttonUpdates + 2 }, "button poll stopped with the lobby")
+  try require(overlay.gameWindowUpdates == lobbyUpdates, "stopped lobby still got frames")
+  tracker.unsubscribe(button)
+  try require(!tracker.isPolling, "tracker kept polling with no subscribers")
+}
+
+private func testLayoutPreparation() throws {
+  let overlay = LobbyOverlayController()
+  let lobby = LobbyCoordinator(overlay: overlay, windowTracker: HearthstoneWindowTracker())
+  lobby.prepareForLayout(gameFrame: NSRect(x: 0, y: 0, width: 1440, height: 900))
+  try require(overlay.gameWindowUpdates == 1 && overlay.previews == 1,
+              "layout mode without a match didn't place and preview the lobby")
+  lobby.closeOverlayForMissingGame()
+  try require(overlay.closes == 1, "missing game didn't close the lobby overlay")
+}
+
+private func capture(_ uuid: String?, mode: String = "solo") -> LobbyCapture {
+  // Region CN skips the ratings request; no players keeps the resume cache empty.
+  LobbyCapture(gameUUID: uuid, gameType: 0, region: "CN", mode: mode, ownBattleTag: nil,
+               ownAccountID: nil, ownRating: nil, players: [])
+}
+
+/// Lobby info on: the Reconnect button's match signal is on with real Solo rows, a Duos match or a match being
+/// resumed; off when the match ends, the mode is unknown, the game is missing, the reader detaches or stops.
+private func testMatchSignal() throws {
+  UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: true])
+  // Later tests expect lobby info off, so they don't start the real reader.
+  defer { UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: false]) }
+  let overlay = LobbyOverlayController()
+  let lobby = LobbyCoordinator(overlay: overlay, windowTracker: HearthstoneWindowTracker())
+  var changes = 0
+  lobby.onMatchStateChanged = { changes += 1 }
+  try require(!lobby.isInMatch && lobby.matchDetectorState == .connecting, "a new coordinator reported a match")
+  lobby.start()
+  defer { lobby.stop() }
+  try require(lobby.diagnosticReaderMode == .lobby, "lobby info on didn't run the lobby reader")
+  // Launch and login: the helper waits for Hearthstone and retries its first attach. Still connecting, never
+  // the fallback.
+  for signal: MatchDetectorSignal in [.starting, .waiting, .waiting] {
+    lobby.diagnosticDetectorSignal(signal)
+    try require(lobby.matchDetectorState == .connecting && !lobby.isInMatch,
+                "the detector left connecting before it attached")
+  }
+  lobby.diagnosticDetectorSignal(.attached)
+  try require(lobby.matchDetectorState == .attached, "attaching didn't make the detector available")
+  lobby.prepareForLayout(gameFrame: NSRect(x: 0, y: 0, width: 1440, height: 900))
+  try require(!lobby.isInMatch, "the layout sample counted as a match")
+  lobby.diagnosticCapture(capture("solo-1"))
+  try require(lobby.isInMatch && overlay.shows == 1, "real Solo rows didn't start a match")
+  let afterStart = changes
+  lobby.diagnosticCapture(capture("solo-1"))
+  try require(changes == afterStart, "the same match reported a change")
+  lobby.diagnosticCapture(capture(nil))
+  try require(!lobby.isInMatch, "the match end didn't end the match")
+  lobby.diagnosticCapture(capture("duos-1", mode: "duos"))
+  try require(lobby.isInMatch, "a Duos match didn't count")
+  let afterDuos = changes
+  lobby.diagnosticCapture(capture("duos-1", mode: "duos"))
+  lobby.diagnosticCapture(capture("solo-2"))
+  try require(lobby.isInMatch && changes == afterDuos, "the Duos match blipped off")
+  lobby.diagnosticCapture(capture("unknown-1", mode: "unknown"))
+  try require(!lobby.isInMatch, "an unknown mode counted as a match")
+  lobby.diagnosticCapture(capture("solo-3"))
+  lobby.closeOverlayForMissingGame()
+  try require(lobby.isInMatch, "a missing game window ended the match")
+  lobby.diagnosticCapture(capture(nil))
+  lobby.diagnosticReconnectDetected()
+  try require(lobby.isInMatch, "a match being resumed didn't count")
+  lobby.diagnosticDetectorSignal(.helperFailed)
+  try require(!lobby.isInMatch && lobby.matchDetectorState == .connecting,
+              "a helper restart kept the match or fell back")
+  lobby.diagnosticDetectorSignal(.attached)
+  lobby.diagnosticCapture(capture("solo-4"))
+  lobby.diagnosticDetectorSignal(.gaveUp)
+  try require(!lobby.isInMatch && lobby.matchDetectorState == .unavailable,
+              "an attach that gave up didn't become unavailable")
+  lobby.diagnosticDetectorSignal(.starting)
+  try require(lobby.matchDetectorState == .connecting, "a retry didn't go back to connecting")
+  // Stuck connecting (hung helper, unanswered access dialog): the timeout counts only while Hearthstone runs.
+  lobby.diagnosticDetectorSignal(.starting)
+  try require(lobby.diagnosticHasConnectingTimeout, "connecting didn't start the timeout")
+  lobby.diagnosticConnectingTimedOut()
+  try require(lobby.matchDetectorState == .connecting, "the timeout counted without Hearthstone running")
+  lobby.matchDetectionInputs = { (true, true) }
+  lobby.diagnosticConnectingTimedOut()
+  try require(lobby.matchDetectorState == .unavailable && !lobby.diagnosticHasConnectingTimeout,
+              "a detector stuck connecting didn't become unavailable")
+  lobby.diagnosticDetectorSignal(.attached)
+  try require(lobby.matchDetectorState == .attached && !lobby.diagnosticHasConnectingTimeout,
+              "attaching left the timeout running")
+  lobby.diagnosticDetectorSignal(.starting)
+  for _ in 0..<MatchDetectorTracker.helperFailuresBeforeGivingUp { lobby.diagnosticDetectorSignal(.helperFailed) }
+  try require(lobby.matchDetectorState == .unavailable, "a helper that kept failing didn't become unavailable")
+  lobby.diagnosticDetectorSignal(.attached)
+  lobby.diagnosticCapture(capture("solo-5"))
+  lobby.stop()
+  try require(!lobby.isInMatch && lobby.matchDetectorState == .connecting && !lobby.diagnosticHasConnectingTimeout,
+              "stopping kept the match or the timeout")
+}
+
+/// Lobby info off, Reconnect button on: the reader runs for match detection only while Hearthstone runs, and
+/// draws, reports and says nothing.
+private func testMatchDetectionOnly() throws {
+  UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: false])
+  defer { UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: false]) }
+  let overlay = LobbyOverlayController()
+  let lobby = LobbyCoordinator(overlay: overlay, windowTracker: HearthstoneWindowTracker())
+  var inputs = (buttonEnabled: true, hearthstoneRunning: false)
+  lobby.matchDetectionInputs = { inputs }
+  var statuses: [String] = []
+  var displayed = 0
+  lobby.onStatus = { statuses.append($0) }
+  lobby.onLobbyDisplayed = { displayed += 1 }
+  lobby.start()
+  defer { lobby.stop() }
+  try require(lobby.diagnosticReaderMode == .off, "the detector ran without Hearthstone")
+  inputs.hearthstoneRunning = true
+  lobby.refreshReaderMode()
+  try require(lobby.diagnosticReaderMode == .matchDetectionOnly, "the detector didn't start with Hearthstone")
+  try require(lobby.matchDetectorState == .connecting, "starting the detector didn't begin connecting")
+  lobby.diagnosticDetectorSignal(.gaveUp)
+  try require(lobby.matchDetectorState == .unavailable, "access not granted didn't make the detector unavailable")
+  lobby.diagnosticDetectorSignal(.attached)
+  lobby.diagnosticCapture(capture("solo-1"))
+  try require(lobby.isInMatch && lobby.matchDetectorState == .attached, "match detection missed a Solo match")
+  lobby.diagnosticCapture(capture(nil))
+  try require(!lobby.isInMatch, "match detection missed the match end")
+  lobby.diagnosticCapture(capture("duos-1", mode: "duos"))
+  try require(lobby.isInMatch, "match detection missed a Duos match")
+  lobby.diagnosticStatus("Waiting for Hearthstone")
+  try require(!lobby.isInMatch, "Hearthstone leaving kept the match")
+  lobby.diagnosticStatus("Lobby access needs approval")
+  lobby.diagnosticReconnectDetected()
+  try require(lobby.isInMatch, "match detection missed a match being resumed")
+  try require(overlay.shows == 0 && overlay.previews == 0 && displayed == 0 && statuses.isEmpty,
+              "match detection drew, reported or said something")
+  lobby.diagnosticDetectorSignal(.starting)
+  try require(lobby.diagnosticHasConnectingTimeout, "connecting didn't start the timeout")
+  inputs.buttonEnabled = false
+  lobby.refreshReaderMode()
+  try require(lobby.diagnosticReaderMode == .off && !lobby.isInMatch && lobby.matchDetectorState == .connecting
+              && !lobby.diagnosticHasConnectingTimeout, "turning the button off left the detector running")
+  inputs.buttonEnabled = true
+  lobby.refreshReaderMode()
+  UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: true])
+  lobby.refreshReaderMode()
+  try require(lobby.diagnosticReaderMode == .lobby, "lobby info on didn't switch to the lobby reader")
+}
+
+/// Every helper event that says something about attaching maps to the detector signal the button relies on.
+private func testDetectorSignalMapping() throws {
+  let expected: [String: MatchDetectorSignal?] = [
+    "probe_started": .waiting, "waiting_for_hearthstone": .waiting, "match_suspended": .waiting,
+    "attachment_retrying": .waiting,
+    "permission_unavailable": .gaveUp, "permission_failed": .gaveUp, "attachment_failed": .gaveUp,
+    "attached": .attached, "reconnecting_match": .attached, "match_started": .attached,
+    "match_snapshot": .attached, "waiting_for_match": .attached, "match_ended": .attached,
+    "something_new": nil,
+  ]
+  for (event, signal) in expected {
+    try require(LobbyReader.detectorSignal(forEvent: event) == signal, "\(event) mapped to the wrong signal")
+  }
+}
+
 do {
+  try testDetectorSignalMapping()
+  try testMatchSignal()
+  try testMatchDetectionOnly()
+  try testSharedWindowTracker()
+  try testLayoutPreparation()
   try testLatestCaptureSelection()
   try testStableMatchRetriesWithoutAnotherCapture()
   try testReaderGenerations()
