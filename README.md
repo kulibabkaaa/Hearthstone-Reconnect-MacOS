@@ -8,6 +8,10 @@
   Reconnect to Hearthstone Battlegrounds with a shortcut or one click. See Solo lobby ratings in a movable overlay.
 </p>
 
+<p align="center">
+  <a href="https://ko-fi.com/kulibabka"><img src="Documentation/Images/support-kofi-button.svg" width="280" alt="Buy me a coffee on Ko-fi"></a>
+</p>
+
 <h3 align="center">
   <a href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/latest/download/HS-Reconnect-2.1.0.dmg">Download HS Reconnect</a>
   &nbsp;·&nbsp;
