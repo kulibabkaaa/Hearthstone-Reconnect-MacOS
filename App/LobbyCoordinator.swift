@@ -298,6 +298,7 @@ final class LobbyCoordinator {
     DispatchQueue.main.asyncAfter(deadline: .now() + MatchDetectorTracker.connectingTimeout, execute: item)
   }
   private func connectingTimedOut() {
+    connectingTimeout = nil
     guard isRunning, readerMode != .off, matchDetectionInputs().hearthstoneRunning else { return }
     readerDetectorSignal(.timedOut)
   }

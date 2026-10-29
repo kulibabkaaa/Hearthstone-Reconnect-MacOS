@@ -398,10 +398,12 @@ private func testMatchDetectionOnly() throws {
   try require(lobby.isInMatch, "match detection missed a match being resumed")
   try require(overlay.shows == 0 && overlay.previews == 0 && displayed == 0 && statuses.isEmpty,
               "match detection drew, reported or said something")
+  lobby.diagnosticDetectorSignal(.starting)
+  try require(lobby.diagnosticHasConnectingTimeout, "connecting didn't start the timeout")
   inputs.buttonEnabled = false
   lobby.refreshReaderMode()
-  try require(lobby.diagnosticReaderMode == .off && !lobby.isInMatch && lobby.matchDetectorState == .connecting,
-              "turning the button off left the detector running")
+  try require(lobby.diagnosticReaderMode == .off && !lobby.isInMatch && lobby.matchDetectorState == .connecting
+              && !lobby.diagnosticHasConnectingTimeout, "turning the button off left the detector running")
   inputs.buttonEnabled = true
   lobby.refreshReaderMode()
   UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: true])
