@@ -180,8 +180,11 @@ p {
 .header-inner > .brand {
   justify-self: start;
 }
-.header-inner > .github-button {
+.header-inner > .header-actions {
   justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .brand {
   display: inline-flex;
@@ -247,6 +250,55 @@ p {
 }
 .github-button:active {
   transform: translateY(0) scale(0.98);
+}
+/* Same shape as the GitHub button, in the README's Hearthstone gold. */
+.kofi-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  background: linear-gradient(180deg, #ffd36a, #e3a12f);
+  color: #3b2506;
+  border: 1px solid #f5c55a;
+  border-radius: 9px;
+  padding: 0 13px 0 11px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow:
+    0 4px 14px rgba(227, 161, 47, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition:
+    filter 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.kofi-button:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+.kofi-button:active {
+  transform: translateY(0) scale(0.98);
+}
+.kofi-button:focus-visible {
+  outline: 2px solid #ffd36a;
+  outline-offset: 2px;
+}
+.kofi-heart {
+  fill: #e5484d;
+}
+.kofi-steam {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  opacity: 0;
+  transform: translateY(1.5px);
+  transition:
+    opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.kofi-button:hover .kofi-steam {
+  opacity: 0.75;
+  transform: none;
 }
 .hero {
   padding: 128px 24px 80px;
@@ -899,6 +951,22 @@ details.is-closing .faq-answer {
     gap: 24px;
   }
 }
+/* Below ~830px the Support label pushes "GitHub (13)" onto two lines;
+   the coffee cup carries the button alone. */
+@media (max-width: 880px) {
+  .kofi-button {
+    padding: 0 11px;
+  }
+  .kofi-button span {
+    display: none;
+  }
+}
+/* Brand, nav and both header buttons stop fitting on one row here. */
+@media (max-width: 680px) {
+  .header-inner nav {
+    display: none;
+  }
+}
 @media (max-width: 800px) {
   .header-inner {
     display: flex;
@@ -1025,9 +1093,13 @@ details.is-closing .faq-answer {
     padding: 10px;
     gap: 7px;
   }
-  .github-button .icon {
+  .github-button .icon,
+  .kofi-button .icon {
     width: 16px;
     height: 16px;
+  }
+  .header-inner > .header-actions {
+    gap: 6px;
   }
   .hero {
     padding: 112px 16px 48px;
@@ -1165,6 +1237,16 @@ details.is-closing .faq-answer {
   .footer-navigation,
   .footer-project {
     gap: 13px;
+  }
+}
+/* Smallest phones: keep "GitHub (13)" on one line next to the coffee button. */
+@media (max-width: 400px) {
+  .github-button {
+    padding: 10px 8px;
+    white-space: nowrap;
+  }
+  .kofi-button {
+    padding: 0 9px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
