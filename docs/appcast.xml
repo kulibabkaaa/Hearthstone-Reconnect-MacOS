@@ -7,7 +7,7 @@
     <language>en</language>
     <item>
       <title>Version 2.1.0</title>
-      <pubDate>Thu, 29 Oct 2026 00:56:02 +0000</pubDate>
+      <pubDate>Thu, 29 Oct 2026 01:05:43 +0000</pubDate>
       <sparkle:version>49</sparkle:version>
       <sparkle:shortVersionString>2.1.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
@@ -41,7 +41,7 @@ Requires macOS 13 or later and the native macOS version of Hearthstone. Supports
 Apple silicon and Intel Macs. Version 2.0.0 and later can install this update
 from the app. For earlier versions, run the new installer over the old app. The
 app is unofficial and is not affiliated with Blizzard Entertainment.</pre>]]></description>
-      <enclosure url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v2.1.0/HS-Reconnect-2.1.0.zip" type="application/octet-stream" sparkle:edSignature="jcpmHGsIa6DKf2Kpd+fP9/aNcRv8c58H4J/ysaSfHvYTZbPuhM7r6r0CAsVX7yAWxwzNsNED2IEyvyHjyZFmCw==" length="14738252" />
+      <enclosure url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v2.1.0/HS-Reconnect-2.1.0.zip" type="application/octet-stream" sparkle:edSignature="kTdR8gdVf7SwpFnzCW9uKpBtpdTqGL3rhYtp+OvsvgpCWtpDj/E6zBlmaiyDxsjH+0gT5t2GNbpKXKILq758Aw==" length="14738249" />
     </item>
   </channel>
 </rss>
