@@ -33,10 +33,25 @@ final class SystemExtensionController:
   private var operation: Operation?
   private var pendingDeactivation: ((Result<SystemExtensionDeactivationResult, Error>) -> Void)?
   private var request: OSSystemExtensionRequest?
+  /// How long a caller waits for sysextd. The request itself stays outstanding after this, so later checks
+  /// wait for its answer instead of piling more requests onto a sysextd that is already slow.
+  private static let stateCheckTimeout: TimeInterval = 5
+  /// A properties request unanswered this long is treated as lost and replaced.
+  private static let abandonedStateCheckAge: TimeInterval = 30
+  /// An answer that arrives while no caller is waiting (just after a timeout) is handed to the next caller
+  /// if it asks within this window, instead of being thrown away.
+  private static let unclaimedResultLifetime: TimeInterval = 2
+
   private var propertiesRequest: OSSystemExtensionRequest?
+  /// Uptime, not wall-clock time, so a clock change can't stretch or skip the abandon window.
+  private var propertiesRequestStartedAt: TimeInterval?
+  private var unclaimedPropertiesResult: (
+    result: Result<SystemExtensionRuntimeState, Error>,
+    receivedAt: TimeInterval
+  )?
   private var propertiesCompletions: [
-    (Result<SystemExtensionRuntimeState, Error>) -> Void
-  ] = []
+    UUID: (Result<SystemExtensionRuntimeState, Error>) -> Void
+  ] = [:]
 
   var isOperationPending: Bool {
     operation != nil
@@ -47,26 +62,44 @@ final class SystemExtensionController:
       Result<SystemExtensionRuntimeState, Error>
     ) -> Void
   ) {
-    propertiesCompletions.append(completion)
-    guard propertiesRequest == nil else { return }
+    let now = ProcessInfo.processInfo.systemUptime
+    if let unclaimed = unclaimedPropertiesResult {
+      unclaimedPropertiesResult = nil
+      if now - unclaimed.receivedAt < Self.unclaimedResultLifetime {
+        DispatchQueue.main.async { completion(unclaimed.result) }
+        return
+      }
+    }
 
-    let request = OSSystemExtensionRequest.propertiesRequest(
-      forExtensionWithIdentifier:
-        AppConfiguration.extensionBundleIdentifier,
-      queue: .main
-    )
-    request.delegate = self
-    propertiesRequest = request
-    OSSystemExtensionManager.shared.submitRequest(request)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-      [weak self, weak request] in
-      guard let self, let request,
-        self.propertiesRequest === request
-      else { return }
-      self.finishPropertiesRequest(
-        .failure(
-          SystemExtensionControllerError.stateCheckTimedOut
+    let completionID = UUID()
+    propertiesCompletions[completionID] = completion
+
+    let hasLiveRequest =
+      propertiesRequest != nil
+      && propertiesRequestStartedAt.map {
+        now - $0 < Self.abandonedStateCheckAge
+      } == true
+    if !hasLiveRequest {
+      let request = OSSystemExtensionRequest.propertiesRequest(
+        forExtensionWithIdentifier:
+          AppConfiguration.extensionBundleIdentifier,
+        queue: .main
+      )
+      request.delegate = self
+      propertiesRequest = request
+      propertiesRequestStartedAt = now
+      OSSystemExtensionManager.shared.submitRequest(request)
+    }
+
+    DispatchQueue.main.asyncAfter(deadline: .now() + Self.stateCheckTimeout) {
+      [weak self] in
+      guard let self,
+        let completion = self.propertiesCompletions.removeValue(
+          forKey: completionID
         )
+      else { return }
+      completion(
+        .failure(SystemExtensionControllerError.stateCheckTimedOut)
       )
     }
   }
@@ -215,7 +248,12 @@ final class SystemExtensionController:
     _ result: Result<SystemExtensionRuntimeState, Error>
   ) {
     propertiesRequest = nil
-    let completions = propertiesCompletions
+    propertiesRequestStartedAt = nil
+    guard !propertiesCompletions.isEmpty else {
+      unclaimedPropertiesResult = (result, ProcessInfo.processInfo.systemUptime)
+      return
+    }
+    let completions = propertiesCompletions.values
     propertiesCompletions.removeAll()
     completions.forEach { $0(result) }
   }

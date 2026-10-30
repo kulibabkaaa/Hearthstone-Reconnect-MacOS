@@ -77,6 +77,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private var isAwaitingSystemExtensionApproval = false
   private var openExtensionSettingsAfterSetup = false
   private var isCheckingSystemExtensionState = false
+  private var stateCheckTracker = SystemExtensionStateCheckTracker()
+  private var lastStateCheckStartedAt: TimeInterval?
   private var isPreparingProxy = false
   private var shouldPrepareProxyWhenAvailable = false
   private var proxyConnectionStatus: NEVPNStatus = .invalid
@@ -952,8 +954,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       withTimeInterval: 0.5,
       repeats: true
     ) { [weak self] _ in
-      self?.updateReconnectAvailability()
-      self?.refreshSystemExtensionState()
+      guard let self else { return }
+      self.updateReconnectAvailability()
+      if SystemExtensionStateCheckTracker.isPollDue(
+        lastCheckStartedAt: self.lastStateCheckStartedAt,
+        now: ProcessInfo.processInfo.systemUptime,
+        extensionEnabled: self.lastSystemExtensionState?.isEnabled == true
+      ) {
+        self.refreshSystemExtensionState()
+      }
     }
   }
 
@@ -962,21 +971,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       !isCheckingSystemExtensionState
     else { return }
     isCheckingSystemExtensionState = true
+    lastStateCheckStartedAt = ProcessInfo.processInfo.systemUptime
     systemExtensionController.currentState { [weak self] result in
       guard let self else { return }
       self.isCheckingSystemExtensionState = false
       guard !self.isUninstalling else { return }
       switch result {
       case .success(let state):
+        self.stateCheckTracker.recordSuccess()
         self.applySystemExtensionState(state)
       case .failure(let error):
         NSLog(
           "System extension state check failed: %@",
           error as NSError
         )
+        guard
+          case .markUnavailable(let isNewStreak) =
+            self.stateCheckTracker.recordFailure()
+        else { return }
+        if isNewStreak {
+          let nsError = error as NSError
+          self.analyticsController.signal(
+            .stateCheckFailed,
+            parameters: SystemExtensionStateCheckTelemetry.failureParameters(
+              timedOut:
+                (error as? SystemExtensionControllerError) == .stateCheckTimedOut,
+              errorDomain: nsError.domain,
+              errorCode: nsError.code
+            )
+          )
+        }
         self.isProxyReady = false
         self.windowController.setStatus(
-          "Reconnect status couldn't be checked. Please try again.",
+          "Reconnect status couldn't be checked. If this keeps happening, restart your Mac.",
           isError: true
         )
         self.updateReconnectAvailability()
