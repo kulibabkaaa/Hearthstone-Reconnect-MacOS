@@ -4,6 +4,7 @@ public enum BugReportValidationError: Error, Equatable {
   case emptyDescription
   case descriptionTooShort
   case descriptionTooLong
+  case missingReplyEmail
   case invalidReplyEmail
   case invalidEndpoint
 }
@@ -19,14 +20,14 @@ public struct BugReportContent: Equatable {
   public static let maximumSourceImagePixels = 100_000_000
 
   public let description: String
-  public let replyEmail: String?
+  public let replyEmail: String
   public let appVersion: String
   public let buildNumber: String
   public let macOSVersion: String
 
   public init(
     description: String,
-    replyEmail: String? = nil,
+    replyEmail: String,
     appVersion: String,
     buildNumber: String,
     macOSVersion: String
@@ -43,13 +44,16 @@ public struct BugReportContent: Equatable {
     guard trimmed.count <= Self.maximumDescriptionLength else {
       throw BugReportValidationError.descriptionTooLong
     }
-    let trimmedEmail = replyEmail?.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard Self.isValidOptionalReplyEmail(trimmedEmail) else {
+    let trimmedEmail = replyEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedEmail.isEmpty else {
+      throw BugReportValidationError.missingReplyEmail
+    }
+    guard Self.isValidReplyEmail(trimmedEmail) else {
       throw BugReportValidationError.invalidReplyEmail
     }
 
     self.description = trimmed
-    self.replyEmail = trimmedEmail?.isEmpty == false ? trimmedEmail : nil
+    self.replyEmail = trimmedEmail
     self.appVersion = appVersion
     self.buildNumber = buildNumber
     self.macOSVersion = macOSVersion
@@ -59,8 +63,9 @@ public struct BugReportContent: Equatable {
     description.trimmingCharacters(in: .whitespacesAndNewlines).count
   }
 
-  public static func isValidOptionalReplyEmail(_ email: String?) -> Bool {
-    guard let email, !email.isEmpty else { return true }
+  /// A reply email is required so every report can be answered.
+  public static func isValidReplyEmail(_ email: String) -> Bool {
+    guard !email.isEmpty else { return false }
     guard email.utf8.count <= 254 else { return false }
     return email.range(
       of: "^[^\\s@]+@[^\\s@.]+(?:\\.[^\\s@.]+)+$",
@@ -140,9 +145,7 @@ public struct BugReportMultipartBody {
   ) {
     var body = Data()
     Self.append("HS Reconnect User", name: "fi-sender-fullName", boundary: boundary, to: &body)
-    if let replyEmail = content.replyEmail {
-      Self.append(replyEmail, name: "fi-sender-email", boundary: boundary, to: &body)
-    }
+    Self.append(content.replyEmail, name: "fi-sender-email", boundary: boundary, to: &body)
     Self.append(content.description, name: "fi-text-description", boundary: boundary, to: &body)
     Self.append(content.appVersion, name: "fi-text-app-version", boundary: boundary, to: &body)
     Self.append(content.buildNumber, name: "fi-text-build-number", boundary: boundary, to: &body)
