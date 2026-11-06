@@ -1,15 +1,13 @@
 # HS Reconnect 2.1.1
 
-- Fixed Reconnect turning off with "Reconnect status couldn't be checked",
-  even after relaunching the app or the game. A slow or missing answer from
-  macOS no longer turns Reconnect off on its own, and while Reconnect's
-  network connection is running, Reconnect stays available.
-- The app now checks the Reconnect extension's status less often, which puts
-  less load on macOS.
-- If the status check keeps failing, the app suggests restarting your Mac and
-  sends one anonymous event saying whether macOS timed out or returned an error
-  code. It includes nothing about you, your games, or your network traffic.
-- Bug reports now need an email address, so every report can get a reply.
+- Fixed: Reconnect could stop working and show "Reconnect status couldn't be
+  checked", even after relaunching the app or the game. Reconnect now keeps
+  working when macOS is slow to answer or doesn't answer at all.
+- The app checks on Reconnect less often, so it puts less load on your Mac.
+- If the check keeps failing, the app suggests restarting your Mac. It also
+  sends one anonymous event that says only whether macOS timed out or returned
+  an error code.
+- Bug reports now need an email address, so you can get a reply.
 
 Requires macOS 13 or later and the native macOS version of Hearthstone. Supports
 Apple silicon and Intel Macs. Version 2.0.0 and later can install this update
