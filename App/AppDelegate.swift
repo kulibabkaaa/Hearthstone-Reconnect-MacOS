@@ -766,8 +766,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       guard let self else { return }
       let completion = ReconnectCompletion(
         isUninstalling: self.isUninstalling,
-        extensionConnected: self.lastSystemExtensionState?.isEnabled == true
-          && self.proxyConnectionStatus == .connected,
+        extensionConnected: self.stateCheckTracker.allowsReconnect(
+          lastKnownState: self.lastSystemExtensionState,
+          proxyConnected: self.proxyConnectionStatus == .connected,
+          isUninstalling: false
+        ),
         didCloseFlow: try? result.get().didCloseFlow
       )
       self.applyReconnectEffects(self.reconnectAttempts.complete(attempt, completion), source: source)
@@ -932,9 +935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     let reset = DispatchWorkItem { [weak self] in
       guard let self,
         self.isProxyReady,
-        !self.isReconnectRunning,
-        self.lastSystemExtensionState?.isEnabled == true,
-        self.proxyConnectionStatus == .connected
+        !self.isReconnectRunning
       else { return }
       self.windowController.setStatus(
         "Ready. Start a Battlegrounds game.",
@@ -959,7 +960,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       if SystemExtensionStateCheckTracker.isPollDue(
         lastCheckStartedAt: self.lastStateCheckStartedAt,
         now: ProcessInfo.processInfo.systemUptime,
-        extensionEnabled: self.lastSystemExtensionState?.isEnabled == true
+        // A failing streak also polls slowly, so repeated macOS errors don't hammer sysextd.
+        pollSlowly: self.lastSystemExtensionState?.isEnabled == true
+          || self.stateCheckTracker.isFailing
       ) {
         self.refreshSystemExtensionState()
       }
@@ -1001,11 +1004,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
             )
           )
         }
-        self.isProxyReady = false
-        self.windowController.setStatus(
-          "Reconnect status couldn't be checked. If this keeps happening, restart your Mac.",
-          isError: true
-        )
+        if self.hasSavedProxyConfiguration {
+          self.proxyController.observeSavedConnection()
+        }
+        self.recomputeProxyReadiness()
+        if !self.isProxyReady {
+          self.windowController.setStatus(
+            "Reconnect status couldn't be checked. If this keeps happening, restart your Mac.",
+            isError: true
+          )
+        }
         self.updateReconnectAvailability()
       }
     }
@@ -1210,12 +1218,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   }
 
   private func recomputeProxyReadiness() {
-    let newValue =
-      lastSystemExtensionState?.allowsReconnect(
-        proxyConnected: proxyConnectionStatus == .connected,
-        isUninstalling:
-          isUninstalling || systemExtensionRequiresReboot
-      ) ?? false
+    let newValue = stateCheckTracker.allowsReconnect(
+      lastKnownState: lastSystemExtensionState,
+      proxyConnected: proxyConnectionStatus == .connected,
+      isUninstalling: isUninstalling || systemExtensionRequiresReboot
+    )
     guard isProxyReady != newValue else { return }
     isProxyReady = newValue
     updateReconnectAvailability()

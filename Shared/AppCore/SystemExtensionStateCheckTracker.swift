@@ -23,15 +23,35 @@ public struct SystemExtensionStateCheckTracker: Sendable {
 
   public init() {}
 
-  /// Whether the background timer should ask macOS again. Event-driven checks (launch, activation, setup
-  /// steps) don't go through this and always run.
+  /// Whether the background timer should ask macOS again. `pollSlowly` is true while the extension is on
+  /// or checks keep failing. Event-driven checks (launch, activation, setup steps) always run.
   public static func isPollDue(
     lastCheckStartedAt: TimeInterval?,
     now: TimeInterval,
-    extensionEnabled: Bool
+    pollSlowly: Bool
   ) -> Bool {
-    guard extensionEnabled, let lastCheckStartedAt else { return true }
+    guard pollSlowly, let lastCheckStartedAt else { return true }
     return now - lastCheckStartedAt >= enabledPollInterval
+  }
+
+  /// True once checks have failed often enough to turn reconnect off on their own.
+  public var isFailing: Bool {
+    consecutiveFailures >= Self.failuresBeforeUnavailable
+  }
+
+  /// Normally reconnect needs the last reported extension state to be enabled and the proxy to be
+  /// connected. While macOS can't report the state, a connected proxy is proof enough: it can only
+  /// connect through a running extension.
+  public func allowsReconnect(
+    lastKnownState: SystemExtensionRuntimeState?,
+    proxyConnected: Bool,
+    isUninstalling: Bool
+  ) -> Bool {
+    if isFailing { return proxyConnected && !isUninstalling }
+    return lastKnownState?.allowsReconnect(
+      proxyConnected: proxyConnected,
+      isUninstalling: isUninstalling
+    ) ?? false
   }
 
   public mutating func recordSuccess() {
