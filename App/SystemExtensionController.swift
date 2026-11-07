@@ -43,7 +43,7 @@ final class SystemExtensionController:
   private static let unclaimedResultLifetime: TimeInterval = 2
 
   private var propertiesRequest: OSSystemExtensionRequest?
-  /// Uptime, not wall-clock time, so a clock change can't stretch or skip the abandon window.
+  /// Monotonic time that keeps counting during sleep (see `monotonicNow`).
   private var propertiesRequestStartedAt: TimeInterval?
   private var unclaimedPropertiesResult: (
     result: Result<SystemExtensionRuntimeState, Error>,
@@ -52,6 +52,12 @@ final class SystemExtensionController:
   private var propertiesCompletions: [
     UUID: (Result<SystemExtensionRuntimeState, Error>) -> Void
   ] = [:]
+
+  /// Seconds on a clock that can't jump with wall-clock changes but, unlike `systemUptime`, includes
+  /// sleep, so a request left unanswered across a long sleep is replaced right after wake.
+  private static var monotonicNow: TimeInterval {
+    TimeInterval(clock_gettime_nsec_np(CLOCK_MONOTONIC)) / 1_000_000_000
+  }
 
   var isOperationPending: Bool {
     operation != nil
@@ -62,7 +68,7 @@ final class SystemExtensionController:
       Result<SystemExtensionRuntimeState, Error>
     ) -> Void
   ) {
-    let now = ProcessInfo.processInfo.systemUptime
+    let now = Self.monotonicNow
     if let unclaimed = unclaimedPropertiesResult {
       unclaimedPropertiesResult = nil
       if now - unclaimed.receivedAt < Self.unclaimedResultLifetime {
@@ -250,7 +256,7 @@ final class SystemExtensionController:
     propertiesRequest = nil
     propertiesRequestStartedAt = nil
     guard !propertiesCompletions.isEmpty else {
-      unclaimedPropertiesResult = (result, ProcessInfo.processInfo.systemUptime)
+      unclaimedPropertiesResult = (result, Self.monotonicNow)
       return
     }
     let completions = propertiesCompletions.values
