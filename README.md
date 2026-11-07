@@ -13,7 +13,7 @@
 </p>
 
 <h3 align="center">
-  <a href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/latest/download/HS-Reconnect-2.1.0.dmg">Download HS Reconnect</a>
+  <a href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/latest/download/HS-Reconnect-2.1.1.dmg">Download HS Reconnect</a>
   &nbsp;·&nbsp;
   <a href="https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/">Visit the website</a>
 </h3>
@@ -34,7 +34,7 @@ HS Reconnect requires **macOS 13 or later** and the **native Mac version of Hear
 
 ## Install
 
-1. [Download the DMG](https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/latest/download/HS-Reconnect-2.1.0.dmg), open it, and run **Install HS Reconnect.pkg** inside.
+1. [Download the DMG](https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/latest/download/HS-Reconnect-2.1.1.dmg), open it, and run **Install HS Reconnect.pkg** inside.
 2. Open HS Reconnect and choose **Set Up Reconnect**. Follow the app's directions to allow its Network Extension and proxy configuration in macOS.
 3. To use lobby info, open Hearthstone and approve the macOS prompts when they appear. If you cancel, the app offers a retry.
 

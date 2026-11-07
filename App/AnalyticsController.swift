@@ -5,6 +5,8 @@ import TelemetryDeck
 enum AnalyticsEvent: String {
   case reconnectSucceeded = "Reconnect.Succeeded"
   case lobbyDisplayed = "LobbyInfo.Displayed"
+  /// Sent once per streak of failed system extension state checks (see `SystemExtensionStateCheckTracker`).
+  case stateCheckFailed = "Extension.StateCheckFailed"
 }
 
 final class AnalyticsController {

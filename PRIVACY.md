@@ -2,14 +2,17 @@
 
 HS Reconnect uses TelemetryDeck to measure active installations and whether the
 reconnect and lobby-info features are used. This analytics collection is always
-on. It sends app-session, successful-reconnect, and lobby-overlay-displayed
-events together with a randomly generated installation identifier that is
-hashed before transmission. TelemetryDeck also receives standard technical
+on. It sends app-session, successful-reconnect, lobby-overlay-displayed, and
+extension-check-failed events together with a randomly generated installation
+identifier that is hashed before transmission. TelemetryDeck also receives standard technical
 details supplied by its macOS SDK, such as the app version, macOS version,
 device model and architecture, display size, language, region, and time zone.
 The successful-reconnect event also records which control started the
 reconnect: the shortcut, the Reconnect button, the main window, or the menu bar
-menu.
+menu. If macOS repeatedly fails to report whether the network extension is on,
+the extension-check-failed event is sent once for that run of failures. It
+records only whether the check timed out or failed, and for a failure the
+general error source and Apple's numeric error code.
 
 Analytics never includes player names, BattleTags, MMR, lobby identifiers,
 Blizzard account details, game traffic, logs, file paths, or captured game
@@ -49,7 +52,7 @@ Pages. Downloading an update uses GitHub Releases. GitHub receives ordinary
 connection metadata such as the public IP address.
 
 Bug reports are optional and sent only when the user selects **Submit**. The
-report contains the typed description, app version, macOS version, an optional
+report contains the typed description, app version, macOS version, a required
 reply email address, and up to five optional images chosen, dragged, or pasted
 by the user. It does not automatically include logs, lobby names, Blizzard
 account details, or other files. Reports and images are processed and stored

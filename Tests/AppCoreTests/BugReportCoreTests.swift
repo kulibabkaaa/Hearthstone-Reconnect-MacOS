@@ -6,6 +6,7 @@ struct BugReportCoreTests {
   @Test func trimsDescriptionAndBuildsMessage() throws {
     let content = try BugReportContent(
       description: "  Overlay disappeared after reconnect.  \n",
+      replyEmail: "player@example.com",
       appVersion: "1.3.0",
       buildNumber: "9",
       macOSVersion: "15.6"
@@ -21,6 +22,7 @@ struct BugReportCoreTests {
     #expect(throws: BugReportValidationError.emptyDescription) {
       _ = try BugReportContent(
         description: "  \n ",
+        replyEmail: "player@example.com",
         appVersion: "1.3.0",
         buildNumber: "9",
         macOSVersion: "15.6"
@@ -35,6 +37,7 @@ struct BugReportCoreTests {
           repeating: "a",
           count: BugReportContent.minimumDescriptionLength - 1
         ),
+        replyEmail: "player@example.com",
         appVersion: "1.3.0",
         buildNumber: "17",
         macOSVersion: "15.6"
@@ -49,6 +52,7 @@ struct BugReportCoreTests {
     )
     let content = try BugReportContent(
       description: "  \(description)  ",
+      replyEmail: "player@example.com",
       appVersion: "1.3.0",
       buildNumber: "17",
       macOSVersion: "15.6"
@@ -68,6 +72,7 @@ struct BugReportCoreTests {
           repeating: "a",
           count: BugReportContent.maximumDescriptionLength + 1
         ),
+        replyEmail: "player@example.com",
         appVersion: "1.3.0",
         buildNumber: "9",
         macOSVersion: "15.6"
@@ -75,7 +80,7 @@ struct BugReportCoreTests {
     }
   }
 
-  @Test func optionalReplyEmailIsValidatedAndTrimmed() throws {
+  @Test func replyEmailIsRequiredValidatedAndTrimmed() throws {
     let content = try BugReportContent(
       description: "Overlay vanished after reconnect.",
       replyEmail: "  player+test@example.com  ",
@@ -85,14 +90,16 @@ struct BugReportCoreTests {
     )
     #expect(content.replyEmail == "player+test@example.com")
 
-    let withoutEmail = try BugReportContent(
-      description: "Overlay vanished after reconnect.",
-      replyEmail: "  ",
-      appVersion: "1.3.0",
-      buildNumber: "40",
-      macOSVersion: "15.6"
-    )
-    #expect(withoutEmail.replyEmail == nil)
+    #expect(throws: BugReportValidationError.missingReplyEmail) {
+      _ = try BugReportContent(
+        description: "Overlay vanished after reconnect.",
+        replyEmail: "  ",
+        appVersion: "1.3.0",
+        buildNumber: "40",
+        macOSVersion: "15.6"
+      )
+    }
+    #expect(!BugReportContent.isValidReplyEmail(""))
 
     #expect(throws: BugReportValidationError.invalidReplyEmail) {
       _ = try BugReportContent(
@@ -234,25 +241,10 @@ struct BugReportCoreTests {
     #expect(text.hasSuffix("--test-boundary--\r\n"))
   }
 
-  @Test func multipartBodyOmitsBlankReplyEmail() throws {
-    let content = try BugReportContent(
-      description: "Overlay vanished after reconnect.",
-      replyEmail: "",
-      appVersion: "1.3.0",
-      buildNumber: "40",
-      macOSVersion: "15.6"
-    )
-    let body = BugReportMultipartBody(
-      content: content,
-      imageJPEGs: [],
-      boundary: "test-boundary"
-    )
-    #expect(!String(decoding: body.data, as: UTF8.self).contains("fi-sender-email"))
-  }
-
   @Test func multipartBodyLimitsImagesToFive() throws {
     let content = try BugReportContent(
       description: "Overlay vanished after reconnect.",
+      replyEmail: "player@example.com",
       appVersion: "1.3.0",
       buildNumber: "9",
       macOSVersion: "15.6"

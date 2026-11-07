@@ -635,16 +635,16 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
 
     let emailTitle = NSTextField(labelWithString: "Email for reply")
     emailTitle.font = .systemFont(ofSize: 16, weight: .semibold)
-    let emailOptionalLabel = NSTextField(labelWithString: "Optional")
-    emailOptionalLabel.font = .systemFont(ofSize: 11, weight: .medium)
-    emailOptionalLabel.textColor = .tertiaryLabelColor
-    let emailHeader = NSStackView(views: [emailTitle, emailOptionalLabel])
+    let emailRequiredLabel = NSTextField(labelWithString: "Required")
+    emailRequiredLabel.font = .systemFont(ofSize: 11, weight: .medium)
+    emailRequiredLabel.textColor = .tertiaryLabelColor
+    let emailHeader = NSStackView(views: [emailTitle, emailRequiredLabel])
     emailHeader.orientation = .horizontal
     emailHeader.alignment = .centerY
     emailHeader.spacing = 8
 
     replyEmailField.placeholderString = "you@example.com"
-    replyEmailField.setAccessibilityLabel("Email for reply, optional")
+    replyEmailField.setAccessibilityLabel("Email for reply, required")
     replyEmailField.delegate = self
     replyEmailField.heightAnchor.constraint(equalToConstant: 28)
       .isActive = true
@@ -742,7 +742,7 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
 
     let privacyText = NSTextField(
       wrappingLabelWithString:
-        "Sends your description, app/macOS versions, and any email or images you add. Never include passwords or account details."
+        "Sends your description, email, app/macOS versions, and any images you add. Never include passwords or account details."
     )
     privacyText.textColor = .secondaryLabelColor
     privacyText.maximumNumberOfLines = 3
@@ -987,10 +987,11 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     let email = replyEmailField.stringValue.trimmingCharacters(
       in: .whitespacesAndNewlines
     )
-    if BugReportContent.isValidOptionalReplyEmail(email) {
+    // An empty field only keeps Submit disabled; the error is for a typed address that isn't valid.
+    if email.isEmpty || BugReportContent.isValidReplyEmail(email) {
       statusLabel.stringValue = ""
     } else {
-      showError("Enter a valid email address or leave it blank.")
+      showError("Enter a valid email address.")
     }
     updateSubmitButtonState()
   }
@@ -1242,8 +1243,10 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
       showError(
         "Keep the description under \(BugReportContent.maximumDescriptionLength) characters."
       )
+    } catch BugReportValidationError.missingReplyEmail {
+      showError("Enter your email so we can reply.")
     } catch BugReportValidationError.invalidReplyEmail {
-      showError("Enter a valid email address or leave it blank.")
+      showError("Enter a valid email address.")
     } catch {
       showError("The report could not be prepared. Please try again.")
     }
@@ -1330,7 +1333,7 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     let hasValidLength =
       length >= BugReportContent.minimumDescriptionLength
         && length <= BugReportContent.maximumDescriptionLength
-    let hasValidEmail = BugReportContent.isValidOptionalReplyEmail(
+    let hasValidEmail = BugReportContent.isValidReplyEmail(
       replyEmailField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     )
     let canSubmit = !isSubmitting && hasValidLength && hasValidEmail

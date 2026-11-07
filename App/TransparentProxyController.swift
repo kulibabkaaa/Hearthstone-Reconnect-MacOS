@@ -48,6 +48,25 @@ final class TransparentProxyController {
     }
   }
 
+  /// Starts watching the saved proxy's connection without configuring or starting it. Used when macOS
+  /// can't report the extension state, so a proxy that is already connected can still allow reconnect.
+  func observeSavedConnection() {
+    guard retainedManager == nil else { return }
+    NETransparentProxyManager.loadAllFromPreferences { [weak self] managers, error in
+      DispatchQueue.main.async {
+        guard let self, self.retainedManager == nil, error == nil,
+          let manager = managers?.first(where: {
+            $0.isEnabled
+              && ($0.protocolConfiguration as? NETunnelProviderProtocol)?
+                .providerBundleIdentifier
+                == AppConfiguration.extensionBundleIdentifier
+          })
+        else { return }
+        self.retainManager(manager)
+      }
+    }
+  }
+
   func removeConfiguration(
     completion: @escaping (Result<Void, Error>) -> Void
   ) {
