@@ -7,12 +7,22 @@ enum GameEndpointResolverError: Error {
   case invalidInstallation
 }
 
+struct GameReconnectContext {
+  let target: ReconnectTarget
+  let application: NSRunningApplication
+  let logDirectory: URL?
+}
+
 struct GameEndpointResolver {
   private static let executableSuffix =
     "/Hearthstone.app/Contents/MacOS/Hearthstone"
   private static let maximumLogBytes: UInt64 = 2 * 1024 * 1024
 
   func reconnectTarget() throws -> ReconnectTarget {
+    try reconnectContext().target
+  }
+
+  func reconnectContext() throws -> GameReconnectContext {
     let applications = NSRunningApplication.runningApplications(
       withBundleIdentifier:
         ProxyConstants.hearthstoneSigningIdentifier
@@ -45,16 +55,17 @@ struct GameEndpointResolver {
       .deletingLastPathComponent()
       .appendingPathComponent("Logs", isDirectory: true)
 
-    if let endpoint = latestEndpoint(in: logsRoot) {
-      return .exact(endpoint)
+    let directory = latestLogDirectory(in: logsRoot)
+    let target: ReconnectTarget
+    if let directory, let endpoint = latestEndpoint(in: directory) {
+      target = .exact(endpoint)
+    } else {
+      target = .uniquePort(ProxyConstants.gamePort)
     }
-    return .uniquePort(ProxyConstants.gamePort)
+    return GameReconnectContext(target: target, application: applications[0], logDirectory: directory)
   }
 
-  private func latestEndpoint(in logsRoot: URL) -> GameEndpoint? {
-    guard let directory = latestLogDirectory(in: logsRoot) else {
-      return nil
-    }
+  private func latestEndpoint(in directory: URL) -> GameEndpoint? {
     for name in ["GameNetLogger.log", "Hearthstone.log"] {
       let file = directory.appendingPathComponent(name)
       guard let text = try? readTail(of: file) else {

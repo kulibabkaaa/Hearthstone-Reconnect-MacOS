@@ -40,6 +40,14 @@ HS Reconnect requires **macOS 13 or later** and the **native Mac version of Hear
 
 The lobby overlay works while HSTracker is running. Reconnect works independently of the overlay.
 
+For **HSTracker 3.7.3**, reconnect also attempts to restore the tracker's current
+match data after the board reloads. HS Reconnect adds one labelled recovery
+event to Hearthstone's `LoadingScreen.log` to invoke HSTracker's existing match
+initializer, then reads HSTracker's local log to check for restored player IDs.
+It does not change the HSTracker app. Recovery cannot recreate opponent history
+that HSTracker has already discarded. Other tracker versions do not receive
+this compatibility event.
+
 The **Overlays** card in the app turns **Lobby info** and the **Reconnect button** on or off, and sets the position shortcut, opacity, and **Reset Layout** for both. The button is on by default. With lobby info off, the app still reads Hearthstone's game state on your Mac to tell whether you are in a match; turn off the button to stop this. While the app is still connecting to the game, the button stays hidden. If it can't read the game at all, for example because lobby access isn't allowed, the button shows whenever Hearthstone is in front.
 
 ## Updates and privacy

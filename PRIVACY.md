@@ -20,6 +20,16 @@ data. HS Reconnect has no advertising, remote crash reporting, accounts, or
 project-operated analytics server. TelemetryDeck receives ordinary connection
 metadata, including the public IP address, when events are submitted.
 
+When HSTracker 3.7.3 is running during a reconnect, HS Reconnect watches new
+entries in Hearthstone's `LoadingScreen.log`. Once the same match has reloaded,
+it appends one synthetic scene-loaded event labelled
+`source=HSReconnect.HSTrackerRecovery`. This asks HSTracker to run its existing
+match initializer. Existing log entries are preserved. The app also reads new
+entries in `~/Library/Logs/HSTracker/hstracker.log` to check for restored player
+IDs. These logs and identifiers remain on this Mac and are not sent to analytics
+or included automatically in bug reports. The HSTracker application and its
+preferences are not modified.
+
 To identify the current Battlegrounds connection and lobby, the app reads
 Hearthstone's local game state. Captured player names and identifiers stay on
 this Mac. The last complete lobby roster is stored locally for up to three

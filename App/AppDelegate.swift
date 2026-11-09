@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private let systemExtensionController =
     SystemExtensionController()
   private let proxyController = TransparentProxyController()
+  private let trackerRecovery = HSTrackerRecoveryController()
   private let windowTracker = HearthstoneWindowTracker()
   /// One layout mode (Cmd-Shift-L) for the lobby block and the Reconnect button block.
   private let layoutSession: OverlayLayoutSession
@@ -111,6 +112,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   func applicationDidFinishLaunching(
     _ notification: Notification
   ) {
+    trackerRecovery.onStatus = { [weak self] status, isError in
+      guard let self, !self.isUninstalling, !self.isReconnectRunning else { return }
+      self.windowController?.setStatus(status, isError: isError)
+    }
     if launchMode.uninstallProcessIdentifier == nil {
       analyticsController.start()
     }
@@ -185,6 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   }
 
   func applicationWillTerminate(_ notification: Notification) {
+    trackerRecovery.cancel()
     cooldownTimer?.invalidate()
     transientStatusResetWorkItem?.cancel()
     analyticsController.flush()
@@ -750,19 +756,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       return
     case .started(let token, let effects):
       attempt = token
+      trackerRecovery.cancel()
       applyReconnectEffects(effects)
       scheduleReconnectTimeout(for: token)
     }
 
-    let target: ReconnectTarget
+    let context: GameReconnectContext
     do {
-      target = try GameEndpointResolver().reconnectTarget()
+      context = try GameEndpointResolver().reconnectContext()
     } catch {
       applyReconnectEffects(reconnectAttempts.endpointNotFound(attempt))
       return
     }
 
-    proxyController.reconnect(target: target) { [weak self] result in
+    let trackerRequest = trackerRecovery.prepare(for: context)
+    proxyController.reconnect(target: context.target) { [weak self] result in
       guard let self else { return }
       let completion = ReconnectCompletion(
         isUninstalling: self.isUninstalling,
@@ -773,7 +781,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         ),
         didCloseFlow: try? result.get().didCloseFlow
       )
-      self.applyReconnectEffects(self.reconnectAttempts.complete(attempt, completion), source: source)
+      let effects = self.reconnectAttempts.complete(attempt, completion)
+      if effects.recordsFlowClosed { self.trackerRecovery.recover(trackerRequest) }
+      self.applyReconnectEffects(effects, source: source)
     }
   }
 
@@ -1462,6 +1472,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     isUninstalling = true
+    trackerRecovery.cancel()
     isUninstallCleanupStarted = false
     isProxyReady = false
     hotKeyManager.unregister()
