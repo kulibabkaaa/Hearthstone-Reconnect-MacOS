@@ -173,6 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         windowController.refresh()
       }
 
+      autoLaunchController.startHealthChecks()
       updateReconnectAvailability()
       startCooldownTimerIfNeeded()
     }
@@ -185,6 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   }
 
   func applicationWillTerminate(_ notification: Notification) {
+    autoLaunchController.finishPendingRepair()
     cooldownTimer?.invalidate()
     transientStatusResetWorkItem?.cancel()
     analyticsController.flush()
