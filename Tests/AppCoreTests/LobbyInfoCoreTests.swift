@@ -229,10 +229,14 @@ struct LobbyInfoCoreTests {
     #expect(Policy.startupRetryDelay * Double(slowAfter) >= 60)
     #expect(Policy.startupRetryDelay < Policy.slowStartupRetryDelay && slowAfter < giveUpAfter)
     // Anything that can show a dialog never repeats: one automatic retry, none after a rejection.
-    for kind in [LobbyAttachFailureKind.mayPrompt, .permissionRejected] { #expect(!kind.retriesSilently) }
+    for kind in [LobbyAttachFailureKind.mayPrompt, .permissionRejected, .permissionLapsed] {
+      #expect(!kind.retriesSilently)
+    }
     #expect(delay(1, .mayPrompt) == Policy.automaticRetryDelay)
     for count in [2, 3, slowAfter, giveUpAfter + 1] { #expect(delay(count, .mayPrompt) == nil) }
     for count in [1, 2, slowAfter] { #expect(delay(count, .permissionRejected) == nil) }
+    // Access that lapsed during a silent wait is never asked for again by the helper itself.
+    for count in [1, 2, slowAfter] { #expect(delay(count, .permissionLapsed) == nil) }
   }
   @Test("a reader made before sign-in is thrown away instead of trusted")
   func lobbyMirrorReadiness() {

@@ -86,7 +86,8 @@ private final class LobbyCaptureProbe {
   private var attachmentRetryAfter: Date?
   private var attachmentFailureCount = 0
   /// The last failure was "the game isn't ready" while macOS granted access with no dialog. The next attempt
-  /// then skips acquireTaskportRight(), so a long wait for sign-in can never bring a permission dialog back.
+  /// then never calls acquireTaskportRight(): it attaches if access is still granted silently and otherwise
+  /// stops with "permission_failed". So a long wait for sign-in can never bring a permission dialog back.
   private var retryWithoutPrompt = false
   /// When the attached reader's class list was read, and how many of the scheduled re-reads are done.
   private var mirrorSnapshotAt: Date?
@@ -157,6 +158,14 @@ private final class LobbyCaptureProbe {
       quietRetryAfter = Date().addingTimeInterval(Self.quietRetryInterval)
       emitIfChanged(event: "permission_unavailable", hearthstonePID: pid,
         detail: "Lobby access isn't granted now; match detection doesn't ask for it.")
+      return
+    }
+    if retryWithoutPrompt && !grantedWithoutDialog {
+      // The approval ran out (or was revoked) while waiting for the game to sign in, possibly hours after the
+      // player last looked. Don't ask now: the app shows "Lobby access needs approval" with Retry instead.
+      recordAttachmentFailure(pid: pid, kind: .permissionLapsed)
+      emitIfChanged(event: "permission_failed", hearthstonePID: pid,
+        detail: "Lobby access is no longer granted without asking.")
       return
     }
     let permissionResult = grantedWithoutDialog ? 0 : acquireTaskportRight()

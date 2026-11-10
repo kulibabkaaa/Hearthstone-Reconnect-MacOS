@@ -65,6 +65,9 @@ public enum LobbyHelperProcessPolicy {
 public enum LobbyAttachFailureKind: Equatable, Sendable {
   /// A macOS permission dialog was declined.
   case permissionRejected
+  /// Access was granted with no dialog when the wait for the game began, and no longer is. Asking again would
+  /// put up a dialog nobody asked for, so the helper stops and leaves that to the player's Retry.
+  case permissionLapsed
   /// The attempt asked, or would have to ask, for permission with a dialog.
   case mayPrompt
   /// macOS grants access with no dialog, but the game exposes nothing yet: it has only just opened.
@@ -92,7 +95,7 @@ public enum LobbyAttachRetryPolicy {
   /// `failureCount`: failures in a row for this Hearthstone process, this one included.
   public static func retryAfter(now: Date, failureCount: Int, kind: LobbyAttachFailureKind) -> Date {
     switch kind {
-    case .permissionRejected:
+    case .permissionRejected, .permissionLapsed:
       return .distantFuture
     case .mayPrompt:
       return failureCount == 1 ? now.addingTimeInterval(automaticRetryDelay) : .distantFuture
