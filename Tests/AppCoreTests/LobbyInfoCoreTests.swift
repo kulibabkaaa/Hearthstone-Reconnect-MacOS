@@ -204,10 +204,121 @@ struct LobbyInfoCoreTests {
     #expect(!LobbyHelperProcessPolicy.shouldRestart(previousPID: 100, currentPID: nil))
     #expect(LobbyHelperProcessPolicy.shouldRestart(previousPID: 100, currentPID: 200))
   }
+  @Test("a game that is still starting is retried silently at a steady pace")
+  func lobbyAttachRetryWhileStarting() {
+    typealias Policy = LobbyAttachRetryPolicy
+    func delay(_ failureCount: Int, _ kind: LobbyAttachFailureKind) -> TimeInterval? {
+      let date = Policy.retryAfter(now: now, failureCount: failureCount, kind: kind)
+      return date == .distantFuture ? nil : date.timeIntervalSince(now)
+    }
+    let slowAfter = Policy.startupRetriesBeforeSlowing
+    let giveUpAfter = Policy.unreadableRetriesBeforeGivingUp
+    for kind in [LobbyAttachFailureKind.gameNotReadable, .notSignedIn] {
+      #expect(kind.retriesSilently)
+      #expect(delay(1, kind) == Policy.startupRetryDelay)
+      #expect(delay(2, kind) == Policy.startupRetryDelay)
+      #expect(delay(slowAfter, kind) == Policy.startupRetryDelay)
+      #expect(delay(slowAfter + 1, kind) == Policy.slowStartupRetryDelay)
+      #expect(delay(giveUpAfter, kind) == Policy.slowStartupRetryDelay)
+    }
+    // A login screen left open keeps being checked; a game that never becomes readable is given up on.
+    #expect(delay(giveUpAfter + 1, .notSignedIn) == Policy.slowStartupRetryDelay)
+    #expect(delay(100_000, .notSignedIn) == Policy.slowStartupRetryDelay)
+    #expect(delay(giveUpAfter + 1, .gameNotReadable) == nil)
+    // The 00:47 launch on 10 Nov 2026 needed about 17 s to reach the menu: well inside the fast pace.
+    #expect(Policy.startupRetryDelay * Double(slowAfter) >= 60)
+    #expect(Policy.startupRetryDelay < Policy.slowStartupRetryDelay && slowAfter < giveUpAfter)
+    // Anything that can show a dialog never repeats: one automatic retry, none after a rejection.
+    for kind in [LobbyAttachFailureKind.mayPrompt, .permissionRejected, .permissionLapsed] {
+      #expect(!kind.retriesSilently)
+    }
+    #expect(delay(1, .mayPrompt) == Policy.automaticRetryDelay)
+    for count in [2, 3, slowAfter, giveUpAfter + 1] { #expect(delay(count, .mayPrompt) == nil) }
+    for count in [1, 2, slowAfter] { #expect(delay(count, .permissionRejected) == nil) }
+    // Access that lapsed during a silent wait is never asked for again by the helper itself.
+    for count in [1, 2, slowAfter] { #expect(delay(count, .permissionLapsed) == nil) }
+  }
+  @Test("a reader made before sign-in is thrown away instead of trusted")
+  func lobbyMirrorReadiness() {
+    typealias Policy = LobbyMirrorReadinessPolicy
+    // Signed in: use it.
+    #expect(Policy.disposition(hasLogSessionDirectory: true, signedIn: true,
+                               canRetryWithoutDialog: true) == .accept)
+    #expect(Policy.disposition(hasLogSessionDirectory: true, signedIn: true,
+                               canRetryWithoutDialog: false) == .accept)
+    // The failing launch: attached 3 s after Hearthstone opened, before sign-in.
+    #expect(Policy.disposition(hasLogSessionDirectory: true, signedIn: false,
+                               canRetryWithoutDialog: true) == .retryLater)
+    // Making another reader could show a dialog: keep this one, as before, rather than risk a prompt loop.
+    #expect(Policy.disposition(hasLogSessionDirectory: true, signedIn: false,
+                               canRetryWithoutDialog: false) == .accept)
+    // No log folder is still an attach failure, signed in or not.
+    for signedIn in [true, false] {
+      for canRetry in [true, false] {
+        #expect(Policy.disposition(hasLogSessionDirectory: false, signedIn: signedIn,
+                                   canRetryWithoutDialog: canRetry) == .failed)
+      }
+    }
+    #expect(!Policy.isSignedIn(battleTag: nil, accountHigh: nil, accountLow: nil))
+    #expect(!Policy.isSignedIn(battleTag: "  ", accountHigh: 0, accountLow: 0))
+    #expect(!Policy.isSignedIn(battleTag: "#1234", accountHigh: nil, accountLow: nil))
+    #expect(Policy.isSignedIn(battleTag: "Player#1234", accountHigh: nil, accountLow: nil))
+    #expect(Policy.isSignedIn(battleTag: nil, accountHigh: 144_115_193_835_963_207, accountLow: 0))
+    #expect(Policy.isSignedIn(battleTag: nil, accountHigh: 0, accountLow: 42))
+  }
+  @Test("the class list is re-read a few times while the menus finish loading, never during a match")
+  func lobbyMirrorRefresh() {
+    typealias Policy = LobbyMirrorRefreshPolicy
+    let delays = Policy.refreshDelays
+    #expect(!delays.isEmpty && delays.allSatisfy { $0 >= 10 })
+    for (done, delay) in delays.enumerated() {
+      #expect(!Policy.isDue(now: now.addingTimeInterval(delay - 1), snapshotAt: now,
+                            refreshesDone: done, matchVisible: false))
+      #expect(Policy.isDue(now: now.addingTimeInterval(delay), snapshotAt: now,
+                           refreshesDone: done, matchVisible: false))
+      // A reader that shows a match works: leave it alone.
+      #expect(!Policy.isDue(now: now.addingTimeInterval(delay * 10), snapshotAt: now,
+                            refreshesDone: done, matchVisible: true))
+    }
+    // Bounded: after the last one the helper stops re-reading for this Hearthstone process.
+    #expect(!Policy.isDue(now: .distantFuture, snapshotAt: now, refreshesDone: delays.count, matchVisible: false))
+    #expect(!Policy.isDue(now: .distantFuture, snapshotAt: now, refreshesDone: -1, matchVisible: false))
+  }
+  @Test("the launch that showed no overlays now ends with a reader made after the menu loaded")
+  func recordedFailingLaunch() {
+    // 10 Nov 2026, seconds after Hearthstone opened: helper attached at 3 (macOS granted access with no
+    // dialog), sign-in at 9, menu at 17, match at 48. The reader made at 3 never saw the lobby.
+    let signInAt: TimeInterval = 9, menuAt: TimeInterval = 17, matchAt: TimeInterval = 48
+    var time: TimeInterval = 3
+    var failures = 0
+    var acceptedAt: TimeInterval?
+    while acceptedAt == nil, failures < 100 {
+      switch LobbyMirrorReadinessPolicy.disposition(hasLogSessionDirectory: true, signedIn: time >= signInAt,
+                                                    canRetryWithoutDialog: true) {
+      case .accept:
+        acceptedAt = time
+      case .retryLater:
+        failures += 1
+        #expect(LobbyAttachFailureKind.notSignedIn.retriesSilently)
+        time = LobbyAttachRetryPolicy.retryAfter(now: now.addingTimeInterval(time), failureCount: failures,
+                                                 kind: .notSignedIn).timeIntervalSince(now)
+      case .failed:
+        Issue.record("a readable game counted as an attach failure")
+        return
+      }
+    }
+    guard let acceptedAt else { Issue.record("never attached"); return }
+    #expect(acceptedAt >= signInAt && acceptedAt < signInAt + LobbyAttachRetryPolicy.startupRetryDelay)
+    // The first re-read of the class list falls after the menu loaded and before the match began.
+    let firstRefresh = acceptedAt + LobbyMirrorRefreshPolicy.refreshDelays[0]
+    #expect(firstRefresh > menuAt && firstRefresh < matchAt)
+    #expect(LobbyMirrorRefreshPolicy.isDue(now: now.addingTimeInterval(firstRefresh),
+                                           snapshotAt: now.addingTimeInterval(acceptedAt),
+                                           refreshesDone: 0, matchVisible: false))
+  }
   @Test("first attach failure gets one automatic retry without repeating denied prompts")
   func lobbyAttachRetry() {
-    let retryAfter = LobbyAttachRetryPolicy.retryAfter(
-      now: now, failureCount: 1, permissionRejected: false)
+    let retryAfter = LobbyAttachRetryPolicy.retryAfter(now: now, failureCount: 1, kind: .mayPrompt)
     #expect(retryAfter == now.addingTimeInterval(LobbyAttachRetryPolicy.automaticRetryDelay))
     #expect(!LobbyAttachRetryPolicy.canAttempt(
       failedPID: 100, retryAfter: retryAfter, currentPID: 100, now: now
@@ -218,10 +329,9 @@ struct LobbyInfoCoreTests {
     #expect(LobbyAttachRetryPolicy.canAttempt(
       failedPID: 100, retryAfter: retryAfter, currentPID: 200, now: now
     ))
-    let afterSecondFailure = LobbyAttachRetryPolicy.retryAfter(
-      now: now, failureCount: 2, permissionRejected: false)
+    let afterSecondFailure = LobbyAttachRetryPolicy.retryAfter(now: now, failureCount: 2, kind: .mayPrompt)
     let afterDeniedPermission = LobbyAttachRetryPolicy.retryAfter(
-      now: now, failureCount: 1, permissionRejected: true)
+      now: now, failureCount: 1, kind: .permissionRejected)
     #expect(afterSecondFailure == .distantFuture)
     #expect(afterDeniedPermission == .distantFuture)
     #expect(!LobbyAttachRetryPolicy.canAttempt(

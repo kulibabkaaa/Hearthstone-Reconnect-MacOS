@@ -28,6 +28,12 @@ private final class SettingsCardView: NSView {
 }
 
 final class SettingsWindowController: NSWindowController {
+  /// Also how What's New finds this switch.
+  static let trackerRecoveryAccessibilityLabel =
+    "Keep HSTracker working after a reconnect"
+  static let trackerRecoveryExplanation =
+    "Brings HSTracker's panels and Bob's Buddy back after a reconnect by adding one line to Hearthstone's "
+    + "loading log. Opponent boards from before the reconnect stay lost."
   private let onReconnect: () -> Void
   private let onShortcutChanged: (UInt32, UInt32, String) -> Bool
   private let onShortcutRecordingChanged: (Bool) -> Void
@@ -47,6 +53,7 @@ final class SettingsWindowController: NSWindowController {
   private let onResetLobby: () -> Void
   private let onRetryLobbySetup: () -> Void
   private let onReconnectButtonEnabledChanged: (Bool) -> Void
+  private let onTrackerRecoveryEnabledChanged: (Bool) -> Void
   private let onReportBug: () -> Void
   private let onCheckForUpdates: () -> Void
   private let automaticUpdateChecksEnabled: () -> Bool
@@ -111,6 +118,11 @@ final class SettingsWindowController: NSWindowController {
   )
   private let lobbySwitch = NSSwitch()
   private let reconnectOverlaySwitch = NSSwitch()
+  private let trackerRecoverySwitch = NSSwitch()
+  /// How the last reconnect went for HSTracker; hidden while the option is off.
+  private let trackerRecoveryStatusLabel = NSTextField(
+    wrappingLabelWithString: ""
+  )
   private let lobbyShortcutButton = RecorderButton(
     title: "",
     target: nil,
@@ -174,6 +186,7 @@ final class SettingsWindowController: NSWindowController {
     onResetLobby: @escaping () -> Void,
     onRetryLobbySetup: @escaping () -> Void,
     onReconnectButtonEnabledChanged: @escaping (Bool) -> Void = { _ in },
+    onTrackerRecoveryEnabledChanged: @escaping (Bool) -> Void = { _ in },
     onReportBug: @escaping () -> Void,
     onCheckForUpdates: @escaping () -> Void,
     automaticUpdateChecksEnabled: @escaping () -> Bool,
@@ -199,6 +212,8 @@ final class SettingsWindowController: NSWindowController {
     self.onRetryLobbySetup = onRetryLobbySetup
     self.onReconnectButtonEnabledChanged =
       onReconnectButtonEnabledChanged
+    self.onTrackerRecoveryEnabledChanged =
+      onTrackerRecoveryEnabledChanged
     self.onReportBug = onReportBug
     self.onCheckForUpdates = onCheckForUpdates
     self.automaticUpdateChecksEnabled =
@@ -257,6 +272,10 @@ final class SettingsWindowController: NSWindowController {
     reconnectOverlaySwitch.state =
       UserDefaults.standard.bool(
         forKey: DefaultsKey.reconnectButtonEnabled
+      ) ? .on : .off
+    trackerRecoverySwitch.state =
+      UserDefaults.standard.bool(
+        forKey: DefaultsKey.trackerRecoveryEnabled
       ) ? .on : .off
     lobbyShortcutButton.title =
       UserDefaults.standard.string(
@@ -329,6 +348,25 @@ final class SettingsWindowController: NSWindowController {
     lobbyStatusCanRetry = canRetry
     applyLobbyStatus(message, canRetry: canRetry)
     scheduleMainWindowResize()
+  }
+
+  /// The line under "Keep HSTracker working": how the last reconnect went, or why nothing will happen.
+  func setTrackerRecoveryStatus(_ status: TrackerRecoveryStatus) {
+    let text = status.text ?? ""
+    guard trackerRecoveryStatusLabel.stringValue != text
+      || trackerRecoveryStatusLabel.isHidden != text.isEmpty
+    else { return }
+    trackerRecoveryStatusLabel.stringValue = text
+    trackerRecoveryStatusLabel.textColor =
+      status.isProblem ? .systemOrange : .secondaryLabelColor
+    trackerRecoveryStatusLabel.isHidden = text.isEmpty
+    scheduleMainWindowResize()
+    if !text.isEmpty {
+      NSAccessibility.post(
+        element: trackerRecoveryStatusLabel,
+        notification: .valueChanged
+      )
+    }
   }
 
   private func applyLobbyStatus(
@@ -496,6 +534,22 @@ final class SettingsWindowController: NSWindowController {
       #selector(reconnectOverlayEnabledChanged)
     reconnectOverlaySwitch.setAccessibilityLabel(
       "Show Reconnect button over Hearthstone"
+    )
+
+    trackerRecoverySwitch.target = self
+    trackerRecoverySwitch.action =
+      #selector(trackerRecoveryEnabledChanged)
+    trackerRecoverySwitch.setAccessibilityLabel(
+      Self.trackerRecoveryAccessibilityLabel
+    )
+    trackerRecoveryStatusLabel.font = .systemFont(
+      ofSize: NSFont.smallSystemFontSize
+    )
+    trackerRecoveryStatusLabel.textColor = .secondaryLabelColor
+    trackerRecoveryStatusLabel.isSelectable = false
+    trackerRecoveryStatusLabel.isHidden = true
+    trackerRecoveryStatusLabel.setAccessibilityLabel(
+      "HSTracker recovery status"
     )
 
     lobbyShortcutButton.bezelStyle = .rounded
@@ -710,16 +764,48 @@ final class SettingsWindowController: NSWindowController {
         "Restart the current Battlegrounds connection."
     )
     reconnectDescription.textColor = .secondaryLabelColor
+
+    // For people who run HSTracker next to the game: what the option does and what it can't, in the window
+    // itself, because it writes to a file that isn't ours.
+    let trackerRecoveryLabel = NSTextField(
+      labelWithString: "Keep \(TrackerRecovery.trackerName) working"
+    )
+    let trackerRecoveryRow = makeHorizontalRow(
+      [
+        trackerRecoveryLabel,
+        flexibleSpacer(),
+        trackerRecoverySwitch,
+      ],
+      spacing: 12
+    )
+    let trackerRecoveryDetail = NSTextField(
+      wrappingLabelWithString: Self.trackerRecoveryExplanation
+    )
+    trackerRecoveryDetail.font = .systemFont(
+      ofSize: NSFont.smallSystemFontSize
+    )
+    trackerRecoveryDetail.textColor = .secondaryLabelColor
+    trackerRecoveryDetail.isSelectable = false
+    let reconnectDivider = makeDivider()
     let reconnectStack = makeVerticalStack(
       [
         reconnectHeader,
         reconnectDescription,
         reconnectButton,
+        reconnectDivider,
+        trackerRecoveryRow,
+        trackerRecoveryDetail,
+        trackerRecoveryStatusLabel,
       ],
       spacing: 9
     )
+    reconnectStack.setCustomSpacing(11, after: reconnectButton)
+    reconnectStack.setCustomSpacing(4, after: trackerRecoveryRow)
+    reconnectStack.setCustomSpacing(4, after: trackerRecoveryDetail)
     constrainFullWidth(
-      [reconnectHeader, reconnectButton],
+      [reconnectHeader, reconnectButton, reconnectDivider,
+        trackerRecoveryRow, trackerRecoveryDetail,
+        trackerRecoveryStatusLabel],
       in: reconnectStack
     )
     let reconnectCard = makeCard(
@@ -1320,6 +1406,12 @@ final class SettingsWindowController: NSWindowController {
   @objc private func reconnectOverlayEnabledChanged() {
     onReconnectButtonEnabledChanged(
       reconnectOverlaySwitch.state == .on
+    )
+  }
+
+  @objc private func trackerRecoveryEnabledChanged() {
+    onTrackerRecoveryEnabledChanged(
+      trackerRecoverySwitch.state == .on
     )
   }
 

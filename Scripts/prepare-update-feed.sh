@@ -70,13 +70,13 @@ signature_attributes="$(
     "${raw_signature_attributes}"
 )"
 
-escaped_notes="$(
-  sed \
-    -e 's/&/\&amp;/g' \
-    -e 's/</\&lt;/g' \
-    -e 's/>/\&gt;/g' \
-    "${notes}"
-)"
+# The notes as an HTML page for Sparkle's update window (see render-release-notes.sh for why HTML).
+rendered_notes="$("${script_dir}/render-release-notes.sh" "${notes}")"
+# The page sits inside a CDATA block, which this sequence would end early.
+[[ "${rendered_notes}" != *']]>'* ]] || {
+  echo "The rendered release notes contain ']]>' and cannot be embedded." >&2
+  exit 1
+}
 publication_date="$(LC_ALL=C date -R)"
 temporary_appcast="$(mktemp /tmp/hs-reconnect-appcast.XXXXXX)"
 trap 'rm -f -- "${temporary_appcast}"' EXIT
@@ -95,7 +95,7 @@ cat > "${temporary_appcast}" <<EOF
       <sparkle:version>${build_number}</sparkle:version>
       <sparkle:shortVersionString>${version}</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<pre>${escaped_notes}</pre>]]></description>
+      <description><![CDATA[${rendered_notes}]]></description>
       <enclosure url="${release_url}" type="application/octet-stream" ${signature_attributes} />
     </item>
   </channel>

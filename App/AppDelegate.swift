@@ -23,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private let lobbyCoordinator: LobbyCoordinator
   private let reconnectButton: ReconnectButtonOverlayController
   private let analyticsController = AnalyticsController()
+  /// "Keep HSTracker working": acts after each reconnect that closed the game's connection.
+  private let trackerRecovery = TrackerRecoveryController()
   private lazy var updaterController = SPUStandardUpdaterController(
     startingUpdater: false,
     updaterDelegate: self,
@@ -53,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       presentWhatsNewIfNeeded()
     }
   }
-  /// The one-time What's New spotlight on the Reconnect button switch.
+  /// The one-time What's New spotlight on the "Keep HSTracker working" switch.
   private let whatsNew = WhatsNewPresenter()
   /// What the floating Reconnect button shows. Seeded at launch from `lastReconnectAt`.
   private var reconnectButtonModel = ReconnectButtonModel(
@@ -139,6 +141,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     buildMainMenu()
     buildMenuBar()
     buildWindow()
+    autoLaunchController.onRepairLeftOptionOff = { [weak self] in
+      self?.windowController.setStatus(
+        "Automatic opening couldn't be set up. Try again in Settings.",
+        isError: true
+      )
+      self?.windowController.refresh()
+    }
     configureSystemExtensionStatusHandlers()
 
     if let processIdentifier =
@@ -173,6 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         windowController.refresh()
       }
 
+      autoLaunchController.startHealthChecks()
       updateReconnectAvailability()
       startCooldownTimerIfNeeded()
     }
@@ -185,11 +195,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   }
 
   func applicationWillTerminate(_ notification: Notification) {
+    autoLaunchController.finishPendingRepair()
     cooldownTimer?.invalidate()
     transientStatusResetWorkItem?.cancel()
     analyticsController.flush()
     lobbyCoordinator.stop()
     stopReconnectButton()
+    trackerRecovery.stop()
   }
 
   func applicationDidBecomeActive(
@@ -235,6 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       DefaultsKey.lobbyScale: 1.0,
       DefaultsKey.reconnectButtonEnabled: true,
       DefaultsKey.reconnectButtonScale: 1.0,
+      DefaultsKey.trackerRecoveryEnabled: false,
       DefaultsKey.systemExtensionApprovalWasDenied: false,
       DefaultsKey.proxyConfigurationPermissionWasDenied: false,
     ])
@@ -305,6 +318,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       onReconnectButtonEnabledChanged: { [weak self] enabled in
         self?.setReconnectButtonEnabled(enabled)
       },
+      onTrackerRecoveryEnabledChanged: { [weak self] enabled in
+        self?.trackerRecovery.setEnabled(enabled)
+      },
       onReportBug: { [weak self] in self?.showBugReport() },
       onCheckForUpdates: { [weak self] in self?.checkForUpdates() },
       automaticUpdateChecksEnabled: { [weak self] in
@@ -314,6 +330,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         self?.updaterController.updater.automaticallyChecksForUpdates = enabled
       }
     )
+
+    trackerRecovery.onStatusChanged = { [weak self] status in
+      self?.windowController.setTrackerRecoveryStatus(status)
+    }
+    windowController.setTrackerRecoveryStatus(trackerRecovery.status)
 
     hotKeyManager.onHotKey = { [weak self] action in
       guard let self, !self.isRecordingShortcut else { return }
@@ -754,13 +775,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       scheduleReconnectTimeout(for: token)
     }
 
+    let resolver = GameEndpointResolver()
     let target: ReconnectTarget
     do {
-      target = try GameEndpointResolver().reconnectTarget()
+      target = try resolver.reconnectTarget()
     } catch {
       applyReconnectEffects(reconnectAttempts.endpointNotFound(attempt))
       return
     }
+    // Before the request goes out, so nothing Hearthstone writes during the reconnect is missed.
+    trackerRecovery.reconnectWillBegin(
+      logDirectory: trackerRecovery.isEnabled ? resolver.currentLogDirectory() : nil)
 
     proxyController.reconnect(target: target) { [weak self] result in
       guard let self else { return }
@@ -801,6 +826,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         parameters: source.map { ReconnectTelemetry.successParameters(source: $0) } ?? [:]
       )
       UserDefaults.standard.set(now, forKey: DefaultsKey.lastReconnectAt)
+      trackerRecovery.reconnectDidCloseFlow()
     }
     if let event = effects.buttonEvent {
       sendReconnectButtonEvent(event, now: now)

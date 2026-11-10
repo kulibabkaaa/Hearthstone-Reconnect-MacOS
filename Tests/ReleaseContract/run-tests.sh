@@ -32,8 +32,8 @@ fail() {
   || fail "the installer preinstall script is missing"
 [[ -f "${project_dir}/Documentation/Images/hs-reconnect-window-rounded.png" ]] \
   || fail "the public app screenshot is missing"
-[[ -f "${project_dir}/RELEASE_NOTES_2.1.1.md" ]] \
-  || fail "the 2.1.1 release notes are missing"
+[[ -f "${project_dir}/RELEASE_NOTES_2.2.0.md" ]] \
+  || fail "the 2.2.0 release notes are missing"
 [[ -f "${project_dir}/SECURITY.md" ]] \
   || fail "the lobby helper security notes are missing"
 [[ -f "${project_dir}/Vendor/HearthMirror/SHA256SUMS" ]] \
@@ -57,7 +57,7 @@ version="$(
 )"
 
 [[ -n "${version}" ]] || fail "the release version is missing"
-[[ "${version}" == "2.1.1" ]] || fail "the update release must use version 2.1.1"
+[[ "${version}" == "2.2.0" ]] || fail "the update release must use version 2.2.0"
 
 bug_report_endpoint="$(
   /usr/bin/awk '
@@ -381,6 +381,35 @@ if /usr/bin/grep -q \
   "${project_dir}/Scripts/prepare-update-feed.sh"; then
   fail "the appcast still forces package installation"
 fi
+
+# Release notes reach Sparkle's update window as a styled HTML page made from the Markdown notes, never as raw text.
+/usr/bin/grep -q \
+  'render-release-notes.sh' \
+  "${project_dir}/Scripts/prepare-update-feed.sh" \
+  || fail "the appcast does not render the release notes as HTML"
+if /usr/bin/grep -q '<pre>' "${project_dir}/Scripts/prepare-update-feed.sh"; then
+  fail "the appcast still embeds the release notes as preformatted text"
+fi
+rendered_notes="$(
+  "${project_dir}/Scripts/render-release-notes.sh" \
+    "${project_dir}/RELEASE_NOTES_${version}.md"
+)" || fail "the release notes could not be rendered"
+[[ "${rendered_notes}" == *"<h1>HS Reconnect ${version}</h1>"* ]] \
+  || fail "the rendered release notes are missing their title"
+[[ "${rendered_notes}" == *'<li>'* && "${rendered_notes}" == *'class="small-print"'* ]] \
+  || fail "the rendered release notes are missing their list or small print"
+[[ "${rendered_notes}" == *'prefers-color-scheme: dark'* ]] \
+  || fail "the rendered release notes have no dark appearance"
+[[ "${rendered_notes}" != *'<script'* && "${rendered_notes}" != *']]>'* ]] \
+  || fail "the rendered release notes contain a script or would break the feed"
+print -r -- "${rendered_notes}" | /usr/bin/xmllint --html --noout - 2>/dev/null \
+  || fail "the rendered release notes are not well-formed HTML"
+escape_probe="$(/usr/bin/mktemp /tmp/hs-reconnect-notes.XXXXXX)"
+print -r -- '- A <b>tag</b> & an ]]> end' > "${escape_probe}"
+escaped_notes="$("${project_dir}/Scripts/render-release-notes.sh" "${escape_probe}")"
+/bin/rm -f -- "${escape_probe}"
+[[ "${escaped_notes}" == *'&lt;b&gt;tag&lt;/b&gt; &amp; an ]]&gt; end'* ]] \
+  || fail "the release notes renderer does not escape markup"
 
 /usr/bin/grep -q \
   '/usr/sbin/chown -RH' \

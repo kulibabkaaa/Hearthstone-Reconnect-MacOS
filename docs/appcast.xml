@@ -6,28 +6,63 @@
     <description>Signed updates for HS Reconnect.</description>
     <language>en</language>
     <item>
-      <title>Version 2.1.1</title>
-      <pubDate>Sat, 07 Nov 2026 00:04:02 +0000</pubDate>
-      <sparkle:version>50</sparkle:version>
-      <sparkle:shortVersionString>2.1.1</sparkle:shortVersionString>
+      <title>Version 2.2.0</title>
+      <pubDate>Tue, 10 Nov 2026 15:21:36 +0000</pubDate>
+      <sparkle:version>51</sparkle:version>
+      <sparkle:shortVersionString>2.2.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<pre># HS Reconnect 2.1.1
-
-- Fixed: Reconnect could stop working and show "Reconnect status couldn't be
-  checked", even after relaunching the app or the game. Reconnect now keeps
-  working when macOS is slow to answer or doesn't answer at all.
-- The app checks on Reconnect less often, so it puts less load on your Mac.
-- If the check keeps failing, the app suggests restarting your Mac. It also
-  sends one anonymous event for each run of failures. It says only whether
-  macOS timed out or returned an error, plus the error's general type and code
-  number.
-- Bug reports now need an email address, so you can get a reply.
-
-Requires macOS 13 or later and the native macOS version of Hearthstone. Supports
-Apple silicon and Intel Macs. Version 2.0.0 and later can install this update
-from the app. For earlier versions, run the new installer over the old app. The
-app is unofficial and is not affiliated with Blizzard Entertainment.</pre>]]></description>
-      <enclosure url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v2.1.1/HS-Reconnect-2.1.1.zip" type="application/octet-stream" sparkle:edSignature="gtJDMokMe49VdlZP2CiNL76AHz2aVg3O6b08VL7FmZUH0BTvWSw9PfT8G0e12ddQ4nYAXMNJBO5kz8uqEC/VDg==" length="14749510" />
+      <description><![CDATA[<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; padding: 14px 18px 16px;
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    color: #1d1d1f; -webkit-font-smoothing: antialiased;
+  }
+  h1 { margin: 0 0 10px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  ul { margin: 0; padding: 0; list-style: none; }
+  li { position: relative; margin: 0 0 9px; padding-left: 16px; }
+  li::before {
+    content: ""; position: absolute; left: 3px; top: 0.62em;
+    width: 5px; height: 5px; border-radius: 50%; background: #0a84ff;
+  }
+  p { margin: 0 0 9px; }
+  strong { font-weight: 600; }
+  code {
+    font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding: 1px 4px; border-radius: 4px; background: rgba(0, 0, 0, 0.06);
+  }
+  .small-print {
+    margin: 14px 0 0; padding-top: 10px; border-top: 1px solid rgba(0, 0, 0, 0.10);
+    font-size: 11px; line-height: 1.4; color: #6e6e73;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #f5f5f7; }
+    code { background: rgba(255, 255, 255, 0.10); }
+    .small-print { border-top-color: rgba(255, 255, 255, 0.14); color: #98989d; }
+  }
+</style>
+</head>
+<body>
+<h1>HS Reconnect 2.2.0</h1>
+<ul>
+  <li><strong>New:</strong> Keep HSTracker working. HSTracker stops tracking a Battlegrounds match when Hearthstone reconnects: its panels disappear and Bob's Buddy stops. With the new switch on, HSTracker picks the match back up within a second or two of each reconnect. The switch is in the Reconnect card and is off by default.</li>
+  <li><strong>How it works:</strong> right after a reconnect, the app adds one line to Hearthstone's loading log on your Mac. HSTracker reads that log and starts tracking again. The app first checks HSTracker's own log on your Mac; if HSTracker has already recovered by itself, the app adds nothing.</li>
+  <li><strong>What it can't do:</strong> opponent boards HSTracker saved before a reconnect stay lost, and HSTracker's match timer restarts.</li>
+  <li>The app does this only while the switch is on and HSTracker is running. Nothing from either log is stored by the app or leaves your Mac.</li>
+  <li>A What's New card explains the option once, in the app window when Reconnect is ready.</li>
+  <li><strong>Fixed:</strong> lobby info and the Reconnect button could stay hidden for a whole session when Hearthstone was opened while HS Reconnect was already running. The app now waits until Hearthstone has signed in before it reads the game.</li>
+  <li><strong>Fixed:</strong> Open with Hearthstone could stop working while Settings still showed it as on. The app now checks that its helper is really running and sets it up again if it isn't.</li>
+</ul>
+<p>Thanks to @tonn1o, who tracked down the same HSTracker cause and a matching fix independently.</p>
+<p class="small-print">Requires macOS 13 or later and the native macOS version of Hearthstone. Supports Apple silicon and Intel Macs. Version 2.0.0 and later can install this update from the app. For earlier versions, run the new installer over the old app. The app is unofficial and is not affiliated with Blizzard Entertainment.</p>
+</body>
+</html>]]></description>
+      <enclosure url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v2.2.0/HS-Reconnect-2.2.0.zip" type="application/octet-stream" sparkle:edSignature="VLcycM3efLAYKFzhoSOwsFPhmrNvTv5kAqn4AayIoJVWXVOcf3MeIgCS3X2txOq6vEXmG6+QMo69rDZyIce3DQ==" length="14822904" />
     </item>
   </channel>
 </rss>

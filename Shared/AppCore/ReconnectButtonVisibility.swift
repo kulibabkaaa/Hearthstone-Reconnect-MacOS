@@ -27,7 +27,7 @@ public enum MatchDetectorState: Equatable, Sendable {
 public enum MatchDetectorSignal: Equatable, Sendable {
   /// A fresh helper starts: for a new Hearthstone process or a retry the player asked for.
   case starting
-  /// The helper waits for Hearthstone, or for its one automatic attach retry.
+  /// The helper waits for Hearthstone, for it to finish starting and sign in, or for an attach retry.
   case waiting
   case attached
   /// Access isn't granted without a dialog, was declined, the attach gave up, or the helper is missing.
@@ -45,8 +45,8 @@ public enum MatchDetectorSignal: Equatable, Sendable {
 /// `connectingTimeout` while Hearthstone runs, counts as unavailable.
 public struct MatchDetectorTracker: Equatable, Sendable {
   public static let helperFailuresBeforeGivingUp = 3
-  /// Well past the helper's attach (about 1 s after Hearthstone opens, or its one retry 8 s later), and
-  /// independent of how long the login screen takes.
+  /// Well past a normal start (the helper attaches once Hearthstone has signed in, some 10 to 20 s after it
+  /// opens). A login screen left open longer counts as unavailable until the helper attaches.
   public static let connectingTimeout: TimeInterval = 60
   public private(set) var state = MatchDetectorState.connecting
   private var helperFailures = 0

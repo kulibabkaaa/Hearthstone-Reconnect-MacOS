@@ -13,6 +13,18 @@ struct GameEndpointResolver {
   private static let maximumLogBytes: UInt64 = 2 * 1024 * 1024
 
   func reconnectTarget() throws -> ReconnectTarget {
+    if let endpoint = latestEndpoint(in: try logsRoot()) {
+      return .exact(endpoint)
+    }
+    return .uniquePort(ProxyConstants.gamePort)
+  }
+
+  /// The running game's current `Hearthstone_<date>` log folder, or nil when there is none to be sure of.
+  func currentLogDirectory() -> URL? {
+    (try? logsRoot()).flatMap { latestLogDirectory(in: $0) }
+  }
+
+  private func logsRoot() throws -> URL {
     let applications = NSRunningApplication.runningApplications(
       withBundleIdentifier:
         ProxyConstants.hearthstoneSigningIdentifier
@@ -40,15 +52,10 @@ struct GameEndpointResolver {
       .deletingLastPathComponent()
       .deletingLastPathComponent()
       .deletingLastPathComponent()
-    let logsRoot =
+    return
       appBundle
       .deletingLastPathComponent()
       .appendingPathComponent("Logs", isDirectory: true)
-
-    if let endpoint = latestEndpoint(in: logsRoot) {
-      return .exact(endpoint)
-    }
-    return .uniquePort(ProxyConstants.gamePort)
   }
 
   private func latestEndpoint(in logsRoot: URL) -> GameEndpoint? {
