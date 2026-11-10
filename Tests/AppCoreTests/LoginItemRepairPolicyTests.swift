@@ -156,6 +156,106 @@ struct LoginItemRepairPolicyTests {
     )
   }
 
+  @Test(
+    "gives up when its registration is still missing after the allowed repairs",
+    arguments: [
+      LoginItemRegistration.notRegistered,
+      .notFound,
+    ]
+  )
+  func lostRegistrationIsBounded(
+    registration: LoginItemRegistration
+  ) {
+    var policy = LoginItemRepairPolicy()
+    for _ in 0..<LoginItemRepairPolicy.maximumRepairs {
+      _ = policy.evaluate(
+        registration: .enabled,
+        isHelperRunning: false
+      )
+    }
+
+    let decision = policy.evaluate(
+      registration: registration,
+      isHelperRunning: false
+    )
+
+    #expect(decision == .gaveUp)
+  }
+
+  @Test("reports healthy when the helper runs after the last repair")
+  func lastRepairThatWorkedIsHealthy() {
+    var policy = LoginItemRepairPolicy()
+    for _ in 0..<LoginItemRepairPolicy.maximumRepairs {
+      _ = policy.evaluate(
+        registration: .enabled,
+        isHelperRunning: false
+      )
+    }
+
+    let decision = policy.evaluate(
+      registration: .enabled,
+      isHelperRunning: true
+    )
+
+    #expect(decision == .healthy)
+  }
+
+  @Test(
+    "finishes a repair the last run was killed in the middle of",
+    arguments: [
+      LoginItemRegistration.notRegistered,
+      .notFound,
+    ]
+  )
+  func interruptedRepairIsResumed(
+    registration: LoginItemRegistration
+  ) {
+    #expect(
+      LoginItemRepairPolicy.shouldResumeInterruptedRepair(
+        repairWasInProgress: true,
+        registration: registration
+      )
+    )
+  }
+
+  @Test(
+    "leaves an interrupted repair alone when the login item is registered",
+    arguments: [
+      LoginItemRegistration.enabled,
+      .requiresApproval,
+    ]
+  )
+  func registeredItemIsNotResumed(
+    registration: LoginItemRegistration
+  ) {
+    #expect(
+      !LoginItemRepairPolicy.shouldResumeInterruptedRepair(
+        repairWasInProgress: true,
+        registration: registration
+      )
+    )
+  }
+
+  @Test(
+    "never registers at launch when no repair was in progress",
+    arguments: [
+      LoginItemRegistration.notRegistered,
+      .notFound,
+      .enabled,
+      .requiresApproval,
+    ]
+  )
+  func offOptionStaysOffAtLaunch(
+    registration: LoginItemRegistration
+  ) {
+    #expect(
+      !LoginItemRepairPolicy.shouldResumeInterruptedRepair(
+        repairWasInProgress: false,
+        registration: registration
+      )
+    )
+  }
+
   @Test("waits longer than launchd's 10 second retry before checking again")
   func recheckOutlastsLaunchdRetry() {
     #expect(LoginItemRepairPolicy.recheckDelay > 10)

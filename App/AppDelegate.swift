@@ -139,6 +139,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     buildMainMenu()
     buildMenuBar()
     buildWindow()
+    autoLaunchController.onRepairLeftOptionOff = { [weak self] in
+      self?.windowController.setStatus(
+        "Automatic opening couldn't be set up. Try again in Settings.",
+        isError: true
+      )
+      self?.windowController.refresh()
+    }
     configureSystemExtensionStatusHandlers()
 
     if let processIdentifier =

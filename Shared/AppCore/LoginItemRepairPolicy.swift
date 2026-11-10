@@ -42,6 +42,23 @@ public struct LoginItemRepairPolicy: Sendable {
 
   public init() {}
 
+  /// A repair switches the login item off for a moment. If the app was killed
+  /// in that gap, the next launch has to register it again.
+  public static func shouldResumeInterruptedRepair(
+    repairWasInProgress: Bool,
+    registration: LoginItemRegistration
+  ) -> Bool {
+    guard repairWasInProgress else {
+      return false
+    }
+    switch registration {
+    case .notRegistered, .notFound:
+      return true
+    case .enabled, .requiresApproval:
+      return false
+    }
+  }
+
   public mutating func evaluate(
     registration: LoginItemRegistration,
     isHelperRunning: Bool

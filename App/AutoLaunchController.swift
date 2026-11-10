@@ -20,7 +20,12 @@ final class AutoLaunchController {
   private var healthCheckGeneration = 0
   private var isReregistrationPending = false
 
+  /// Called when a repair ended with the login item no longer enabled, after
+  /// the stored setting was switched off to match.
+  var onRepairLeftOptionOff: (() -> Void)?
+
   func synchronizeStoredState() {
+    resumeInterruptedRepair()
     defaults.set(
       service.status == .enabled,
       forKey: DefaultsKey.openWithHearthstone
@@ -43,6 +48,9 @@ final class AutoLaunchController {
 
   func setEnabled(_ enabled: Bool) -> Result<Void, Error> {
     cancelHealthChecks()
+    defaults.removeObject(
+      forKey: DefaultsKey.loginItemRepairInProgress
+    )
     do {
       if enabled {
         if service.status == .notRegistered
@@ -142,12 +150,15 @@ final class AutoLaunchController {
       isHelperRunning: isWatcherRunning
     )
     switch decision {
-    case .healthy, .notApplicable:
+    case .healthy:
       break
+    case .notApplicable:
+      concludeRepair()
     case .gaveUp:
       logger.error(
         "The Open with Hearthstone helper still isn't running after \(LoginItemRepairPolicy.maximumRepairs) repairs."
       )
+      concludeRepair()
     case .reregister:
       logger.notice(
         "The Open with Hearthstone helper isn't running. Registering it again (repair \(self.repairPolicy.repairsStarted))."
@@ -156,7 +167,55 @@ final class AutoLaunchController {
     }
   }
 
+  /// A repair that ends with the login item no longer enabled (registering
+  /// failed, or macOS now wants approval) has switched the option off. Say so
+  /// instead of leaving the checkbox on until the next launch.
+  private func concludeRepair() {
+    defaults.removeObject(
+      forKey: DefaultsKey.loginItemRepairInProgress
+    )
+    guard
+      repairPolicy.repairsStarted > 0,
+      service.status != .enabled
+    else {
+      return
+    }
+    defaults.set(
+      false,
+      forKey: DefaultsKey.openWithHearthstone
+    )
+    onRepairLeftOptionOff?()
+  }
+
+  /// The app can be killed (installer, Force Quit, crash) while a repair has
+  /// the login item switched off. The flag saved before that step lets the
+  /// next launch register it again before the stored setting is read.
+  private func resumeInterruptedRepair() {
+    let repairWasInProgress = defaults.bool(
+      forKey: DefaultsKey.loginItemRepairInProgress
+    )
+    defaults.removeObject(
+      forKey: DefaultsKey.loginItemRepairInProgress
+    )
+    guard
+      LoginItemRepairPolicy.shouldResumeInterruptedRepair(
+        repairWasInProgress: repairWasInProgress,
+        registration: registration
+      )
+    else {
+      return
+    }
+    logger.notice(
+      "Finishing an Open with Hearthstone repair that the last run didn't complete."
+    )
+    registerForRepair()
+  }
+
   private func reregister() {
+    defaults.set(
+      true,
+      forKey: DefaultsKey.loginItemRepairInProgress
+    )
     if service.status != .notRegistered
       && service.status != .notFound
     {
@@ -191,6 +250,9 @@ final class AutoLaunchController {
   private func registerForRepair() {
     do {
       try service.register()
+      defaults.removeObject(
+        forKey: DefaultsKey.loginItemRepairInProgress
+      )
     } catch {
       logger.error(
         "Couldn't register the helper again: \(error.localizedDescription, privacy: .public)"
