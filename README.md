@@ -13,7 +13,7 @@
 </p>
 
 <h3 align="center">
-  <a href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/latest/download/HS-Reconnect-2.1.1.dmg">Download HS Reconnect</a>
+  <a href="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/latest/download/HS-Reconnect-2.2.0.dmg">Download HS Reconnect</a>
   &nbsp;·&nbsp;
   <a href="https://kulibabkaaa.github.io/Hearthstone-Reconnect-MacOS/">Visit the website</a>
 </h3>
@@ -34,11 +34,13 @@ HS Reconnect requires **macOS 13 or later** and the **native Mac version of Hear
 
 ## Install
 
-1. [Download the DMG](https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/latest/download/HS-Reconnect-2.1.1.dmg), open it, and run **Install HS Reconnect.pkg** inside.
+1. [Download the DMG](https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/latest/download/HS-Reconnect-2.2.0.dmg), open it, and run **Install HS Reconnect.pkg** inside.
 2. Open HS Reconnect and choose **Set Up Reconnect**. Follow the app's directions to allow its Network Extension and proxy configuration in macOS.
 3. To use lobby info, open Hearthstone and approve the macOS prompts when they appear. If you cancel, the app offers a retry.
 
 The lobby overlay works while HSTracker is running. Reconnect works independently of the overlay.
+
+HSTracker stops tracking a match when Hearthstone reconnects. Turn on **Keep HSTracker working** in the Reconnect card to bring its panels and Bob's Buddy back after each reconnect. It works by adding one line to Hearthstone's loading log on your Mac. Opponent boards HSTracker saved before the reconnect stay lost. The option is off by default.
 
 The **Overlays** card in the app turns **Lobby info** and the **Reconnect button** on or off, and sets the position shortcut, opacity, and **Reset Layout** for both. The button is on by default. With lobby info off, the app still reads Hearthstone's game state on your Mac to tell whether you are in a match; turn off the button to stop this. While the app is still connecting to the game, the button stays hidden. If it can't read the game at all, for example because lobby access isn't allowed, the button shows whenever Hearthstone is in front.
 
