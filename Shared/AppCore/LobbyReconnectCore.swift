@@ -93,6 +93,8 @@ public enum LobbyAttachRetryPolicy {
   public static let unreadableRetriesBeforeGivingUp = 60
 
   /// `failureCount`: failures in a row for this Hearthstone process, this one included.
+  /// For `.gameNotReadable` the helper passes only the failures of that kind, so time spent waiting for sign-in
+  /// doesn't count toward giving up on an unreadable game.
   public static func retryAfter(now: Date, failureCount: Int, kind: LobbyAttachFailureKind) -> Date {
     switch kind {
     case .permissionRejected, .permissionLapsed:

@@ -85,6 +85,9 @@ private final class LobbyCaptureProbe {
   private var failedAttachmentPID: Int32?
   private var attachmentRetryAfter: Date?
   private var attachmentFailureCount = 0
+  /// Failures where the game exposed nothing at all. Counted apart from the wait for sign-in, so a long
+  /// login screen can't use up the allowance and turn one later hiccup into giving up for good.
+  private var unreadableFailureCount = 0
   /// The last failure was "the game isn't ready" while macOS granted access with no dialog. The next attempt
   /// then never calls acquireTaskportRight(): it attaches if access is still granted silently and otherwise
   /// stops with "permission_failed". So a long wait for sign-in can never bring a permission dialog back.
@@ -139,6 +142,7 @@ private final class LobbyCaptureProbe {
       failedAttachmentPID = nil
       attachmentRetryAfter = nil
       attachmentFailureCount = 0
+      unreadableFailureCount = 0
       retryWithoutPrompt = false
     }
     resetAttachment()
@@ -221,6 +225,7 @@ private final class LobbyCaptureProbe {
     failedAttachmentPID = nil
     attachmentRetryAfter = nil
     attachmentFailureCount = 0
+    unreadableFailureCount = 0
     retryWithoutPrompt = false
     emit(event: "attached", hearthstonePID: pid)
   }
@@ -252,6 +257,13 @@ private final class LobbyCaptureProbe {
       recordAttachmentFailure(pid: pid, kind: .gameNotReadable)
       return
     }
+    guard Self.isSignedIn(candidate) else {
+      // The reader this replaces was signed in; a new one that isn't would be worse (blind to the lobby).
+      // Start over and wait for sign-in again, silently.
+      attachedPID = nil
+      recordAttachmentFailure(pid: pid, kind: .notSignedIn)
+      return
+    }
     mirror = candidate
     logSessionDirectory = directory
     // For the app's log only; written directly so it doesn't disturb `emitIfChanged`'s last payload.
@@ -277,12 +289,18 @@ private final class LobbyCaptureProbe {
 
   @discardableResult
   private func recordAttachmentFailure(pid: Int32, kind: LobbyAttachFailureKind) -> Bool {
-    if failedAttachmentPID != pid { attachmentFailureCount = 0 }
+    if failedAttachmentPID != pid {
+      attachmentFailureCount = 0
+      unreadableFailureCount = 0
+    }
     attachmentFailureCount += 1
+    if kind == .gameNotReadable { unreadableFailureCount += 1 }
     failedAttachmentPID = pid
     retryWithoutPrompt = kind.retriesSilently
     attachmentRetryAfter = LobbyAttachRetryPolicy.retryAfter(
-      now: Date(), failureCount: attachmentFailureCount, kind: kind
+      now: Date(),
+      failureCount: kind == .gameNotReadable ? unreadableFailureCount : attachmentFailureCount,
+      kind: kind
     )
     return attachmentRetryAfter != .distantFuture
   }
@@ -383,6 +401,7 @@ private final class LobbyCaptureProbe {
       failedAttachmentPID = nil
       attachmentRetryAfter = nil
       attachmentFailureCount = 0
+      unreadableFailureCount = 0
       retryWithoutPrompt = false
     }
   }
