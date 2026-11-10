@@ -14,6 +14,12 @@
   Nothing from either log is stored by the app or leaves your Mac.
 - A What's New card explains the option once, in the app window when Reconnect
   is ready.
+- Fixed: lobby info and the Reconnect button could stay hidden for a whole
+  session when Hearthstone was opened while HS Reconnect was already running.
+  The app now waits until Hearthstone has signed in before it reads the game.
+- Fixed: Open with Hearthstone could stop working while Settings still showed
+  it as on. The app now checks that its helper is really running and sets it up
+  again if it isn't.
 
 Requires macOS 13 or later and the native macOS version of Hearthstone. Supports
 Apple silicon and Intel Macs. Version 2.0.0 and later can install this update
