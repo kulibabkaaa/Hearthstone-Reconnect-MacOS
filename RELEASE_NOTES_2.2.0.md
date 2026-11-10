@@ -21,6 +21,9 @@
   it as on. The app now checks that its helper is really running and sets it up
   again if it isn't.
 
+Thanks to @tonn1o, who tracked down the same HSTracker cause and a matching fix
+independently.
+
 Requires macOS 13 or later and the native macOS version of Hearthstone. Supports
 Apple silicon and Intel Macs. Version 2.0.0 and later can install this update
 from the app. For earlier versions, run the new installer over the old app. The
