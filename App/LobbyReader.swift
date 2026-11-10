@@ -98,6 +98,7 @@ final class LobbyReader {
   private var quietAttach = false
   private var observedHearthstonePID: Int32?
   private var hearthstoneMonitor: DispatchSourceTimer?
+  private var lastLoggedHelperEvent: String?
 
   /// `quiet`: match detection only; the helper never asks for lobby access. Takes effect for the next helper
   /// launch, so call `stop()` first to switch a running reader.
@@ -243,6 +244,8 @@ final class LobbyReader {
       try process.run()
       self.process = process
       outputHandle = output.fileHandleForReading
+      lastLoggedHelperEvent = nil
+      logger.notice("helper launched, pid \(process.processIdentifier), quiet \(self.quietAttach)")
     } catch {
       deliveryGeneration.invalidateProcess(for: runToken)
       activeProcessToken = nil
@@ -280,7 +283,8 @@ final class LobbyReader {
   }
 
   /// What a helper event says about attaching. `permission_failed` and `attachment_failed` come only once the
-  /// helper has stopped retrying for this Hearthstone process.
+  /// helper has stopped retrying for this Hearthstone process. `attachment_retrying` also covers a game that
+  /// is still starting: the helper waits for it to sign in before it trusts what it reads.
   static func detectorSignal(forEvent name: String) -> MatchDetectorSignal? {
     switch name {
     case "probe_started", "waiting_for_hearthstone", "match_suspended", "attachment_retrying": .waiting
@@ -291,8 +295,19 @@ final class LobbyReader {
     }
   }
 
+  /// One line per change of helper state, at a level macOS keeps, so a session that showed no overlays can be
+  /// pieced together afterwards (`/usr/bin/log show`, category LobbyCapture). Event names only: nothing the
+  /// helper read from the game. The three attach problems log their own line, with the reason, in `accept`.
+  private func logHelperTransition(_ name: String) {
+    guard name != lastLoggedHelperEvent else { return }
+    lastLoggedHelperEvent = name
+    if ["permission_failed", "attachment_failed", "attachment_retrying"].contains(name) { return }
+    logger.notice("helper: \(name, privacy: .public)")
+  }
+
   private func accept(_ event: LobbyHelperEvent, token: LobbyReaderDeliveryToken) {
     guard deliveryGeneration.accepts(token) else { return }
+    logHelperTransition(event.event)
     if let signal = Self.detectorSignal(forEvent: event.event) { detector(signal, token: token) }
     switch event.event {
     case "probe_started", "waiting_for_hearthstone", "match_suspended":

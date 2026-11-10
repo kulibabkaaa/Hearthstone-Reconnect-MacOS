@@ -85,6 +85,12 @@ private final class LobbyCaptureProbe {
   private var failedAttachmentPID: Int32?
   private var attachmentRetryAfter: Date?
   private var attachmentFailureCount = 0
+  /// The last failure was "the game isn't ready" while macOS granted access with no dialog. The next attempt
+  /// then skips acquireTaskportRight(), so a long wait for sign-in can never bring a permission dialog back.
+  private var retryWithoutPrompt = false
+  /// When the attached reader's class list was read, and how many of the scheduled re-reads are done.
+  private var mirrorSnapshotAt: Date?
+  private var mirrorRefreshesDone = 0
   /// Match detection only (lobby info off, Reconnect button on): never show the lobby access dialog.
   private let quietAttach = ProcessInfo.processInfo.environment["HS_RECONNECT_QUIET_ATTACH"] == "1"
   private static let quietRetryInterval: TimeInterval = 30
@@ -109,6 +115,8 @@ private final class LobbyCaptureProbe {
 
         if attachedPID != hearthstone.processIdentifier || mirror == nil {
           attach(to: hearthstone.processIdentifier)
+        } else {
+          refreshMirrorIfDue(pid: hearthstone.processIdentifier)
         }
         capture()
       }
@@ -130,11 +138,12 @@ private final class LobbyCaptureProbe {
       failedAttachmentPID = nil
       attachmentRetryAfter = nil
       attachmentFailureCount = 0
+      retryWithoutPrompt = false
     }
     resetAttachment()
     guard let application = NSRunningApplication(processIdentifier: pid),
           HearthstoneProcessTrust.isTrusted(application) else {
-      let willRetry = recordAttachmentFailure(pid: pid)
+      let willRetry = recordAttachmentFailure(pid: pid, kind: .mayPrompt)
       emitIfChanged(event: willRetry ? "attachment_retrying" : "attachment_failed",
         hearthstonePID: pid,
         detail: "Hearthstone could not be verified as the signed Blizzard application.")
@@ -142,18 +151,19 @@ private final class LobbyCaptureProbe {
     }
     // acquireTaskportRight() may show a password dialog. Quiet mode skips it and attaches only when macOS
     // already grants task_for_pid's right without one (an approval within its 10 h timeout, or developer tools
-    // access enabled), and checks again later.
-    if quietAttach && !Self.taskportRightGrantedWithoutDialog() {
+    // access enabled), and checks again later. So does a retry for a game that is still starting.
+    let grantedWithoutDialog = (quietAttach || retryWithoutPrompt) && Self.taskportRightGrantedWithoutDialog()
+    if quietAttach && !grantedWithoutDialog {
       quietRetryAfter = Date().addingTimeInterval(Self.quietRetryInterval)
       emitIfChanged(event: "permission_unavailable", hearthstonePID: pid,
         detail: "Lobby access isn't granted now; match detection doesn't ask for it.")
       return
     }
-    let permissionResult = quietAttach ? 0 : acquireTaskportRight()
+    let permissionResult = grantedWithoutDialog ? 0 : acquireTaskportRight()
     guard permissionResult == 0 else {
       let rejected = permissionResult == errAuthorizationCanceled
         || permissionResult == errAuthorizationDenied
-      let willRetry = recordAttachmentFailure(pid: pid, permissionRejected: rejected)
+      let willRetry = recordAttachmentFailure(pid: pid, kind: rejected ? .permissionRejected : .mayPrompt)
       emitIfChanged(
         event: willRetry ? "attachment_retrying" : "permission_failed",
         hearthstonePID: pid,
@@ -164,24 +174,79 @@ private final class LobbyCaptureProbe {
 
     // Permission approval can take time; reject an exited or replaced process.
     guard HearthstoneProcessTrust.isTrusted(application) else { return }
+    // HearthMirror lists the game's classes once, here, and keeps one process-wide pointer to the newest list.
+    // So a reader made before Hearthstone signs in stays blind to classes loaded later (the lobby among them),
+    // and only the newest reader may ever be used: resetAttachment() above let go of the previous one.
     let candidate = HearthMirror(pid: pid, blocking: true)
-    guard let logSessionDirectory = candidate.getLogSessionDir(), !logSessionDirectory.isEmpty else {
-      let willRetry = recordAttachmentFailure(pid: pid)
+    let logSessionDirectory = candidate.getLogSessionDir() ?? ""
+    let signedIn = !logSessionDirectory.isEmpty && Self.isSignedIn(candidate)
+    // Asked only when it decides something: another reader must never cost a dialog.
+    let canRetryWithoutDialog = !signedIn && Self.taskportRightGrantedWithoutDialog()
+    switch LobbyMirrorReadinessPolicy.disposition(
+      hasLogSessionDirectory: !logSessionDirectory.isEmpty, signedIn: signedIn,
+      canRetryWithoutDialog: canRetryWithoutDialog
+    ) {
+    case .failed:
+      let willRetry = recordAttachmentFailure(
+        pid: pid, kind: canRetryWithoutDialog ? .gameNotReadable : .mayPrompt)
       emitIfChanged(
         event: willRetry ? "attachment_retrying" : "attachment_failed",
         hearthstonePID: pid,
         detail: "HearthMirror did not expose a log session directory."
       )
       return
+    case .retryLater:
+      recordAttachmentFailure(pid: pid, kind: .notSignedIn)
+      emitIfChanged(event: "attachment_retrying", hearthstonePID: pid,
+        detail: "Hearthstone is still starting.")
+      return
+    case .accept:
+      break
     }
     mirror = candidate
     attachedPID = pid
     self.logSessionDirectory = logSessionDirectory
     attachedAt = Date()
+    mirrorSnapshotAt = attachedAt
+    mirrorRefreshesDone = 0
     failedAttachmentPID = nil
     attachmentRetryAfter = nil
     attachmentFailureCount = 0
+    retryWithoutPrompt = false
     emit(event: "attached", hearthstonePID: pid)
+  }
+
+  private static func isSignedIn(_ mirror: HearthMirror) -> Bool {
+    let account = mirror.getAccountId()
+    return LobbyMirrorReadinessPolicy.isSignedIn(
+      battleTag: mirror.getBattleTag(),
+      accountHigh: account?.hi.int64Value, accountLow: account?.lo.int64Value)
+  }
+
+  /// Signing in comes before the menus finish loading, so the class list is read again a few times while no
+  /// match is on screen. A re-read never asks for permission. If it can't be made silently, the reader in
+  /// use stays.
+  private func refreshMirrorIfDue(pid: Int32) {
+    guard let snapshotAt = mirrorSnapshotAt,
+          LobbyMirrorRefreshPolicy.isDue(now: Date(), snapshotAt: snapshotAt,
+                                         refreshesDone: mirrorRefreshesDone,
+                                         matchVisible: activeGameUUID != nil) else { return }
+    mirrorRefreshesDone += 1
+    mirrorSnapshotAt = Date()
+    guard Self.taskportRightGrantedWithoutDialog() else { return }
+    // Let go of the reader in use before making the next one (see attach(to:)).
+    mirror = nil
+    let candidate = HearthMirror(pid: pid, blocking: true)
+    guard let directory = candidate.getLogSessionDir(), !directory.isEmpty else {
+      // Hearthstone is closing or stopped being readable: attach again from the start, silently.
+      attachedPID = nil
+      recordAttachmentFailure(pid: pid, kind: .gameNotReadable)
+      return
+    }
+    mirror = candidate
+    logSessionDirectory = directory
+    // For the app's log only; written directly so it doesn't disturb `emitIfChanged`'s last payload.
+    writer.write(makeEvent(event: "reader_refreshed", hearthstonePID: pid))
   }
 
   /// The right task_for_pid (inside HearthMirror's init) is checked against, with no user interaction allowed.
@@ -202,14 +267,13 @@ private final class LobbyCaptureProbe {
   }
 
   @discardableResult
-  private func recordAttachmentFailure(pid: Int32,
-                                       permissionRejected: Bool = false) -> Bool {
+  private func recordAttachmentFailure(pid: Int32, kind: LobbyAttachFailureKind) -> Bool {
     if failedAttachmentPID != pid { attachmentFailureCount = 0 }
     attachmentFailureCount += 1
     failedAttachmentPID = pid
+    retryWithoutPrompt = kind.retriesSilently
     attachmentRetryAfter = LobbyAttachRetryPolicy.retryAfter(
-      now: Date(), failureCount: attachmentFailureCount,
-      permissionRejected: permissionRejected
+      now: Date(), failureCount: attachmentFailureCount, kind: kind
     )
     return attachmentRetryAfter != .distantFuture
   }
@@ -303,11 +367,14 @@ private final class LobbyCaptureProbe {
     activeGameUUID = nil
     logSessionDirectory = nil
     attachedAt = nil
+    mirrorSnapshotAt = nil
+    mirrorRefreshesDone = 0
     if clearRetry {
       quietRetryAfter = nil
       failedAttachmentPID = nil
       attachmentRetryAfter = nil
       attachmentFailureCount = 0
+      retryWithoutPrompt = false
     }
   }
 
