@@ -5,8 +5,8 @@ import Foundation
 /// Each release with a feature worth introducing bumps `currentVersion`. Everyone sees it once: people updating as
 /// soon as the main window is open with Reconnect ready, brand-new installs once setup has made Reconnect ready.
 public enum WhatsNewPolicy {
-  /// 1 = 2.1.0, the floating Reconnect button.
-  public static let currentVersion = 1
+  /// 1 = 2.1.0, the floating Reconnect button. 2 = "Keep HSTracker working".
+  public static let currentVersion = 2
 
   /// - Parameters:
   ///   - storedSeenVersion: the raw stored "seen version" setting, whatever type it has.

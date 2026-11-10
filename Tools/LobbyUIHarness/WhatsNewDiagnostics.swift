@@ -24,19 +24,13 @@ enum WhatsNewDiagnostics {
       spin(0.4)
     }
 
-    // The text names the user's own shortcuts, as the main window does, with the defaults as fallback.
-    let custom = Self.defaults()
-    custom.set("Cmd+1", forKey: DefaultsKey.hotkeyDisplay)
-    custom.set("Cmd+Option+P", forKey: DefaultsKey.lobbyShortcutDisplay)
-    let customText = WhatsNewContent.current(defaults: custom).rows.map(\.detail).joined(separator: " ")
-    check(customText.contains("Works like Cmd+1.") && customText.contains("Press Cmd+Option+P,")
-      && !customText.contains("Cmd+Shift"), "the text must use the user's own shortcuts: \(customText)")
-    custom.set("  ", forKey: DefaultsKey.hotkeyDisplay)
-    custom.set("", forKey: DefaultsKey.lobbyShortcutDisplay)
-    let fallbackText = WhatsNewContent.current(defaults: custom).rows.map(\.detail).joined(separator: " ")
-    check(fallbackText.contains("Works like the Reconnect shortcut.") && fallbackText.contains("Press the position shortcut,"),
-      "missing shortcuts must fall back: \(fallbackText)")
-    print("PASS: the text names the user's own shortcuts (Cmd+1 here) and falls back when one is missing")
+    // The text says what the option does, how, what it can't do and who it is for.
+    let content = WhatsNewContent.current
+    let words = content.rows.map { $0.title + " " + $0.detail }.joined(separator: " ")
+    check(content.rows.count == 4 && words.contains("HSTracker") && words.contains("loading log")
+      && words.contains("stay lost") && words.contains("off until you turn it on"),
+      "the text must name HSTracker, the log it writes to, the limit and the default: \(words)")
+    print("PASS: the text explains the fix, how it works, its limit and that it is off by default")
 
     // Waits for setup, then shows once; Return = Done; never again after that.
     var defaults = Self.defaults()
@@ -114,7 +108,7 @@ enum WhatsNewDiagnostics {
     present(presenter)
     check(presenter.isShowing, "it must show once the switch is on screen")
     presenter.dismiss()
-    print("PASS: it waits while the Reconnect button switch isn't on screen (e.g. the Settings page)")
+    print("PASS: it waits while the Keep HSTracker working switch isn't on screen (e.g. the Settings page)")
 
     defaults = Self.defaults(seen: "garbage")
     presenter = WhatsNewPresenter(defaults: defaults)
@@ -134,22 +128,20 @@ enum WhatsNewDiagnostics {
     check(spotlight.doneButton.title == "Done", "Done must exist")
     check(host.firstResponder === spotlight, "the spotlight must take the keyboard so Return/Esc reach it")
     check(spotlight.accessibilityLabel()?.hasPrefix("What's New") == true, "the spotlight needs a VoiceOver label")
-    let pictures = allViews(in: spotlight).compactMap { $0 as? WhatsNewButtonPicture }
-    check(pictures.count == 1 && pictures.allSatisfy {
-      $0.isAccessibilityElement() && $0.accessibilityRole() == .image && !($0.accessibilityLabel() ?? "").isEmpty
-        && !$0.subviews.contains { $0.isAccessibilityElement() }
-    }, "the button picture must be one labelled image for VoiceOver, with the live button hidden from it")
     guard let spot = spotlight.spotlightRect else { return check(false, "the spotlight didn't find the switch") }
     let card = allViews(in: spotlight).first { $0 is WhatsNewCalloutView }
-    check(spotlight.isCardAboveSpotlight && (card.map { $0.frame.maxY < spot.minY } ?? false),
+    check(spotlight.isCardBelowSpotlight && (card.map { $0.frame.minY > spot.maxY } ?? false),
       "the card must leave the highlighted row fully visible")
-    check(allViews(in: spotlight).contains { ($0 as? NSTextField)?.stringValue == WhatsNewContent.switchBelow },
-      "with the card above the row, the last line must say the switch is below")
+    check(card.map { spotlight.bounds.insetBy(dx: 0, dy: 7).contains($0.frame) } ?? false,
+      "the whole card, Done included, must be inside the window (card \(String(describing: card?.frame)))")
+    check(allViews(in: spotlight).contains { ($0 as? NSTextField)?.stringValue == WhatsNewContent.switchAbove },
+      "with the card below the row, the last line must say the switch is above")
     let hit = root.hitTest(root.convert(NSPoint(x: spot.maxX - 30, y: spot.midY), from: spotlight))
-    check(hit is NSSwitch, "the highlighted switch must stay clickable (hit \(String(describing: hit)))")
-    let outside = root.hitTest(root.convert(NSPoint(x: spot.midX, y: spot.maxY + 40), from: spotlight))
+    check(hit is NSSwitch && hit?.accessibilityLabel() == SettingsWindowController.trackerRecoveryAccessibilityLabel,
+      "the highlighted switch must stay clickable (hit \(String(describing: hit)))")
+    let outside = root.hitTest(root.convert(NSPoint(x: spot.midX, y: spot.minY - 40), from: spotlight))
     check(outside === spotlight, "controls outside the spotlight must be blocked (hit \(String(describing: outside)))")
-    print("PASS: spotlight finds the Reconnect button switch and leaves only it clickable; VoiceOver labels present")
+    print("PASS: spotlight finds the Keep HSTracker working switch and leaves only it clickable; the card fits below it")
   }
 
   /// A key press as the window would get it: keyDown (optionally an auto-repeat), then keyUp unless `release` is false.

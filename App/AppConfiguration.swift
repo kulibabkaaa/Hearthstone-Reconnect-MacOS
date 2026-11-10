@@ -49,6 +49,12 @@ enum DefaultsKey {
   static let reconnectButtonScale = "reconnectButton.layout.scale"
   static let lobbyResumeCapture = "lobby.resume.capture"
   static let whatsNewSeenVersion = "whatsNew.seenVersion"
+  /// "Keep HSTracker working": off unless the user turns it on.
+  static let trackerRecoveryEnabled = "trackerRecovery.enabled"
+  /// The HSTracker build that gets one unconfirmed line per reconnect (see `TrackerRecoveryHealth`).
+  static let trackerRecoverySingleShotBuild = "trackerRecovery.singleShotBuild"
+  /// A newer HSTracker build that was given time to recover by itself and didn't (see `TrackerRecoveryHealth`).
+  static let trackerRecoveryConfirmedBuild = "trackerRecovery.confirmedBuild"
 }
 
 func defaultCarbonModifiers() -> UInt32 {

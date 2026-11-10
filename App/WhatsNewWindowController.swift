@@ -1,8 +1,8 @@
 import AppKit
 
-/// The one-time What's New for the floating Reconnect button: a spotlight over the main window on the
-/// Overlays → Reconnect button switch. Shown once per `WhatsNewPolicy.currentVersion`, only while the main window shows
-/// that switch and Reconnect is ready; Done, Return, Esc, closing the window or quitting all count as seen.
+/// The one-time What's New for "Keep HSTracker working": a spotlight over the main window on that switch in the
+/// Reconnect card. Shown once per `WhatsNewPolicy.currentVersion`, only while the main window shows that switch and
+/// Reconnect is ready; Done, Return, Esc, closing the window or quitting all count as seen.
 final class WhatsNewPresenter {
   private static let closingKeys: Set<UInt16> = [36, 76, 53]   // Return, Enter, Esc
   private let defaults: UserDefaults
@@ -34,7 +34,7 @@ final class WhatsNewPresenter {
       WhatsNewPolicy.shouldShow(storedSeenVersion: defaults.object(forKey: DefaultsKey.whatsNewSeenVersion),
         isReconnectReady: isReconnectReady)
     else { return }
-    let view = WhatsNewSpotlightView(content: .current(defaults: defaults), onDone: { [weak self] in self?.dismiss() })
+    let view = WhatsNewSpotlightView(content: .current, onDone: { [weak self] in self?.dismiss() })
     view.frame = contentView.bounds
     view.autoresizingMask = [.width, .height]
     contentView.addSubview(view, positioned: .above, relativeTo: nil)
@@ -101,71 +101,28 @@ final class WhatsNewPresenter {
   #endif
 }
 
-/// The words, with the user's own shortcuts filled in (the same display strings the main window shows).
+/// The words: what the option fixes, how, what it can't do, and who should turn it on. It writes to a file that
+/// isn't ours, so the catch is said here rather than left for the user to find.
 struct WhatsNewContent {
   struct Row { let symbol: String; let title: String; let detail: String }
   let title = "What's New in HS Reconnect"
   let rows: [Row]
-  /// The last row's text, by whether the card sits above the highlighted switch.
-  static let switchBelow = "Use the highlighted switch below."
-  static let switchHighlighted = "Use the highlighted switch."
-  static let switchElsewhere = "Use the Reconnect button switch in Overlays."
+  /// The last row's text, by whether the card sits below the highlighted switch.
+  static let switchAbove = "It's off until you turn it on. Use the highlighted switch above."
+  static let switchHighlighted = "It's off until you turn it on. Use the highlighted switch."
+  static let switchElsewhere = "It's off until you turn it on, under Reconnect Now."
 
-  static func current(defaults: UserDefaults) -> WhatsNewContent {
-    func display(_ key: String) -> String? {
-      defaults.string(forKey: key).map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
-    }
-    let reconnect = display(DefaultsKey.hotkeyDisplay).map { "Works like \($0)." } ?? "Works like the Reconnect shortcut."
-    let layout = display(DefaultsKey.lobbyShortcutDisplay) ?? "the position shortcut"
-    return WhatsNewContent(rows: [
-      Row(symbol: "cursorarrow.click", title: "One click reconnects",
-        detail: "Shows up in every Battlegrounds match. \(reconnect)"),
-      Row(symbol: "arrow.up.and.down.and.arrow.left.and.right", title: "Move and resize it",
-        detail: "Press \(layout), drag it, then press Return."),
-      Row(symbol: "switch.2", title: "Turn it off any time", detail: switchBelow),
-    ])
-  }
-}
-
-/// A picture of the real button, drawn live by its own canvas on a dark backdrop, so it always matches the button's
-/// current look. Ignores clicks; VoiceOver reads it as one image.
-final class WhatsNewButtonPicture: NSView {
-  private let canvas = ReconnectButtonCanvas(frame: .zero)
-  private let buttonScale: CGFloat
-
-  init(buttonScale: CGFloat) {
-    self.buttonScale = buttonScale
-    super.init(frame: .zero)
-    wantsLayer = true
-    layer?.cornerRadius = 10
-    layer?.cornerCurve = .continuous
-    layer?.masksToBounds = true
-    canvas.allowsClick = { false }
-    canvas.setAccessibilityElement(false)
-    addSubview(canvas)
-    setAccessibilityElement(true)
-    setAccessibilityRole(.image)
-    setAccessibilityLabel("Picture of the Reconnect button")
-    translatesAutoresizingMaskIntoConstraints = false
-  }
-  required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-  override var isFlipped: Bool { true }
-  override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-  override func layout() {
-    super.layout()
-    let size = NSSize(width: ReconnectButtonCanvas.baseSize.width * buttonScale,
-      height: ReconnectButtonCanvas.baseSize.height * buttonScale)
-    canvas.frame = NSRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2,
-      width: size.width, height: size.height).integral
-  }
-
-  override func draw(_ dirtyRect: NSRect) {
-    // Hearthstone's dusk purple, so the frosted button looks as it does over the game in both appearances.
-    NSGradient(starting: NSColor(calibratedRed: 0.20, green: 0.13, blue: 0.27, alpha: 1),
-      ending: NSColor(calibratedRed: 0.10, green: 0.07, blue: 0.14, alpha: 1))?.draw(in: bounds, angle: -90)
-  }
+  static let current = WhatsNewContent(rows: [
+    Row(symbol: "arrow.triangle.2.circlepath", title: "\(TrackerRecovery.trackerName) survives a reconnect",
+      detail: "It used to lose the match when Hearthstone reconnects. Now its panels and Bob's Buddy come back "
+        + "a moment later."),
+    Row(symbol: "text.badge.plus", title: "How it works",
+      detail: "Right after a reconnect, HS Reconnect adds one line to Hearthstone's loading log. "
+        + "\(TrackerRecovery.trackerName) reads it and picks the match back up."),
+    Row(symbol: "exclamationmark.triangle", title: "What it can't do",
+      detail: "Opponent boards \(TrackerRecovery.trackerName) saved before the reconnect stay lost."),
+    Row(symbol: "switch.2", title: "Use \(TrackerRecovery.trackerName)? Turn it on", detail: switchAbove),
+  ])
 }
 
 /// The solid card behind the callout's text, so it reads cleanly over the dimmed window in both appearances.
@@ -234,13 +191,13 @@ final class WhatsNewVeilView: NSView {
   override func draw(_ dirtyRect: NSRect) { drawing?() }
 }
 
-/// Dims the main window except the Overlays → Reconnect button row, which gets a blue ring and stays clickable.
-/// A What's New card fills the window above that row, and an arrow runs from its "Turn it off" row to the switch.
+/// Dims the main window except the "Keep HSTracker working" row, which gets a blue ring and stays clickable.
+/// A What's New card sits below that row, and an arrow runs from its "Turn it on" row up to the switch.
 final class WhatsNewSpotlightView: NSView {
   /// The switch the spotlight finds by its accessibility label (set in `SettingsWindowController`).
-  static let targetAccessibilityLabel = "Show Reconnect button over Hearthstone"
-  /// Room between the card and the ring: the lobby status line above the row stays whole, never half-covered.
-  private static let gapAboveSpotlight: CGFloat = 24
+  static let targetAccessibilityLabel = SettingsWindowController.trackerRecoveryAccessibilityLabel
+  /// Room between the ring and the card below it.
+  private static let gapBelowSpotlight: CGFloat = 12
   private static let arrowLane: CGFloat = 64
   private let onDone: () -> Void
   private let card = WhatsNewCalloutView()
@@ -252,8 +209,8 @@ final class WhatsNewSpotlightView: NSView {
   private let switchText: NSTextField
   private(set) var doneButton: NSButton!
   private var cardPlacement: [NSLayoutConstraint] = []
-  /// True when the card ends above the highlighted row, so "below" in the last row is right.
-  private(set) var isCardAboveSpotlight = false
+  /// True when the card starts below the highlighted row, so "above" in the last row is right.
+  private(set) var isCardBelowSpotlight = false
 
   init(content: WhatsNewContent, onDone: @escaping () -> Void) {
     self.onDone = onDone
@@ -303,13 +260,11 @@ final class WhatsNewSpotlightView: NSView {
     card.translatesAutoresizingMaskIntoConstraints = false
     let title = Self.text(content.title, size: 19, weight: .bold, color: .labelColor)
     title.alignment = .center
-    let picture = WhatsNewButtonPicture(buttonScale: 0.66)
-    let body = NSStackView(views: [title, picture] + rowViews)
+    let body = NSStackView(views: [title] + rowViews)
     body.orientation = .vertical
     body.alignment = .centerX
     body.spacing = 10
-    body.setCustomSpacing(10, after: title)
-    body.setCustomSpacing(14, after: picture)
+    body.setCustomSpacing(12, after: title)
     body.translatesAutoresizingMaskIntoConstraints = false
     let done = NSButton(title: "Done", target: self, action: #selector(done))
     done.bezelStyle = .rounded
@@ -331,26 +286,21 @@ final class WhatsNewSpotlightView: NSView {
     veil.drawing = { [weak self] in self?.drawVeil() }
     addSubview(card)
 
-    // The picture takes spare height up to a cap; anything left over opens up above Done.
-    let pictureGrows = picture.heightAnchor.constraint(equalToConstant: 132)
-    pictureGrows.priority = .defaultLow
     NSLayoutConstraint.activate([
       body.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
       body.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
       body.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
       done.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
       done.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
-      done.topAnchor.constraint(greaterThanOrEqualTo: body.bottomAnchor, constant: 14),
+      // The card is exactly as tall as its text and button.
+      done.topAnchor.constraint(equalTo: body.bottomAnchor, constant: 14),
       done.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
       title.widthAnchor.constraint(equalTo: body.widthAnchor),
-      picture.widthAnchor.constraint(equalTo: body.widthAnchor),
-      picture.heightAnchor.constraint(greaterThanOrEqualToConstant: 58),
-      picture.heightAnchor.constraint(lessThanOrEqualToConstant: 132),
-      pictureGrows,
       card.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
       card.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.arrowLane),
-      // Covers the window header completely rather than cutting through it.
-      card.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+      // Always inside the window; where exactly is decided in `layout()`.
+      card.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 8),
+      card.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8),
     ] + rowViews.map { $0.widthAnchor.constraint(equalTo: body.widthAnchor) })
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -369,7 +319,7 @@ final class WhatsNewSpotlightView: NSView {
   override var isFlipped: Bool { true }
   override var acceptsFirstResponder: Bool { true }
 
-  /// The row holding the Reconnect button switch, in this view's coordinates; nil when it isn't on screen.
+  /// The row holding the switch, in this view's coordinates; nil when it isn't on screen.
   var spotlightRect: NSRect? {
     guard let target = Self.findTarget(in: superview), !target.isHiddenOrHasHiddenAncestor,
       let row = target.superview else { return nil }
@@ -384,22 +334,19 @@ final class WhatsNewSpotlightView: NSView {
   }
 
   override func layout() {
-    // The card ends just above the lobby status line over the highlighted row. If the window is too short for that,
-    // it keeps its own height and may overlap the row; without the switch on screen it uses its natural height.
+    // The card starts just below the highlighted row. If the window is too short for that, it stays inside the
+    // window and may overlap the row; without the switch on screen it sits at the top.
     NSLayoutConstraint.deactivate(cardPlacement)
     let spot = spotlightRect
-    if let spot {
-      let bottom = card.bottomAnchor.constraint(equalTo: topAnchor, constant: spot.minY - Self.gapAboveSpotlight)
-      bottom.priority = .defaultHigh
-      cardPlacement = [bottom]
-    } else {
-      cardPlacement = []
-    }
+    let top = card.topAnchor.constraint(
+      equalTo: topAnchor, constant: spot.map { $0.maxY + Self.gapBelowSpotlight } ?? 8)
+    top.priority = .defaultHigh
+    cardPlacement = [top]
     NSLayoutConstraint.activate(cardPlacement)
     super.layout()
-    isCardAboveSpotlight = spot.map { card.frame.maxY <= $0.minY - 4 } ?? false
+    isCardBelowSpotlight = spot.map { card.frame.minY >= $0.maxY + 4 } ?? false
     let wording = spot == nil ? WhatsNewContent.switchElsewhere
-      : isCardAboveSpotlight ? WhatsNewContent.switchBelow : WhatsNewContent.switchHighlighted
+      : isCardBelowSpotlight ? WhatsNewContent.switchAbove : WhatsNewContent.switchHighlighted
     if switchText.stringValue != wording { switchText.stringValue = wording; needsLayout = true }
     frost.cutOut = spot
     veil.needsDisplay = true
@@ -419,26 +366,26 @@ final class WhatsNewSpotlightView: NSView {
     let ring = NSBezierPath(roundedRect: spot, xRadius: 9, yRadius: 9)
     ring.lineWidth = 2
     ring.stroke()
-    guard isCardAboveSpotlight else { return }
-    // The arrow: from the card's edge beside "Turn it off any time", across, one rounded corner, down onto the switch.
+    guard isCardBelowSpotlight else { return }
+    // The arrow: from the card's edge beside "Turn it on", across, one rounded corner, up onto the switch.
     let rowFrame = convert(switchRow.bounds, from: switchRow)
     let start = NSPoint(x: card.frame.maxX, y: rowFrame.midY)
-    let end = NSPoint(x: spot.maxX - 34, y: spot.minY - 5)
+    let end = NSPoint(x: spot.maxX - 34, y: spot.maxY + 5)
     let corner: CGFloat = 8
     NSBezierPath(ovalIn: NSRect(x: start.x - 3, y: start.y - 3, width: 6, height: 6)).fill()
     let arrow = NSBezierPath()
     arrow.move(to: start)
     arrow.line(to: NSPoint(x: end.x - corner, y: start.y))
-    arrow.curve(to: NSPoint(x: end.x, y: start.y + corner), controlPoint1: NSPoint(x: end.x, y: start.y),
+    arrow.curve(to: NSPoint(x: end.x, y: start.y - corner), controlPoint1: NSPoint(x: end.x, y: start.y),
       controlPoint2: NSPoint(x: end.x, y: start.y))
     arrow.line(to: end)
     arrow.lineWidth = 2
     arrow.lineCapStyle = .round
     arrow.stroke()
     let head = NSBezierPath()
-    head.move(to: NSPoint(x: end.x - 6, y: end.y - 8))
-    head.line(to: NSPoint(x: end.x, y: end.y + 1))
-    head.line(to: NSPoint(x: end.x + 6, y: end.y - 8))
+    head.move(to: NSPoint(x: end.x - 6, y: end.y + 8))
+    head.line(to: NSPoint(x: end.x, y: end.y - 1))
+    head.line(to: NSPoint(x: end.x + 6, y: end.y + 8))
     head.close()
     head.fill()
   }

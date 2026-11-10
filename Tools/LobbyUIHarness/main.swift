@@ -55,6 +55,20 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
       onReportBug: { [weak self] in self?.showBugReport() },
       onCheckForUpdates: {}, automaticUpdateChecksEnabled: { true },
       onAutomaticUpdateChecksChanged: { _ in })
+    // `--tracker-recovery=<off|ready|working|recovered|unaided|notRunning|noResponse|unverified>` previews the
+    // "Keep HSTracker working" row in that state.
+    if let state = argument("tracker-recovery") {
+      let statuses: [String: TrackerRecoveryStatus] = ["off": .off, "ready": .ready, "working": .working,
+        "recovered": .recovered(seconds: 0.8), "unaided": .recoveredUnaided, "notRunning": .trackerNotRunning,
+        "noResponse": .noResponse, "unverified": .unverified]
+      let status = statuses[state] ?? .off
+      UserDefaults.standard.set(status != .off, forKey: DefaultsKey.trackerRecoveryEnabled)
+      settings.refresh()
+      settings.setTrackerRecoveryStatus(status)
+    } else {
+      UserDefaults.standard.removeObject(forKey: DefaultsKey.trackerRecoveryEnabled)
+      settings.refresh()
+    }
     if firstRun {
       settings.setStatus("Reconnect needs approval for its network extension and proxy. Choose Set Up Reconnect to begin.")
       settings.setReconnectSetupAction(.beginReconnectSetup)

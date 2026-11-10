@@ -34,6 +34,13 @@ lobby roster, and sends no lobby analytics. It reads the game only when macOS
 already allows it without a new prompt; otherwise the button shows whenever
 Hearthstone is in front. Turning off the Reconnect button stops this reading.
 
+When Keep HSTracker working is on and HSTracker is running, the app reads the
+newest part of HSTracker's log file and of Hearthstone's loading log on this
+Mac for a few seconds after each reconnect, and adds one line to Hearthstone's
+loading log so that HSTracker resumes tracking the match. Nothing from either
+log is stored by the app or sent anywhere. The option is off by default, and
+turning it off stops this.
+
 To show public ratings, the app requests the selected region's public
 Battlegrounds leaderboard directly from Blizzard and keeps a short-lived local
 cache. HS Reconnect does not add player names or captured identifiers to this
