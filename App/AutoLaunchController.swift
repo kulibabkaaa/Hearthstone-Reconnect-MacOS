@@ -151,7 +151,9 @@ final class AutoLaunchController {
     )
     switch decision {
     case .healthy:
-      break
+      defaults.removeObject(
+        forKey: DefaultsKey.loginItemRepairInProgress
+      )
     case .notApplicable:
       concludeRepair()
     case .gaveUp:
