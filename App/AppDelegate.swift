@@ -141,6 +141,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     buildMainMenu()
     buildMenuBar()
     buildWindow()
+    autoLaunchController.onRepairLeftOptionOff = { [weak self] in
+      self?.windowController.setStatus(
+        "Automatic opening couldn't be set up. Try again in Settings.",
+        isError: true
+      )
+      self?.windowController.refresh()
+    }
     configureSystemExtensionStatusHandlers()
 
     if let processIdentifier =
@@ -175,6 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         windowController.refresh()
       }
 
+      autoLaunchController.startHealthChecks()
       updateReconnectAvailability()
       startCooldownTimerIfNeeded()
     }
@@ -187,6 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   }
 
   func applicationWillTerminate(_ notification: Notification) {
+    autoLaunchController.finishPendingRepair()
     cooldownTimer?.invalidate()
     transientStatusResetWorkItem?.cancel()
     analyticsController.flush()

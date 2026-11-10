@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import ServiceManagement
 
 enum AutoLaunchError: Error {
@@ -11,8 +12,20 @@ final class AutoLaunchController {
     identifier: AppConfiguration.watcherBundleIdentifier
   )
   private let defaults = UserDefaults.standard
+  private let logger = Logger(
+    subsystem: AppConfiguration.bundleIdentifier,
+    category: "LoginItem"
+  )
+  private var repairPolicy = LoginItemRepairPolicy()
+  private var healthCheckGeneration = 0
+  private var isReregistrationPending = false
+
+  /// Called when a repair ended with the login item no longer enabled, after
+  /// the stored setting was switched off to match.
+  var onRepairLeftOptionOff: (() -> Void)?
 
   func synchronizeStoredState() {
+    resumeInterruptedRepair()
     defaults.set(
       service.status == .enabled,
       forKey: DefaultsKey.openWithHearthstone
@@ -34,6 +47,10 @@ final class AutoLaunchController {
   }
 
   func setEnabled(_ enabled: Bool) -> Result<Void, Error> {
+    cancelHealthChecks()
+    defaults.removeObject(
+      forKey: DefaultsKey.loginItemRepairInProgress
+    )
     do {
       if enabled {
         if service.status == .notRegistered
@@ -59,6 +76,7 @@ final class AutoLaunchController {
           true,
           forKey: DefaultsKey.openWithHearthstone
         )
+        startHealthChecks()
       } else {
         if service.status != .notRegistered
           && service.status != .notFound
@@ -83,6 +101,187 @@ final class AutoLaunchController {
       )
       return .failure(error)
     }
+  }
+
+  /// macOS can report the login item as enabled while launchd cannot start
+  /// the helper (see `LoginItemRepairPolicy`). Check that the helper is really
+  /// running and register it again when it is not.
+  func startHealthChecks() {
+    cancelHealthChecks()
+    repairPolicy = LoginItemRepairPolicy()
+    scheduleHealthCheck(
+      after: LoginItemRepairPolicy.firstCheckDelay
+    )
+  }
+
+  /// A repair switches the login item off for a moment. Never quit in that
+  /// gap, or the option would stay off.
+  func finishPendingRepair() {
+    guard isReregistrationPending else {
+      return
+    }
+    cancelHealthChecks()
+    registerForRepair()
+  }
+
+  private func cancelHealthChecks() {
+    healthCheckGeneration += 1
+    isReregistrationPending = false
+  }
+
+  private func scheduleHealthCheck(after delay: TimeInterval) {
+    let generation = healthCheckGeneration
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + delay
+    ) { [weak self] in
+      guard
+        let self,
+        generation == self.healthCheckGeneration
+      else {
+        return
+      }
+      self.runHealthCheck()
+    }
+  }
+
+  private func runHealthCheck() {
+    let decision = repairPolicy.evaluate(
+      registration: registration,
+      isHelperRunning: isWatcherRunning
+    )
+    switch decision {
+    case .healthy:
+      defaults.removeObject(
+        forKey: DefaultsKey.loginItemRepairInProgress
+      )
+    case .notApplicable:
+      concludeRepair()
+    case .gaveUp:
+      logger.error(
+        "The Open with Hearthstone helper still isn't running after \(LoginItemRepairPolicy.maximumRepairs) repairs."
+      )
+      concludeRepair()
+    case .reregister:
+      logger.notice(
+        "The Open with Hearthstone helper isn't running. Registering it again (repair \(self.repairPolicy.repairsStarted))."
+      )
+      reregister()
+    }
+  }
+
+  /// A repair that ends with the login item no longer enabled (registering
+  /// failed, or macOS now wants approval) has switched the option off. Say so
+  /// instead of leaving the checkbox on until the next launch.
+  private func concludeRepair() {
+    defaults.removeObject(
+      forKey: DefaultsKey.loginItemRepairInProgress
+    )
+    guard
+      repairPolicy.repairsStarted > 0,
+      service.status != .enabled
+    else {
+      return
+    }
+    defaults.set(
+      false,
+      forKey: DefaultsKey.openWithHearthstone
+    )
+    onRepairLeftOptionOff?()
+  }
+
+  /// The app can be killed (installer, Force Quit, crash) while a repair has
+  /// the login item switched off. The flag saved before that step lets the
+  /// next launch register it again before the stored setting is read.
+  private func resumeInterruptedRepair() {
+    let repairWasInProgress = defaults.bool(
+      forKey: DefaultsKey.loginItemRepairInProgress
+    )
+    defaults.removeObject(
+      forKey: DefaultsKey.loginItemRepairInProgress
+    )
+    guard
+      LoginItemRepairPolicy.shouldResumeInterruptedRepair(
+        repairWasInProgress: repairWasInProgress,
+        registration: registration
+      )
+    else {
+      return
+    }
+    logger.notice(
+      "Finishing an Open with Hearthstone repair that the last run didn't complete."
+    )
+    registerForRepair()
+  }
+
+  private func reregister() {
+    defaults.set(
+      true,
+      forKey: DefaultsKey.loginItemRepairInProgress
+    )
+    if service.status != .notRegistered
+      && service.status != .notFound
+    {
+      do {
+        try service.unregister()
+      } catch {
+        logger.error(
+          "Couldn't unregister the helper for repair: \(error.localizedDescription, privacy: .public)"
+        )
+      }
+    }
+
+    isReregistrationPending = true
+    let generation = healthCheckGeneration
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + LoginItemRepairPolicy.reregisterPause
+    ) { [weak self] in
+      guard
+        let self,
+        generation == self.healthCheckGeneration
+      else {
+        return
+      }
+      self.isReregistrationPending = false
+      self.registerForRepair()
+      self.scheduleHealthCheck(
+        after: LoginItemRepairPolicy.recheckDelay
+      )
+    }
+  }
+
+  private func registerForRepair() {
+    do {
+      try service.register()
+      defaults.removeObject(
+        forKey: DefaultsKey.loginItemRepairInProgress
+      )
+    } catch {
+      logger.error(
+        "Couldn't register the helper again: \(error.localizedDescription, privacy: .public)"
+      )
+    }
+  }
+
+  private var registration: LoginItemRegistration {
+    switch service.status {
+    case .enabled:
+      return .enabled
+    case .requiresApproval:
+      return .requiresApproval
+    case .notRegistered:
+      return .notRegistered
+    case .notFound:
+      return .notFound
+    @unknown default:
+      return .notFound
+    }
+  }
+
+  private var isWatcherRunning: Bool {
+    !NSRunningApplication.runningApplications(
+      withBundleIdentifier:
+        AppConfiguration.watcherBundleIdentifier
+    ).isEmpty
   }
 
   private func stopRunningWatcher() {
