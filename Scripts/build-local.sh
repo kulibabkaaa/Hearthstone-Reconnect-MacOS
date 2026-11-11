@@ -22,6 +22,10 @@ trap cleanup EXIT
 
 cd "${project_dir}"
 
+if [[ -d "${project_dir}/Vendor/HearthMirror" ]]; then
+  # HearthMirror is not in the repository; build the lobby helper only from a local copy.
+  export HS_RECONNECT_HEARTHMIRROR=YES
+fi
 xcodegen generate
 "${script_dir}/verify-system-extension-config.sh"
 swift test
