@@ -38,7 +38,7 @@ jobs:
         run: |
           chmod +x Scripts/*.sh Scripts/Installer/* Tests/*/run-tests.sh
           zsh -n Scripts/*.sh Scripts/Installer/* Tests/*/run-tests.sh
-          Scripts/verify-vendor.sh
+          Scripts/verify-vendor.sh --if-present
           Scripts/verify-system-extension-config.sh
           Tests/LobbyConcurrency/run-tests.sh
           Tests/Packaging/run-tests.sh

@@ -36,8 +36,12 @@ fail() {
   || fail "the 2.2.0 release notes are missing"
 [[ -f "${project_dir}/SECURITY.md" ]] \
   || fail "the lobby helper security notes are missing"
-[[ -f "${project_dir}/Vendor/HearthMirror/SHA256SUMS" ]] \
-  || fail "the vendored HearthMirror checksums are missing"
+if [[ -d "${project_dir}/Vendor/HearthMirror" ]]; then
+  [[ -f "${project_dir}/Vendor/HearthMirror/SHA256SUMS" ]] \
+    || fail "the local HearthMirror copy has no checksums"
+fi
+/usr/bin/git -C "${project_dir}" ls-files --error-unmatch Vendor/HearthMirror >/dev/null 2>&1 \
+  && fail "HearthMirror must not be tracked in the repository"
 
 for release_script in build-release.sh verify-release.sh; do
   /usr/bin/grep -Fq \

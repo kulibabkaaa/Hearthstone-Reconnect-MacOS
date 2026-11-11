@@ -4,6 +4,11 @@ set -euo pipefail
 script_dir="${0:A:h}"
 vendor_dir="${HS_RECONNECT_VENDOR_DIR:-${script_dir:h}/Vendor/HearthMirror}"
 manifest="${vendor_dir}/SHA256SUMS"
+if [[ "${1:-}" == "--if-present" && ! -e "${vendor_dir}" ]]; then
+  echo "HearthMirror is not in this checkout; skipping vendor verification."
+  exit 0
+fi
+
 temporary_dir="$(mktemp -d /tmp/hs-reconnect-vendor-check.XXXXXX)"
 
 cleanup() {

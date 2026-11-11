@@ -21,3 +21,6 @@ Support/AppIcon.icns
 # Finder/iCloud conflict copies; canonical files do not use a numbered suffix.
 **/* 2
 **/* 2.*
+
+# HearthMirror is not distributed with this repository; local builds may keep a private copy here.
+Vendor/HearthMirror/

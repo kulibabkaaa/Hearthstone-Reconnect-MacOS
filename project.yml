@@ -1,5 +1,12 @@
 name: HSReconnect
 
+include:
+  # The lobby capture helper links HearthMirror, which this repository does not include.
+  # Scripts/build-local.sh and build-release.sh set HS_RECONNECT_HEARTHMIRROR=YES only when
+  # Vendor/HearthMirror exists on the build machine; otherwise the app builds without the helper.
+  - path: project-lobby-helper.yml
+    enable: ${HS_RECONNECT_HEARTHMIRROR}
+
 options:
   minimumXcodeGenVersion: 2.44.0
   postGenCommand: Scripts/patch-project-capabilities.sh
@@ -63,57 +70,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.kulibabkaaa.HSReconnect.LobbyUIHarness
         PRODUCT_NAME: HS Reconnect Lobby UI Harness
         INFOPLIST_FILE: Tools/LobbyUIHarness/Info.plist
-
-  LobbyCaptureProbe:
-    type: application
-    platform: macOS
-    productName: HS Reconnect Lobby Capture Probe
-    sources:
-      - path: Tools/LobbyCaptureProbe
-      - path: Shared/AppCore/LobbyReconnectCore.swift
-    info:
-      path: Tools/LobbyCaptureProbe/Info.plist
-      properties:
-        CFBundleDisplayName: HS Reconnect Lobby Capture Probe
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "1"
-        LSBackgroundOnly: true
-        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
-        NSPrincipalClass: NSApplication
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.kulibabkaaa.HSReconnect.LobbyCaptureProbe
-        PRODUCT_NAME: HS Reconnect Lobby Capture Probe
-        INFOPLIST_FILE: Tools/LobbyCaptureProbe/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Tools/LobbyCaptureProbe/LobbyCaptureProbe.entitlements
-        SKIP_INSTALL: YES
-    dependencies:
-      - framework: "Vendor/HearthMirror/HearthMirror.framework"
-        embed: true
-    preBuildScripts:
-      - name: Embed HearthMirror runtime
-        basedOnDependencyAnalysis: false
-        script: |
-          set -euo pipefail
-          vendor="${SRCROOT}/Vendor/HearthMirror"
-          frameworks="${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}"
-          resources="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources"
-          managed="${resources}/Resources/Managed"
-
-          mkdir -p "${frameworks}" "${managed}/arm64" "${managed}/x64"
-          cp "${vendor}/libcoreclr.dylib" "${frameworks}/"
-          cp "${vendor}/libSystem.Native.dylib" "${frameworks}/"
-          cp "${vendor}/HearthMirror-version.txt" "${resources}/"
-          cp "${vendor}/mono-version.txt" "${resources}/"
-          cp "${vendor}/NOTICE.md" "${vendor}/HSTracker-LICENSE.txt" "${vendor}/CoreCLR-LICENSE.txt" "${vendor}/CoreCLR-THIRD-PARTY-NOTICES.txt" "${resources}/"
-          cp "${vendor}/Managed/arm64/"*.dll \
-            "${managed}/arm64/"
-          cp "${vendor}/Managed/x64/"*.dll \
-            "${managed}/x64/"
-          if [[ "${CODE_SIGNING_ALLOWED:-NO}" == "YES" && -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]]; then
-            /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" --options runtime --timestamp=none "${frameworks}/libcoreclr.dylib"
-            /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" --options runtime --timestamp=none "${frameworks}/libSystem.Native.dylib"
-          fi
 
   ProxyCore:
     type: framework
@@ -281,8 +237,6 @@ targets:
         embed: true
       - target: HSReconnectWatcher
         embed: false
-      - target: LobbyCaptureProbe
-        embed: false
       - package: Sparkle
       - package: TelemetryDeck
     preBuildScripts:
@@ -298,31 +252,12 @@ targets:
           destination="${TARGET_BUILD_DIR}/${WRAPPER_NAME}/Contents/Library/LoginItems"
           mkdir -p "${destination}"
           ditto "${source_app}" "${destination}/HS Reconnect Watcher.app"
-      - name: Embed lobby capture helper
-        basedOnDependencyAnalysis: true
-        inputFiles:
-          - "$(BUILT_PRODUCTS_DIR)/HS Reconnect Lobby Capture Probe.app/Contents/Info.plist"
-        outputFiles:
-          - "$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Info.plist"
-        script: |
-          set -euo pipefail
-          source_app="${BUILT_PRODUCTS_DIR}/HS Reconnect Lobby Capture Probe.app"
-          destination="${TARGET_BUILD_DIR}/${WRAPPER_NAME}/Contents/Library/LoginItems"
-          mkdir -p "${destination}"
-          ditto "${source_app}" "${destination}/HS Reconnect Lobby Capture Probe.app"
 
 schemes:
   LobbyUIHarness:
     build:
       targets:
         LobbyUIHarness: all
-    run:
-      config: Debug
-
-  LobbyCaptureProbe:
-    build:
-      targets:
-        LobbyCaptureProbe: all
     run:
       config: Debug
 
