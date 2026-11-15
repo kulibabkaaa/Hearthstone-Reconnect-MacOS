@@ -6,6 +6,8 @@ public enum DiagnosticLogCategory: String, CaseIterable, Sendable {
   case trackerRecovery = "TrackerRecovery"
   case loginItem = "LoginItem"
   case analytics = "Analytics"
+  /// The Reconnect button's in-match signal: states and counts only, never addresses.
+  case matchPresence = "MatchPresence"
 }
 
 public enum DiagnosticLogLevel: String, Sendable {

@@ -1,6 +1,5 @@
 import AppKit
 import Darwin
-import OSLog
 
 /// The Reconnect button's own "in a match" signal: about once a second it reads Hearthstone's open connections and
 /// the lines its logs gained since the last poll, and lets `MatchPresenceCore` decide. Needs no memory reading, no
@@ -15,7 +14,6 @@ final class MatchPresenceMonitor {
   private(set) var isInMatch = false
   private(set) var isRunning = false
 
-  private static let logger = Logger(subsystem: AppConfiguration.bundleIdentifier, category: "MatchPresence")
   private let queue = DispatchQueue(label: "\(AppConfiguration.bundleIdentifier).MatchPresence", qos: .utility)
   private var timer: DispatchSourceTimer?
   /// Main thread only: results from a poll scheduled before the latest start or stop are dropped.
@@ -63,8 +61,9 @@ final class MatchPresenceMonitor {
     detectorState = result.detectorState
     isInMatch = result.isInMatch
     // Counts and states only, never addresses.
-    Self.logger.notice(
-      "inMatch=\(result.isInMatch, privacy: .public) detector=\(String(describing: result.detectorState), privacy: .public) \(result.summary ?? "stopped", privacy: .public)"
+    DiagnosticLog.notice(
+      .matchPresence,
+      "inMatch=\(result.isInMatch) detector=\(String(describing: result.detectorState)) \(result.summary ?? "stopped")"
     )
     onChange?()
   }

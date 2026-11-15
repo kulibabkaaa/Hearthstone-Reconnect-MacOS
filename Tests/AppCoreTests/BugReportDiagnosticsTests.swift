@@ -49,6 +49,19 @@ struct BugReportDiagnosticsTests {
     }
   }
 
+  @Test func matchPresenceLinePassesRedactionUnchangedAndIsAllowed() {
+    for line in [
+      "inMatch=true detector=attached gamePort=2 loggedServer=true phase=joined kind=battlegrounds logs=true",
+      "inMatch=false detector=connecting hearthstone=0",
+      "inMatch=false detector=unavailable stopped",
+    ] {
+      #expect(BugReportDiagnostics.redact(line) == line)
+      #expect(DiagnosticLogFormat.clean(line) == line)
+    }
+    #expect(BugReportDiagnostics.appLogCategories.contains("MatchPresence"))
+    #expect(!BugReportDiagnostics.appLogCategories.contains("LobbyCapture"))
+  }
+
   @Test func keepsOnlyConnectionLinesFromGameLogs() {
     let lines = BugReportDiagnostics.gameLogLines(in: gameNetLog)
 
