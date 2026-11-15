@@ -30,9 +30,10 @@ a second whether a Battlegrounds match is in progress, so it can show the button
 For this it reads only the newest lines of Hearthstone's own log files on this
 Mac and the list of addresses Hearthstone is connected to (what `lsof` shows,
 never any traffic). While it checks, it keeps in memory only whether a match is
-in progress and the game server addresses Hearthstone's logs named; it saves
-none of it to disk, sends none of it anywhere, and its own diagnostic log
-records counts, never addresses. This
+in progress and the game server addresses Hearthstone's logs named. The
+addresses are never saved to disk or sent anywhere. Whether a match is in
+progress, with the check's state and counts, is written to the app's local
+diagnostics log described under bug reports below, never with addresses. This
 needs no permission and doesn't read Hearthstone's memory. If the connections
 can't be read, the button shows whenever Hearthstone is in front. Turning off
 the Reconnect button stops this checking.

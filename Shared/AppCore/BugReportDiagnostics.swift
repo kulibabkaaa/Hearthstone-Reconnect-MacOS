@@ -82,6 +82,9 @@ public enum BugReportDiagnostics {
   public static let maximumLineLength = 300
   public static let maximumGameLinesPerFile = 150
   public static let maximumAppLogLines = 200
+  /// No single category may fill the app-log section, so frequent lines (such as match presence) can't push the
+  /// reconnect lines of the incident being reported out of it.
+  public static let maximumAppLogLinesPerCategory = 80
   /// How far back the app's own log is read (the same span its log file keeps).
   public static let appLogLookback: TimeInterval = DiagnosticLogStore.retention
   /// Only how much of each Hearthstone log file is read from its end.
@@ -178,6 +181,15 @@ public enum BugReportDiagnostics {
     return entries
       .filter { appLogCategories.contains($0.category) && $0.date >= earliest && $0.date <= now }
       .sorted { $0.date < $1.date }
+      .reversed()
+      .reduce(into: (kept: [BugReportAppLogEntry](), perCategory: [String: Int]())) { result, entry in
+        let count = result.perCategory[entry.category, default: 0]
+        guard count < maximumAppLogLinesPerCategory else { return }
+        result.perCategory[entry.category] = count + 1
+        result.kept.append(entry)
+      }
+      .kept
+      .reversed()
       .suffix(maximumAppLogLines)
       .map { entry in
         let message = entry.message.replacingOccurrences(of: "\n", with: " ")

@@ -53,13 +53,34 @@ struct BugReportDiagnosticsTests {
     for line in [
       "inMatch=true detector=attached gamePort=2 loggedServer=true phase=joined kind=battlegrounds logs=true",
       "inMatch=false detector=connecting hearthstone=0",
-      "inMatch=false detector=unavailable stopped",
+      "inMatch=false detector=connecting stopped",
+      "inMatch=false detector=unavailable gamePort=0 loggedServer=false phase=none kind=unknown logs=false",
     ] {
       #expect(BugReportDiagnostics.redact(line) == line)
       #expect(DiagnosticLogFormat.clean(line) == line)
     }
     #expect(BugReportDiagnostics.appLogCategories.contains("MatchPresence"))
     #expect(!BugReportDiagnostics.appLogCategories.contains("LobbyCapture"))
+  }
+
+  @Test func frequentCategoriesCannotPushOutTheReconnectLines() {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let reconnect = (0 ..< 5).map {
+      BugReportAppLogEntry(
+        date: now.addingTimeInterval(-3_600 + Double($0)), category: "ReconnectTarget", level: "notice",
+        message: "choice=loggedAndOpen logged=1 open=\($0)")
+    }
+    let presence = (0 ..< 500).map {
+      BugReportAppLogEntry(
+        date: now.addingTimeInterval(-1_000 + Double($0)), category: "MatchPresence", level: "notice",
+        message: "inMatch=\($0 % 2 == 0) detector=attached n=\($0)")
+    }
+    let lines = BugReportDiagnostics.appLogLines(from: presence + reconnect, now: now)
+
+    #expect(lines.filter { $0.contains("[ReconnectTarget]") }.count == 5)
+    #expect(lines.filter { $0.contains("[MatchPresence]") }.count == BugReportDiagnostics.maximumAppLogLinesPerCategory)
+    #expect(lines.last?.contains("n=499") == true)
+    #expect(lines.first?.contains("[ReconnectTarget]") == true)
   }
 
   @Test func keepsOnlyConnectionLinesFromGameLogs() {
