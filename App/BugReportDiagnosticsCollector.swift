@@ -35,6 +35,10 @@ enum BugReportDiagnosticsCollector {
         currentFolder: directory?.lastPathComponent,
         folders: folders
       )
+      let hearthstoneLog = directory.flatMap { readTail(of: $0.appendingPathComponent("Hearthstone.log")) }
+      let olderRegion = hearthstoneLog.flatMap(BugReportDiagnostics.region(inHearthstoneLog:)) == nil
+        ? olderFolderRegion(in: logsRoot, currentFolder: directory?.lastPathComponent, folders: folders)
+        : nil
       let input = BugReportDiagnosticsInput(
         appVersion: appVersion,
         buildNumber: buildNumber,
@@ -47,8 +51,9 @@ enum BugReportDiagnosticsCollector {
         logFolderName: directory?.lastPathComponent,
         battleNetLogFolderName: battleNet?.folder,
         gameNetLog: directory.flatMap { readTail(of: $0.appendingPathComponent("GameNetLogger.log")) },
-        hearthstoneLog: directory.flatMap { readTail(of: $0.appendingPathComponent("Hearthstone.log")) },
+        hearthstoneLog: hearthstoneLog,
         battleNetLog: battleNet?.text,
+        olderFolderRegion: olderRegion,
         appLogEntries: BugReportDiagnostics.mergedAppLogEntries(
           file: DiagnosticLog.store.entries(),
           currentRun: currentRunLogEntries()
@@ -100,6 +105,23 @@ enum BugReportDiagnosticsCollector {
       let file = root.appendingPathComponent(name, isDirectory: true).appendingPathComponent("BattleNet.log")
       if let text = readTail(of: file), BugReportDiagnostics.regionHost(inBattleNetLog: text) != nil {
         return (name, text)
+      }
+    }
+    return nil
+  }
+
+  /// The region from the newest older folder whose `Hearthstone.log` has a login line (the current one may have none).
+  private static func olderFolderRegion(
+    in root: URL,
+    currentFolder: String?,
+    folders: [(name: String, modified: Date, hasBattleNetLog: Bool)]
+  ) -> (region: String, folder: String)? {
+    let candidates = BugReportDiagnostics.olderRegionFolders(
+      currentFolder: currentFolder, among: folders.map { ($0.name, $0.modified) })
+    for name in candidates {
+      let file = root.appendingPathComponent(name, isDirectory: true).appendingPathComponent("Hearthstone.log")
+      if let text = readTail(of: file), let region = BugReportDiagnostics.region(inHearthstoneLog: text) {
+        return (region, name)
       }
     }
     return nil
