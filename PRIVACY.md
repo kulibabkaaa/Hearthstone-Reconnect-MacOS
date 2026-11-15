@@ -79,7 +79,7 @@ is sent. When it is on, the report carries one small text file (at most about
   folder (a date);
 - the region code Hearthstone logs at login (for example `EU`; any code it
   doesn't know is sent as `other`), and nothing else from that line. When the
-  newest log has no login yet, it is taken from the newest older folder that
+  newest log has no login line, it is taken from the newest older folder that
   has one, and the file names that folder (a date);
 - the Battle.net region host name, when Hearthstone's Battle.net log names one
   (for example `eu.actual.battle.net`), and nothing else from that log. When

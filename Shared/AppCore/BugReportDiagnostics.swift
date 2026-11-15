@@ -98,7 +98,7 @@ public enum BugReportDiagnostics {
   /// `LobbyCapture` (developer helper, logs helper output verbatim) is deliberately absent.
   public static let appLogCategories = Set(DiagnosticLogCategory.allCases.map(\.rawValue))
   /// Region codes Hearthstone logs at login. Any other upper-case word is reported as `other`, never as itself.
-  public static let knownRegions: Set<String> = ["US", "EU", "KR", "CN", "TW"]
+  public static let knownRegions: Set<String> = ["US", "EU", "KR", "CN", "TW", "AP", "SG", "PTR"]
   /// How many older Hearthstone log folders are searched for a `BattleNet.log` (or a login's region).
   public static let maximumBattleNetLogFolders = 5
 
