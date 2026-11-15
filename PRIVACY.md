@@ -77,10 +77,14 @@ is sent. When it is on, the report carries one small text file (at most about
   network extension and proxy are on, whether Keep HSTracker working is on,
   whether Hearthstone is running, and the name of Hearthstone's newest log
   folder (a date);
-- the Battle.net region host name only (for example `eu.actual.battle.net`),
-  and nothing else from Hearthstone's Battle.net log. When the newest log
-  folder has no Battle.net log, it is taken from the newest older folder that
+- the region code Hearthstone logs at login (for example `EU`; any code it
+  doesn't know is sent as `other`), and nothing else from that line. When the
+  newest log has no login yet, it is taken from the newest older folder that
   has one, and the file names that folder (a date);
+- the Battle.net region host name, when Hearthstone's Battle.net log names one
+  (for example `eu.actual.battle.net`), and nothing else from that log. When
+  the newest log folder has no Battle.net log, it is taken from the newest
+  older folder that has one, and the file names that folder (a date);
 - from Hearthstone's `GameNetLogger.log` and `Hearthstone.log`, only the lines
   about connecting to and disconnecting from a game server and about looking
   for a game (at most the newest 150 of each). They include the game server's

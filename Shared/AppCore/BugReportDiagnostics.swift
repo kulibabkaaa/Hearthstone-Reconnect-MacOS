@@ -34,6 +34,8 @@ public struct BugReportDiagnosticsInput: Sendable {
   public var gameNetLog: String?
   public var hearthstoneLog: String?
   public var battleNetLog: String?
+  /// The region from the newest older folder's `Hearthstone.log`, used when the current one has no login yet.
+  public var olderFolderRegion: (region: String, folder: String)?
   public var appLogEntries: [BugReportAppLogEntry]
   public var generatedAt: Date
 
@@ -51,6 +53,7 @@ public struct BugReportDiagnosticsInput: Sendable {
     gameNetLog: String?,
     hearthstoneLog: String?,
     battleNetLog: String?,
+    olderFolderRegion: (region: String, folder: String)? = nil,
     appLogEntries: [BugReportAppLogEntry],
     generatedAt: Date
   ) {
@@ -67,6 +70,7 @@ public struct BugReportDiagnosticsInput: Sendable {
     self.gameNetLog = gameNetLog
     self.hearthstoneLog = hearthstoneLog
     self.battleNetLog = battleNetLog
+    self.olderFolderRegion = olderFolderRegion
     self.appLogEntries = appLogEntries
     self.generatedAt = generatedAt
   }
@@ -93,7 +97,9 @@ public enum BugReportDiagnostics {
   /// HS Reconnect log categories whose messages are useful and carry no player data.
   /// `LobbyCapture` (developer helper, logs helper output verbatim) is deliberately absent.
   public static let appLogCategories = Set(DiagnosticLogCategory.allCases.map(\.rawValue))
-  /// How many older Hearthstone log folders are searched for a `BattleNet.log`.
+  /// Region codes Hearthstone logs at login. Any other upper-case word is reported as `other`, never as itself.
+  public static let knownRegions: Set<String> = ["US", "EU", "KR", "CN", "TW"]
+  /// How many older Hearthstone log folders are searched for a `BattleNet.log` (or a login's region).
   public static let maximumBattleNetLogFolders = 5
 
   /// Substrings that make a Hearthstone log line worth sending.
@@ -119,7 +125,13 @@ public enum BugReportDiagnostics {
     ]
     // Hearthstone.log names the region at every login, with or without `log.config` or lobby info; current
     // BattleNet.log files often name no host at all, so the host line is extra detail when it exists.
-    header.append("Battle.net region: \(input.hearthstoneLog.flatMap(region(inHearthstoneLog:)) ?? "not found")")
+    if let region = input.hearthstoneLog.flatMap(region(inHearthstoneLog:)) {
+      header.append("Battle.net region: \(region)")
+    } else if let older = input.olderFolderRegion, let region = knownRegion(older.region) {
+      header.append("Battle.net region: \(region) (from \(safeFolderName(older.folder)))")
+    } else {
+      header.append("Battle.net region: not found")
+    }
     if let battleNetLog = input.battleNetLog, let host = regionHost(inBattleNetLog: battleNetLog) {
       let source = input.battleNetLogFolderName
         .flatMap { $0 == input.logFolderName ? nil : " (from \(safeFolderName($0)))" } ?? ""
@@ -201,7 +213,24 @@ public enum BugReportDiagnostics {
   /// The region Hearthstone logged at its latest login (`I 22:20:48.1234567 Region: EU`), or nil. Only a short
   /// upper-case code is taken from the line, nothing else.
   public static func region(inHearthstoneLog text: String) -> String? {
-    lastMatch(of: "(?m)^[A-Z] [0-9:.]+ Region: ([A-Z]{2,8})[ \\t]*$", in: text, group: 1)
+    lastMatch(of: "(?m)^[A-Z] [0-9:.]+ Region: ([A-Z]{2,8})[ \\t]*$", in: text, group: 1).flatMap(knownRegion)
+  }
+
+  /// A known region code as itself, any other code as `other`.
+  static func knownRegion(_ code: String) -> String? {
+    guard !code.isEmpty else { return nil }
+    return knownRegions.contains(code) ? code : "other"
+  }
+
+  /// Older folders to try for the region when the current `Hearthstone.log` has none: the newest first, never the
+  /// current one, at most `maximumBattleNetLogFolders`.
+  public static func olderRegionFolders(currentFolder: String?, among folders: [(name: String, modified: Date)])
+    -> [String] {
+    Array(folders
+      .filter { $0.name.hasPrefix("Hearthstone_") && $0.name != currentFolder }
+      .sorted { $0.modified > $1.modified }
+      .map(\.name)
+      .prefix(maximumBattleNetLogFolders))
   }
 
   /// Only the Battle.net region host name (for example `eu.actual.battle.net`), nothing else from that log.

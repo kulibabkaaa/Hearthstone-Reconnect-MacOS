@@ -220,6 +220,40 @@ struct BugReportDiagnosticsTests {
     #expect(BugReportDiagnostics.render(input()).contains("Battle.net region: not found"))
   }
 
+  @Test func reportsUnknownRegionCodesAsOther() {
+    #expect(BugReportDiagnostics.region(inHearthstoneLog: "I 10:00:00.1 Region: JOHN") == "other")
+    for code in BugReportDiagnostics.knownRegions {
+      #expect(BugReportDiagnostics.region(inHearthstoneLog: "I 10:00:00.1 Region: \(code)") == code)
+    }
+  }
+
+  @Test func fallsBackToTheNewestOlderFolderForTheRegion() {
+    let folders: [(name: String, modified: Date)] = [
+      ("Hearthstone_2026_11_15_22_20_45", Date(timeIntervalSince1970: 300)),
+      ("Hearthstone_2026_11_15_18_18_03", Date(timeIntervalSince1970: 200)),
+      ("Hearthstone_2026_11_15_17_52_19", Date(timeIntervalSince1970: 100)),
+      ("Other", Date(timeIntervalSince1970: 400)),
+    ]
+    #expect(
+      BugReportDiagnostics.olderRegionFolders(currentFolder: "Hearthstone_2026_11_15_22_20_45", among: folders)
+        == ["Hearthstone_2026_11_15_18_18_03", "Hearthstone_2026_11_15_17_52_19"])
+    let many = (0 ..< 9).map { ("Hearthstone_\($0)", Date(timeIntervalSince1970: Double($0))) }
+    #expect(BugReportDiagnostics.olderRegionFolders(currentFolder: nil, among: many).count
+      == BugReportDiagnostics.maximumBattleNetLogFolders)
+
+    // The current log has no login yet: the older folder's region is shown with where it came from.
+    var fallback = input(hearthstoneLog: "I 22:20:46.1 [Startup] Startup stage ConnectingToBattlenet")
+    fallback.olderFolderRegion = ("EU", "Hearthstone_2026_11_15_17_52_19")
+    #expect(BugReportDiagnostics.render(fallback).contains("Battle.net region: EU (from Hearthstone_2026_11_15_17_52_19)\n"))
+    // The current log's own region wins; an odd folder name isn't echoed; an odd code is "other".
+    var both = input(hearthstoneLog: "I 22:20:48.1 Region: US")
+    both.olderFolderRegion = ("EU", "Hearthstone_2026_11_15_17_52_19")
+    #expect(BugReportDiagnostics.render(both).contains("Battle.net region: US\n"))
+    var odd = input()
+    odd.olderFolderRegion = ("JOHN", "Somebody's folder")
+    #expect(BugReportDiagnostics.render(odd).contains("Battle.net region: other (from found)\n"))
+  }
+
   @Test func keepsOnlyAllowedAppLogCategoriesInTheLookbackWindow() {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let entries = [
