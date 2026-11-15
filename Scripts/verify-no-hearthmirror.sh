@@ -41,10 +41,18 @@ linked_forbidden_libraries() {
     kind="$(/usr/bin/file -b "${file}" 2>/dev/null || true)"
     [[ "${kind}" == *Mach-O* ]] || continue
     # A Mach-O that otool cannot read must not slip through as clean.
-    libraries="$(/usr/bin/otool -L "${file}" 2>&1)" || {
+    # Read through stdin: otool treats a path ending in "(...)" as archive(member) and fails.
+    libraries="$(/usr/bin/otool -L /dev/stdin < "${file}" 2>&1)" || {
       print -r -- "${file} -> (otool could not read this Mach-O)"
       continue
     }
+    # otool exits 0 on a damaged Mach-O and prints an error line instead of the library list
+    # (a library line is indented; an architecture header ends in ':'). Treat that as unreadable.
+    if print -r -- "${libraries}" | /usr/bin/tail -n +2 \
+      | /usr/bin/grep -v ':$' | /usr/bin/grep -q '^[^[:space:]]'; then
+      print -r -- "${file} -> (otool could not read this Mach-O)"
+      continue
+    fi
     # Line 1 of `otool -L` is the file's own path; the rest are install names (the file's own
     # id first for a dylib, then each linked library). Universal binaries repeat a header ending in ':'.
     print -r -- "${libraries}" \
@@ -78,6 +86,8 @@ for root in "$@"; do
     found=true
     echo "FORBIDDEN: binaries in ${root} link HearthMirror or CoreCLR libraries:" >&2
     print -r -- "${links}" | /usr/bin/sed -n '1,15p' | /usr/bin/sed 's/^/  /' >&2
+    link_total="$(print -r -- "${links}" | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
+    (( link_total > 15 )) && echo "  ... and $(( link_total - 15 )) more" >&2
   fi
 done
 

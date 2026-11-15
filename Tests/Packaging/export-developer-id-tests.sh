@@ -45,17 +45,37 @@ entitlement_xml() {  # $1 = path of the signed thing
   fi
   print -r -- '</dict></plist>'
 }
+# Like the real tool, refuse a target that does not exist.
+[[ -e "${@[-1]}" ]] || { echo "codesign: ${@[-1]}: No such file or directory" >&2; exit 1; }
 case "${1:-}" in
   --verify) exit 0 ;;
-  -dv) echo "Authority=Developer ID Application: Test (D8KUYWS8JN)" >&2 ;;
+  -dv)
+    print -r -- "VERIFY ${@[-1]}" >> "${FAKE_CODESIGN_LOG:?}"
+    echo "Authority=Developer ID Application: Test (D8KUYWS8JN)" >&2 ;;
   -d)
     [[ "${2:-}" == "--entitlements" ]] || exit 1
     if [[ "${3:-}" == "-" ]]; then
-      entitlement_xml "${4:?}" | /usr/bin/tr '<>' '\n\n'
+      # Show what was embedded if the target was signed with --entitlements, as the real tool does.
+      embedded="${FAKE_CODESIGN_LOG:?}.state/$(print -r -- "${4:?}" | /usr/bin/shasum | /usr/bin/cut -c1-16)"
+      if [[ -f "${embedded}" ]]; then
+        /usr/bin/tr '<>' '\n\n' < "${embedded}"
+      else
+        entitlement_xml "${4:?}" | /usr/bin/tr '<>' '\n\n'
+      fi
     else
       entitlement_xml "${@[-1]}" > "${3:?}"
     fi ;;
-  --force) print -r -- "${*}" >> "${FAKE_CODESIGN_LOG:?}" ;;
+  --force)
+    # Record the entitlements file the way the real tool would embed it.
+    task_allow=n/a
+    if (( ${@[(Ie)--entitlements]} )); then
+      entitlements_file="${@[$(( ${@[(Ie)--entitlements]} + 1 ))]}"
+      [[ -f "${entitlements_file}" ]] || exit 1
+      task_allow="$(/usr/bin/grep -c 'get-task-allow' "${entitlements_file}" || true)"
+      mkdir -p "${FAKE_CODESIGN_LOG:?}.state"
+      cp "${entitlements_file}" "${FAKE_CODESIGN_LOG}.state/$(print -r -- "${@[-1]}" | /usr/bin/shasum | /usr/bin/cut -c1-16)"
+    fi
+    print -r -- "SIGN ${*} [task-allow=${task_allow}]" >> "${FAKE_CODESIGN_LOG:?}" ;;
   *) exit 1 ;;
 esac
 CODESIGN
@@ -145,13 +165,19 @@ make_archive "${fixture_dir}/own.xcarchive" own
 run_export own
 [[ "${export_status}" == 0 ]] \
   || fail "the exporter rejected a helper that has no HearthMirror files: ${export_output}"
-/usr/bin/grep -F 'Lobby Capture Probe.app' "${export_log}" | /usr/bin/grep -Fq -- '--entitlements' \
+/usr/bin/grep -F 'SIGN' "${export_log}" | /usr/bin/grep -F 'Lobby Capture Probe.app' \
+  | /usr/bin/grep -Fq -- '--entitlements' \
   || fail "the exporter did not sign the present helper with its entitlements"
+/usr/bin/grep -F 'SIGN' "${export_log}" | /usr/bin/grep -F 'Lobby Capture Probe.app' \
+  | /usr/bin/grep -Fq '[task-allow=0]' \
+  || fail "the exporter left get-task-allow in the helper's entitlements"
+/usr/bin/grep -Eq '^VERIFY .*Lobby Capture Probe\.app$' "${export_log}" \
+  || fail "the exporter did not check the present helper's signature"
 
 # 3. Helper present but missing the debugger entitlement: refused.
 make_archive "${fixture_dir}/nodebugger.xcarchive" own
 run_export nodebugger FAKE_NO_DEBUGGER=1
-[[ "${export_status}" != 0 ]] \
+[[ "${export_status}" != 0 && "${export_output}" == *"lost its debugger entitlement"* ]] \
   || fail "the exporter accepted a helper without the debugger entitlement"
 
 # 4. Helper carrying HearthMirror.framework: refused before anything is signed.

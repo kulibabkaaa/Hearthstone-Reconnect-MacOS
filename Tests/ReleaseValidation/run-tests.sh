@@ -284,6 +284,26 @@ fi
 [[ "${link_output}" == *"Innocent Name -> @rpath/HearthMirror.framework/Versions/A/HearthMirror"* ]] \
   || fail "the HearthMirror check rejected a linking binary without naming the library"
 rm "${link_dir}/tree/Innocent Name"
+# A hidden file is scanned too.
+cp "${link_dir}/src/linked" "${link_dir}/tree/.hidden-reader"
+expect_forbidden "a hidden binary that links HearthMirror" "${link_dir}/tree"
+rm "${link_dir}/tree/.hidden-reader"
+# A harmless binary whose name ends in parentheses must not trip the scan (otool reads
+# such a path as archive(member) unless it is read through stdin).
+cp "${link_dir}/src/plain" "${link_dir}/tree/Own Reader (GPU)"
+"${hm_checker}" "${link_dir}/tree" >/dev/null \
+  || fail "the HearthMirror check rejected a clean binary named like 'Reader (GPU)'"
+rm "${link_dir}/tree/Own Reader (GPU)"
+# A Mach-O that otool cannot parse must fail, not pass as clean.
+/usr/bin/head -c 64 "${link_dir}/src/plain" > "${link_dir}/tree/Broken Reader"
+if [[ "$(/usr/bin/file -b "${link_dir}/tree/Broken Reader")" == *Mach-O* ]]; then
+  if broken_output="$("${hm_checker}" "${link_dir}/tree" 2>&1)"; then
+    fail "the HearthMirror check accepted a Mach-O that otool cannot read"
+  fi
+  [[ "${broken_output}" == *"otool could not read"* ]] \
+    || fail "the HearthMirror check failed on an unreadable Mach-O without saying why"
+fi
+rm "${link_dir}/tree/Broken Reader"
 # A renamed copy of a CoreCLR dylib is caught by its own install name.
 /usr/bin/clang -dynamiclib "${link_dir}/src/hm.c" -o "${link_dir}/tree/renamed.dylib" \
   -install_name '@rpath/libcoreclr.dylib'

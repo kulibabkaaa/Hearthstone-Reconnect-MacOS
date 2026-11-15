@@ -293,7 +293,10 @@ done
 
 if [[ "${helper_present}" == "true" ]]; then
   codesign -d --entitlements - "${helper_path}" 2>&1 \
-    | grep "com.apple.security.cs.debugger" >/dev/null
+    | grep "com.apple.security.cs.debugger" >/dev/null || {
+      echo "The lobby helper lost its debugger entitlement." >&2
+      exit 1
+    }
 fi
 if codesign -d --entitlements - "${output_app}" 2>&1 \
   | grep "com.apple.security.cs.debugger" >/dev/null; then
