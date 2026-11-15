@@ -99,7 +99,8 @@ final class LobbyReader {
   private var hearthstoneMonitor: DispatchSourceTimer?
   private var lastLoggedHelperEvent: String?
 
-  /// Starts the helper for lobby info. It may ask once for lobby (Developer Tools) access.
+  /// Starts the helper for lobby info. It may ask for lobby (Developer Tools) access; retries for a game that is
+  /// still starting never ask.
   func start() {
     let runToken = deliveryGeneration.startRun()
     queue.async {

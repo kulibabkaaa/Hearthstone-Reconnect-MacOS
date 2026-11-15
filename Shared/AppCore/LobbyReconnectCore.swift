@@ -126,9 +126,10 @@ public enum LobbyMirrorCandidateDisposition: Equatable, Sendable {
 /// A reader that attaches while Hearthstone is still starting finds Mono fine, but the game hasn't signed in:
 /// no BattleTag, no account, and its lobby classes may not be loaded yet. The helper's reader (Shared/MonoReader)
 /// re-reads the class list when a lookup misses, but accepting it before sign-in would still report an empty
-/// game as if it were ready. So a reader is accepted only once the BattleTag or account id is readable, the same
-/// guard HSTracker uses. (With HearthMirror, which listed classes once, this left both overlays off on
-/// 10 Nov 2026 until the helper was restarted.)
+/// game as if it were ready. So a reader is accepted only once the BattleTag or account id is readable (the same
+/// guard HSTracker uses), unless retrying would need a permission dialog: then the early reader is kept.
+/// (With HearthMirror, which listed classes once, this left both overlays off on 10 Nov 2026 until the helper
+/// was restarted.)
 public enum LobbyMirrorReadinessPolicy {
   public static func isSignedIn(battleTag: String?, accountHigh: Int64?, accountLow: Int64?) -> Bool {
     let tag = battleTag?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
