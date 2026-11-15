@@ -117,12 +117,13 @@ public enum BugReportDiagnostics {
       "Hearthstone running: \(input.hearthstoneRunning ? "yes" : "no")",
       "Hearthstone log folder: \(input.logFolderName.map(safeFolderName) ?? "not found")",
     ]
+    // Hearthstone.log names the region at every login, with or without `log.config` or lobby info; current
+    // BattleNet.log files often name no host at all, so the host line is extra detail when it exists.
+    header.append("Battle.net region: \(input.hearthstoneLog.flatMap(region(inHearthstoneLog:)) ?? "not found")")
     if let battleNetLog = input.battleNetLog, let host = regionHost(inBattleNetLog: battleNetLog) {
       let source = input.battleNetLogFolderName
         .flatMap { $0 == input.logFolderName ? nil : " (from \(safeFolderName($0)))" } ?? ""
       header.append("Battle.net region host: \(host)\(source)")
-    } else {
-      header.append("Battle.net region host: not found")
     }
     header = header.map(clip)
 
@@ -197,16 +198,25 @@ public enum BugReportDiagnostics {
       }
   }
 
+  /// The region Hearthstone logged at its latest login (`I 22:20:48.1234567 Region: EU`), or nil. Only a short
+  /// upper-case code is taken from the line, nothing else.
+  public static func region(inHearthstoneLog text: String) -> String? {
+    lastMatch(of: "(?m)^[A-Z] [0-9:.]+ Region: ([A-Z]{2,8})[ \\t]*$", in: text, group: 1)
+  }
+
   /// Only the Battle.net region host name (for example `eu.actual.battle.net`), nothing else from that log.
+  /// The newest one, when the log names several.
   public static func regionHost(inBattleNetLog text: String) -> String? {
-    guard
-      let range = text.range(
-        of: "\\b(us|eu|kr|cn|tw|sg|apac|test)\\.actual\\.battle\\.net\\b",
-        options: [.regularExpression, .backwards]
-      )
-    else {
-      return nil
-    }
+    lastMatch(of: "\\b(us|eu|kr|cn|tw|sg|apac|test)\\.actual\\.battle\\.net\\b", in: text, group: 0)
+  }
+
+  /// The last match in `text`. `String.range(of:options: [.regularExpression, .backwards])` returns the first
+  /// match, not the last, so the matches are walked instead.
+  private static func lastMatch(of pattern: String, in text: String, group: Int) -> String? {
+    guard let expression = try? NSRegularExpression(pattern: pattern) else { return nil }
+    let all = NSRange(text.startIndex..., in: text)
+    guard let match = expression.matches(in: text, range: all).last,
+          let range = Range(match.range(at: group), in: text) else { return nil }
     return String(text[range])
   }
 
