@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import OSLog
 
 enum GameEndpointResolverError: Error {
   case appNotRunning
@@ -12,7 +11,6 @@ struct GameEndpointResolver {
   private static let executableSuffix =
     "/Hearthstone.app/Contents/MacOS/Hearthstone"
   private static let maximumLogBytes: UInt64 = 2 * 1024 * 1024
-  private static let logger = Logger(subsystem: AppConfiguration.bundleIdentifier, category: "ReconnectTarget")
 
   /// Which game connection to close. Reads Hearthstone's logs and its sockets: call off the main thread.
   func reconnectChoice() throws -> ReconnectTargetChoice {
@@ -22,9 +20,7 @@ struct GameEndpointResolver {
     let open = HearthstoneConnections.openTCPRemoteEndpoints(pid: game.pid)
     let choice = ReconnectTargetChooser.choose(logged: logged, openConnections: open)
     // The kind of choice and counts only, never addresses.
-    Self.logger.notice(
-      "choice=\(choice.logName, privacy: .public) logged=\(logged.count, privacy: .public) open=\(open?.count ?? -1, privacy: .public)"
-    )
+    DiagnosticLog.notice(.reconnectTarget, "choice=\(choice.logName) logged=\(logged.count) open=\(open?.count ?? -1)")
     return choice
   }
 

@@ -40,6 +40,15 @@ struct BugReportDiagnosticsTests {
     )
   }
 
+  @Test func reconnectTargetLinePassesRedactionUnchanged() {
+    for line in [
+      "choice=loggedAndOpen logged=1 open=8", "choice=openGameConnection logged=1 open=5",
+      "choice=loggedUnchecked logged=3 open=-1", "choice=none logged=0 open=2",
+    ] {
+      #expect(BugReportDiagnostics.redact(line) == line)
+    }
+  }
+
   @Test func keepsOnlyConnectionLinesFromGameLogs() {
     let lines = BugReportDiagnostics.gameLogLines(in: gameNetLog)
 
