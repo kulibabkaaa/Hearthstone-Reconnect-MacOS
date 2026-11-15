@@ -128,18 +128,10 @@ struct ReconnectButtonVisibilityTests {
     }
   }
 
-  @Test("reader mode: lobby info on runs the full reader; off runs match detection only for the button while the game runs")
+  @Test("reader mode: the memory helper runs only for lobby info, never for the button")
   func readerModes() {
-    typealias P = ReconnectButtonVisibilityPolicy
-    for button in [true, false] {
-      for running in [true, false] {
-        #expect(P.readerMode(lobbyEnabled: true, buttonEnabled: button, hearthstoneRunning: running) == .lobby)
-      }
-    }
-    #expect(P.readerMode(lobbyEnabled: false, buttonEnabled: true, hearthstoneRunning: true) == .matchDetectionOnly)
-    #expect(P.readerMode(lobbyEnabled: false, buttonEnabled: true, hearthstoneRunning: false) == .off)
-    #expect(P.readerMode(lobbyEnabled: false, buttonEnabled: false, hearthstoneRunning: true) == .off)
-    #expect(P.readerMode(lobbyEnabled: false, buttonEnabled: false, hearthstoneRunning: false) == .off)
+    #expect(ReconnectButtonVisibilityPolicy.readerMode(lobbyEnabled: true) == .lobby)
+    #expect(ReconnectButtonVisibilityPolicy.readerMode(lobbyEnabled: false) == .off)
   }
 
   @Test("Solo and Duos count as a match; an unknown mode doesn't yet")

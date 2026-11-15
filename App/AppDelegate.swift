@@ -22,6 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private let layoutSession: OverlayLayoutSession
   private let lobbyCoordinator: LobbyCoordinator
   private let reconnectButton: ReconnectButtonOverlayController
+  /// The Reconnect button's own match signal, from Hearthstone's logs and connections (no memory reading).
+  private let matchMonitor = MatchPresenceMonitor()
   private let analyticsController = AnalyticsController()
   /// "Keep HSTracker working": acts after each reconnect that closed the game's connection.
   private let trackerRecovery = TrackerRecoveryController()
@@ -345,18 +347,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     }
     // A click runs exactly what the reconnect shortcut runs.
     reconnectButton.onReconnect = { [weak self] in self?.runReconnect(source: .overlayButton) }
-    // Outside layout mode the button shows only during a Solo or Duos match, as the lobby reader sees it. With
-    // lobby info off the reader runs for match detection only. While it connects the button stays hidden; if it
-    // won't attach at all the button shows while the game is in front.
+    // Outside layout mode the button shows only during a Battlegrounds match (Solo or Duos), as the match monitor
+    // sees it from Hearthstone's logs and connections. With lobby info on, an attached lobby reader can add a
+    // match the monitor hasn't confirmed yet. Before the monitor's first reading the button stays hidden; if it
+    // can't read Hearthstone at all the button shows while the game is in front.
     reconnectButton.isEnabled = { [weak self] in self?.isReconnectButtonEnabled ?? false }
-    reconnectButton.matchDetectorState = { [weak self] in
-      self?.lobbyCoordinator.matchDetectorState ?? .connecting
-    }
-    reconnectButton.isInMatch = { [weak self] in self?.lobbyCoordinator.isInMatch ?? false }
-    lobbyCoordinator.matchDetectionInputs = { [weak self] in
-      (self?.isReconnectButtonEnabled ?? false, self?.isHearthstoneRunning ?? false)
-    }
+    reconnectButton.matchDetectorState = { [weak self] in self?.reconnectButtonMatchSignal.detector ?? .connecting }
+    reconnectButton.isInMatch = { [weak self] in self?.reconnectButtonMatchSignal.inMatch ?? false }
+    lobbyCoordinator.isHearthstoneRunning = { [weak self] in self?.isHearthstoneRunning ?? false }
     lobbyCoordinator.onMatchStateChanged = { [weak self] in self?.refreshReconnectButtonVisibility() }
+    matchMonitor.onChange = { [weak self] in self?.refreshReconnectButtonVisibility() }
     lobbyCoordinator.onStatus = { [weak self] status in
       self?.windowController.setLobbyStatus(
         status,
@@ -771,6 +771,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       return
     case .started(let token, let effects):
       attempt = token
+      matchMonitor.noteReconnect()
       applyReconnectEffects(effects)
       scheduleReconnectTimeout(for: token)
     }
@@ -891,10 +892,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       guard let self, self.isReconnectButtonEnabled else { return }
       self.reconnectButton.updateGameWindow(frame: frame)
     }
+    refreshMatchMonitor()
   }
 
   private func stopReconnectButton() {
     windowTracker.unsubscribe(self)
+    matchMonitor.stop()
     reconnectButtonRenderTimer?.invalidate()
     reconnectButtonRenderTimer = nil
     reconnectButton.hide()
@@ -903,13 +906,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private func setReconnectButtonEnabled(_ enabled: Bool) {
     UserDefaults.standard.set(enabled, forKey: DefaultsKey.reconnectButtonEnabled)
     isReconnectButtonEnabled = enabled
-    lobbyCoordinator.refreshReaderMode()
+    refreshMatchMonitor()
     if enabled {
       refreshReconnectButtonVisibility()
     } else {
       reconnectButton.hide()
     }
     updateLayoutHotKeyRegistration()
+  }
+
+  /// The match monitor polls only while the button is on and Hearthstone runs.
+  private func refreshMatchMonitor() {
+    if isReconnectButtonEnabled && isHearthstoneRunning && !isUninstalling {
+      matchMonitor.start()
+    } else {
+      matchMonitor.stop()
+    }
+  }
+
+  private var reconnectButtonMatchSignal: (detector: MatchDetectorState, inMatch: Bool) {
+    ReconnectButtonVisibilityPolicy.matchSignal(
+      monitor: matchMonitor.detectorState, monitorInMatch: matchMonitor.isInMatch,
+      reader: lobbyCoordinator.matchDetectorState, readerInMatch: lobbyCoordinator.isInMatch)
   }
 
   /// Applies a change (setting on, match started or ended, lobby info switched) now rather than on the next poll.
@@ -1449,7 +1467,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
           || notification.name == NSWorkspace.didLaunchApplicationNotification
         let wanted = self.wantsLayoutHotKey
         self.isHearthstoneRunning = running
-        // With lobby info off, the match detector runs only while the game does.
+        // The match monitor polls only while the game runs. A running lobby reader is asked to start again,
+        // which retries a helper that stopped (harmless otherwise).
+        self.refreshMatchMonitor()
         self.lobbyCoordinator.refreshReaderMode()
         // Only button-only users' registration depends on the game; lobby users are left untouched.
         // Recording a shortcut unregisters every hotkey; uninstalling must not re-register one.

@@ -345,7 +345,7 @@ private func testMatchSignal() throws {
   try require(lobby.diagnosticHasConnectingTimeout, "connecting didn't start the timeout")
   lobby.diagnosticConnectingTimedOut()
   try require(lobby.matchDetectorState == .connecting, "the timeout counted without Hearthstone running")
-  lobby.matchDetectionInputs = { (true, true) }
+  lobby.isHearthstoneRunning = { true }
   lobby.diagnosticConnectingTimedOut()
   try require(lobby.matchDetectorState == .unavailable && !lobby.diagnosticHasConnectingTimeout,
               "a detector stuck connecting didn't become unavailable")
@@ -362,53 +362,35 @@ private func testMatchSignal() throws {
               "stopping kept the match or the timeout")
 }
 
-/// Lobby info off, Reconnect button on: the reader runs for match detection only while Hearthstone runs, and
-/// draws, reports and says nothing.
-private func testMatchDetectionOnly() throws {
+/// Lobby info off: the reader (the memory helper) never runs, whatever Hearthstone or the Reconnect button do, so
+/// nothing asks for Developer Tools access. The button has its own match signal (`MatchPresenceMonitor`).
+private func testReaderOffWithoutLobbyInfo() throws {
   UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: false])
   defer { UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: false]) }
   let overlay = LobbyOverlayController()
   let lobby = LobbyCoordinator(overlay: overlay, windowTracker: HearthstoneWindowTracker())
-  var inputs = (buttonEnabled: true, hearthstoneRunning: false)
-  lobby.matchDetectionInputs = { inputs }
+  lobby.isHearthstoneRunning = { true }
   var statuses: [String] = []
   var displayed = 0
   lobby.onStatus = { statuses.append($0) }
   lobby.onLobbyDisplayed = { displayed += 1 }
   lobby.start()
   defer { lobby.stop() }
-  try require(lobby.diagnosticReaderMode == .off, "the detector ran without Hearthstone")
-  inputs.hearthstoneRunning = true
+  try require(lobby.diagnosticReaderMode == .off, "the reader ran with lobby info off")
   lobby.refreshReaderMode()
-  try require(lobby.diagnosticReaderMode == .matchDetectionOnly, "the detector didn't start with Hearthstone")
-  try require(lobby.matchDetectorState == .connecting, "starting the detector didn't begin connecting")
-  lobby.diagnosticDetectorSignal(.gaveUp)
-  try require(lobby.matchDetectorState == .unavailable, "access not granted didn't make the detector unavailable")
+  try require(lobby.diagnosticReaderMode == .off && !lobby.diagnosticHasConnectingTimeout,
+              "a refresh started the reader with lobby info off")
+  // Late events from a reader that was just stopped change nothing.
   lobby.diagnosticDetectorSignal(.attached)
   lobby.diagnosticCapture(capture("solo-1"))
-  try require(lobby.isInMatch && lobby.matchDetectorState == .attached, "match detection missed a Solo match")
-  lobby.diagnosticCapture(capture(nil))
-  try require(!lobby.isInMatch, "match detection missed the match end")
-  lobby.diagnosticCapture(capture("duos-1", mode: "duos"))
-  try require(lobby.isInMatch, "match detection missed a Duos match")
-  lobby.diagnosticStatus("Waiting for Hearthstone")
-  try require(!lobby.isInMatch, "Hearthstone leaving kept the match")
-  lobby.diagnosticStatus("Lobby access needs approval")
   lobby.diagnosticReconnectDetected()
-  try require(lobby.isInMatch, "match detection missed a match being resumed")
+  lobby.diagnosticStatus("Lobby access needs approval")
+  try require(!lobby.isInMatch, "a stopped reader reported a match")
   try require(overlay.shows == 0 && overlay.previews == 0 && displayed == 0 && statuses.isEmpty,
-              "match detection drew, reported or said something")
-  lobby.diagnosticDetectorSignal(.starting)
-  try require(lobby.diagnosticHasConnectingTimeout, "connecting didn't start the timeout")
-  inputs.buttonEnabled = false
-  lobby.refreshReaderMode()
-  try require(lobby.diagnosticReaderMode == .off && !lobby.isInMatch && lobby.matchDetectorState == .connecting
-              && !lobby.diagnosticHasConnectingTimeout, "turning the button off left the detector running")
-  inputs.buttonEnabled = true
-  lobby.refreshReaderMode()
+              "a stopped reader drew, reported or said something")
   UserDefaults.standard.register(defaults: [DefaultsKey.lobbyEnabled: true])
   lobby.refreshReaderMode()
-  try require(lobby.diagnosticReaderMode == .lobby, "lobby info on didn't switch to the lobby reader")
+  try require(lobby.diagnosticReaderMode == .lobby, "lobby info on didn't start the lobby reader")
 }
 
 /// Every helper event that says something about attaching maps to the detector signal the button relies on.
@@ -429,7 +411,7 @@ private func testDetectorSignalMapping() throws {
 do {
   try testDetectorSignalMapping()
   try testMatchSignal()
-  try testMatchDetectionOnly()
+  try testReaderOffWithoutLobbyInfo()
   try testSharedWindowTracker()
   try testLayoutPreparation()
   try testLatestCaptureSelection()
