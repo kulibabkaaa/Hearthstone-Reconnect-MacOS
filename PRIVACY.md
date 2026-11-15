@@ -85,7 +85,9 @@ is sent. When it is on, the report carries one small text file (at most about
   about connecting to and disconnecting from a game server and about looking
   for a game (at most the newest 150 of each). They include the game server's
   address. Game, client, and spectator keys in those lines are removed;
-- HS Reconnect's own log messages about choosing the reconnect target,
+- HS Reconnect's own log messages about choosing the reconnect target and how
+  each reconnect press ended (for example "reconnected", "no game found", or
+  "refused during the cooldown", with which control was used; no addresses),
   whether a match is in progress for the Reconnect button (states and counts
   only, no addresses), Keep HSTracker working, the Open with Hearthstone
   helper, and analytics setup,
