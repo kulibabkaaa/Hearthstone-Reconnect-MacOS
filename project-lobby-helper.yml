@@ -1,5 +1,5 @@
-# Optional part of project.yml: the lobby capture helper and its HearthMirror runtime.
-# Included only when HS_RECONNECT_HEARTHMIRROR=YES (see the include in project.yml).
+# Part of project.yml: the lobby capture helper. It reads Hearthstone's lobby with our own read-only Mono
+# reader (Shared/MonoReader); it embeds no third-party runtime.
 
 targets:
   LobbyCaptureProbe:
@@ -9,6 +9,7 @@ targets:
     sources:
       - path: Tools/LobbyCaptureProbe
       - path: Shared/AppCore/LobbyReconnectCore.swift
+      - path: Shared/MonoReader
     info:
       path: Tools/LobbyCaptureProbe/Info.plist
       properties:
@@ -25,33 +26,6 @@ targets:
         INFOPLIST_FILE: Tools/LobbyCaptureProbe/Info.plist
         CODE_SIGN_ENTITLEMENTS: Tools/LobbyCaptureProbe/LobbyCaptureProbe.entitlements
         SKIP_INSTALL: YES
-    dependencies:
-      - framework: "Vendor/HearthMirror/HearthMirror.framework"
-        embed: true
-    preBuildScripts:
-      - name: Embed HearthMirror runtime
-        basedOnDependencyAnalysis: false
-        script: |
-          set -euo pipefail
-          vendor="${SRCROOT}/Vendor/HearthMirror"
-          frameworks="${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}"
-          resources="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources"
-          managed="${resources}/Resources/Managed"
-
-          mkdir -p "${frameworks}" "${managed}/arm64" "${managed}/x64"
-          cp "${vendor}/libcoreclr.dylib" "${frameworks}/"
-          cp "${vendor}/libSystem.Native.dylib" "${frameworks}/"
-          cp "${vendor}/HearthMirror-version.txt" "${resources}/"
-          cp "${vendor}/mono-version.txt" "${resources}/"
-          cp "${vendor}/NOTICE.md" "${vendor}/HSTracker-LICENSE.txt" "${vendor}/CoreCLR-LICENSE.txt" "${vendor}/CoreCLR-THIRD-PARTY-NOTICES.txt" "${resources}/"
-          cp "${vendor}/Managed/arm64/"*.dll \
-            "${managed}/arm64/"
-          cp "${vendor}/Managed/x64/"*.dll \
-            "${managed}/x64/"
-          if [[ "${CODE_SIGNING_ALLOWED:-NO}" == "YES" && -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]]; then
-            /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" --options runtime --timestamp=none "${frameworks}/libcoreclr.dylib"
-            /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" --options runtime --timestamp=none "${frameworks}/libSystem.Native.dylib"
-          fi
 
   HSReconnect:
     dependencies:
