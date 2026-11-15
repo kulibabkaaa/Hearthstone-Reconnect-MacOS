@@ -174,11 +174,85 @@ struct BugReportDiagnosticsTests {
 
     #expect(BugReportDiagnostics.regionHost(inBattleNetLog: battleNet) == "eu.actual.battle.net")
     #expect(BugReportDiagnostics.regionHost(inBattleNetLog: "nothing here") == nil)
+    // The newest host when the log names several.
+    #expect(BugReportDiagnostics.regionHost(inBattleNetLog: "us.actual.battle.net\nlater eu.actual.battle.net") == "eu.actual.battle.net")
 
     let text = BugReportDiagnostics.render(input(battleNetLog: battleNet))
     #expect(text.contains("Battle.net region host: eu.actual.battle.net"))
     #expect(!text.contains("Somebody"))
     #expect(!text.contains("99999"))
+  }
+
+  @Test func readsTheRegionFromHearthstoneLogWithoutLogConfig() {
+    // Shape of a real Hearthstone.log login (Nov 2026); no log.config or lobby info needed.
+    let hearthstone = """
+      I 22:20:47.1234567 [Startup] Startup stage ConnectingToBattlenet
+      I 22:20:47.2345678 *** BattleNet version: Product = 37.0.0.0, Data = 123456
+      I 22:20:48.3456789 Region: EU
+      I 22:20:48.4567890 Logged in as Somebody#1234
+      """
+    #expect(BugReportDiagnostics.region(inHearthstoneLog: hearthstone) == "EU")
+    let text = BugReportDiagnostics.render(input(hearthstoneLog: hearthstone, battleNetLog: "no host"))
+    #expect(text.contains("Battle.net region: EU\n"))
+    #expect(!text.contains("Battle.net region host"))
+    #expect(!text.contains("Somebody"))
+    // Both sources: the region line and the host line.
+    let both = BugReportDiagnostics.render(
+      input(hearthstoneLog: hearthstone, battleNetLog: "Connecting to wss://eu.actual.battle.net:1119/"))
+    #expect(both.contains("Battle.net region: EU\n") && both.contains("Battle.net region host: eu.actual.battle.net"))
+  }
+
+  @Test func takesTheLatestLoginRegionAndNothingElseFromTheLine() {
+    let relogin = "I 10:00:00.1 Region: US\nI 18:00:00.1 Region: EU\r\n"
+    #expect(BugReportDiagnostics.region(inHearthstoneLog: relogin) == "EU")
+    // Anything that isn't a bare short code on its own line is ignored.
+    for line in [
+      "I 10:00:00.1 Region: EU Somebody#1234",
+      "I 10:00:00.1 Region: eu",
+      "I 10:00:00.1 Some text Region: EU",
+      "Region: EU",
+      "I 10:00:00.1 Region: ",
+      "I 10:00:00.1 Region: ABCDEFGHIJ",
+    ] {
+      #expect(BugReportDiagnostics.region(inHearthstoneLog: line) == nil, "\(line)")
+    }
+    #expect(BugReportDiagnostics.region(inHearthstoneLog: "") == nil)
+    #expect(BugReportDiagnostics.render(input()).contains("Battle.net region: not found"))
+  }
+
+  @Test func reportsUnknownRegionCodesAsOther() {
+    #expect(BugReportDiagnostics.region(inHearthstoneLog: "I 10:00:00.1 Region: JOHN") == "other")
+    #expect(BugReportDiagnostics.knownRegions == ["US", "EU", "KR", "CN", "TW", "AP", "SG", "PTR"])
+    for code in BugReportDiagnostics.knownRegions {
+      #expect(BugReportDiagnostics.region(inHearthstoneLog: "I 10:00:00.1 Region: \(code)") == code)
+    }
+  }
+
+  @Test func fallsBackToTheNewestOlderFolderForTheRegion() {
+    let folders: [(name: String, modified: Date)] = [
+      ("Hearthstone_2026_11_15_22_20_45", Date(timeIntervalSince1970: 300)),
+      ("Hearthstone_2026_11_15_18_18_03", Date(timeIntervalSince1970: 200)),
+      ("Hearthstone_2026_11_15_17_52_19", Date(timeIntervalSince1970: 100)),
+      ("Other", Date(timeIntervalSince1970: 400)),
+    ]
+    #expect(
+      BugReportDiagnostics.olderRegionFolders(currentFolder: "Hearthstone_2026_11_15_22_20_45", among: folders)
+        == ["Hearthstone_2026_11_15_18_18_03", "Hearthstone_2026_11_15_17_52_19"])
+    let many = (0 ..< 9).map { ("Hearthstone_\($0)", Date(timeIntervalSince1970: Double($0))) }
+    #expect(BugReportDiagnostics.olderRegionFolders(currentFolder: nil, among: many).count
+      == BugReportDiagnostics.maximumBattleNetLogFolders)
+
+    // The current log has no login line: the older folder's region is shown with where it came from.
+    var fallback = input(hearthstoneLog: "I 22:20:46.1 [Startup] Startup stage ConnectingToBattlenet")
+    fallback.olderFolderRegion = ("EU", "Hearthstone_2026_11_15_17_52_19")
+    #expect(BugReportDiagnostics.render(fallback).contains("Battle.net region: EU (from Hearthstone_2026_11_15_17_52_19)\n"))
+    // The current log's own region wins; an odd folder name isn't echoed; an odd code is "other".
+    var both = input(hearthstoneLog: "I 22:20:48.1 Region: US")
+    both.olderFolderRegion = ("EU", "Hearthstone_2026_11_15_17_52_19")
+    #expect(BugReportDiagnostics.render(both).contains("Battle.net region: US\n"))
+    var odd = input()
+    odd.olderFolderRegion = ("JOHN", "Somebody's folder")
+    #expect(BugReportDiagnostics.render(odd).contains("Battle.net region: other (from found)\n"))
   }
 
   @Test func keepsOnlyAllowedAppLogCategoriesInTheLookbackWindow() {
@@ -279,7 +353,8 @@ struct BugReportDiagnosticsTests {
       BugReportDiagnostics.render(withSource)
         .contains("Battle.net region host: eu.actual.battle.net (from Hearthstone_2026_11_10_00_47_36)")
     )
-    #expect(BugReportDiagnostics.render(input(battleNetLog: "no host")).contains("Battle.net region host: not found"))
+    let noHost = BugReportDiagnostics.render(input(battleNetLog: "no host"))
+    #expect(noHost.contains("Battle.net region: not found") && !noHost.contains("Battle.net region host"))
     var sameFolder = input(battleNetLog: "Connecting to wss://eu.actual.battle.net:1119/")
     sameFolder.battleNetLogFolderName = sameFolder.logFolderName
     #expect(BugReportDiagnostics.render(sameFolder).contains("Battle.net region host: eu.actual.battle.net\n"))
