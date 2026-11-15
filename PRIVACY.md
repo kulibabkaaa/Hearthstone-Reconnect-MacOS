@@ -91,8 +91,8 @@ With the switch off, no logs are included.
 
 Reports, images, and diagnostic files are processed and stored by Forminit so
 an email notification can be delivered to the project maintainer. If Forminit
-refuses a report that has the diagnostic file because of what the request
-contains (an HTTP 4xx answer other than a timeout or rate limit), the app sends
-the same report once more without the file, with a note that the file was left
-out. Server errors and rate limits are not retried this way. Forminit also receives ordinary connection metadata,
+answers a report that has the diagnostic file with any HTTP 4xx error other
+than a timeout (408) or rate limit (429), whatever the reason, the app sends the
+same report once more without the file, with a note that the file was left out.
+Server errors (5xx), timeouts, and rate limits are not retried this way. Forminit also receives ordinary connection metadata,
 including the public IP address and user agent used for the submission.
