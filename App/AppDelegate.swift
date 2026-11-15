@@ -775,14 +775,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
       scheduleReconnectTimeout(for: token)
     }
 
+    // Off the main thread: it reads Hearthstone's logs and sockets.
     let resolver = GameEndpointResolver()
-    let target: ReconnectTarget
-    do {
-      target = try resolver.reconnectTarget()
-    } catch {
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      let endpoint = (try? resolver.reconnectChoice())?.endpoint
+      DispatchQueue.main.async {
+        self?.sendReconnect(to: endpoint, resolver: resolver, attempt: attempt, source: source)
+      }
+    }
+  }
+
+  private func sendReconnect(
+    to endpoint: GameEndpoint?,
+    resolver: GameEndpointResolver,
+    attempt: ReconnectAttemptToken,
+    source: ReconnectSource
+  ) {
+    // The attempt may have timed out while the target was being looked up.
+    guard reconnectAttempts.activeAttempt == attempt else { return }
+    guard let endpoint else {
       applyReconnectEffects(reconnectAttempts.endpointNotFound(attempt))
       return
     }
+    let target = ReconnectTarget.exact(endpoint)
     // Before the request goes out, so nothing Hearthstone writes during the reconnect is missed.
     trackerRecovery.reconnectWillBegin(
       logDirectory: trackerRecovery.isEnabled ? resolver.currentLogDirectory() : nil)
