@@ -78,7 +78,10 @@ private final class LobbyCaptureProbe {
   /// Our own read-only Mono reader (Shared/MonoReader), attached to the running Hearthstone.
   private var mirror: HearthstoneMemory?
   private var attachedPID: Int32?
-  private var activeGameUUID: String?
+  /// Which match is reported, holding it through Hearthstone's brief game-state rebuild on a reconnect.
+  private var matchTracker = LobbyMatchTracker()
+  /// The match the helper currently reports (also while it is on hold).
+  private var activeGameUUID: String? { matchTracker.reportedGameUUID }
   /// The game id positively seen as Battlegrounds (BattlegroundsGameClassifier.confirmedGameUUID). Unlike
   /// activeGameUUID it never holds a game let through while its type was still unknown.
   private var confirmedBattlegroundsGameUUID: String?
@@ -108,7 +111,7 @@ private final class LobbyCaptureProbe {
       if let expectedParentPID, getppid() != expectedParentPID { exit(0) }
       autoreleasepool {
         guard let hearthstone = hearthstoneProcess() else {
-          if let gameUUID = activeGameUUID {
+          if let gameUUID = matchTracker.hearthstoneExited() {
             emit(event: "match_suspended", gameUUID: gameUUID, detail: "Hearthstone exited during a match.")
           }
           resetAttachment(clearRetry: true)
@@ -341,37 +344,51 @@ private final class LobbyCaptureProbe {
         + "\(distinctAccountCount) distinct account identities."
     }
     let region = account.map { regionName(accountHigh: $0.high) }
+    let sessionLog = sessionLogTail()
     let reconnectPhase = LobbyReconnectPolicy.phase(
       gameUUIDPresent: gameUUID != nil,
       gameType: gameType,
       mode: mode,
-      sessionLogSaysReconnect: sessionLogSaysReconnect(),
+      sessionLogSaysReconnect: sessionLog.map(LobbyReconnectPolicy.sessionLogSaysReconnect) ?? false,
       secondsSinceAttachment: Date().timeIntervalSince(attachedAt ?? Date())
     )
     if reconnectPhase == .probing { return }
     let eventName: String
-    if let gameUUID, activeGameUUID != gameUUID {
-      if let previous = activeGameUUID {
-        emit(event: "match_ended", hearthstonePID: attachedPID, gameUUID: previous)
-      }
-      activeGameUUID = gameUUID
+    let reportedUUID: String?
+    switch matchTracker.observe(
+      gameUUID: gameUUID,
+      leftGameServer: sessionLog.map(LobbyReconnectPolicy.sessionLogSaysLeftGameServer) ?? false,
+      now: ProcessInfo.processInfo.systemUptime
+    ) {
+    case let .started(uuid):
       eventName = "match_started"
-    } else if gameUUID != nil {
+      reportedUUID = uuid
+    case let .replaced(ended, started):
+      emit(event: "match_ended", hearthstonePID: attachedPID, gameUUID: ended)
+      eventName = "match_started"
+      reportedUUID = started
+    case let .ongoing(uuid):
       eventName = "match_snapshot"
-    } else if reconnectPhase == .resuming {
-      eventName = "reconnecting_match"
-    } else if let previous = activeGameUUID {
-      activeGameUUID = nil
-      emit(event: "match_ended", hearthstonePID: attachedPID, gameUUID: previous)
+      reportedUUID = uuid
+    case .holding:
+      // Hearthstone is rebuilding its game state (an in-game reconnect): say nothing until the game id is back
+      // or the hold runs out, so the overlay isn't closed and redrawn.
       return
-    } else {
-      eventName = "waiting_for_match"
+    case let .ended(uuid):
+      emit(event: "match_ended", hearthstonePID: attachedPID, gameUUID: uuid)
+      return
+    case .noMatch:
+      eventName = reconnectPhase == .resuming ? "reconnecting_match" : "waiting_for_match"
+      reportedUUID = nil
     }
+    // Rows belong to a reported match only (not to a finished match whose game state still lingers).
+    let reportedPlayers = reportedUUID == nil ? [] : players
+    let reportedDetail = reportedUUID == nil ? nil : captureDetail
 
     emitIfChanged(
       event: eventName,
       hearthstonePID: attachedPID,
-      gameUUID: gameUUID,
+      gameUUID: reportedUUID,
       gameType: gameType,
       region: region,
       mode: mode,
@@ -379,15 +396,15 @@ private final class LobbyCaptureProbe {
       ownAccountHigh: account?.high,
       ownAccountLow: account?.low,
       ownRating: ownRating,
-      players: players,
-      detail: captureDetail
+      players: reportedPlayers,
+      detail: reportedDetail
     )
   }
 
   private func resetAttachment(clearRetry: Bool = false) {
     mirror = nil
     attachedPID = nil
-    activeGameUUID = nil
+    matchTracker = LobbyMatchTracker()
     confirmedBattlegroundsGameUUID = nil
     logSessionDirectory = nil
     attachedAt = nil
@@ -402,17 +419,17 @@ private final class LobbyCaptureProbe {
     }
   }
 
-  private func sessionLogSaysReconnect() -> Bool {
-    guard let logSessionDirectory else { return false }
+  /// The last 64 KB of this session's GameNetLogger.log (lossy UTF-8: the cut may split a character).
+  private func sessionLogTail() -> String? {
+    guard let logSessionDirectory else { return nil }
     let url = URL(fileURLWithPath: logSessionDirectory).appendingPathComponent("GameNetLogger.log")
-    guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+    guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
     defer { try? handle.close() }
     let fileSize = (try? handle.seekToEnd()) ?? 0
     let tailSize: UInt64 = 64 * 1024
     try? handle.seek(toOffset: fileSize > tailSize ? fileSize - tailSize : 0)
-    guard let data = try? handle.readToEnd(),
-          let text = String(data: data, encoding: .utf8) else { return false }
-    return LobbyReconnectPolicy.sessionLogSaysReconnect(text)
+    guard let data = try? handle.readToEnd() else { return nil }
+    return String(decoding: data, as: UTF8.self)
   }
 
   private func hearthstoneProcess() -> NSRunningApplication? {

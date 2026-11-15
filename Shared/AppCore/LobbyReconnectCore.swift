@@ -127,6 +127,16 @@ public enum LobbyReconnectPolicy {
     return text[marker.upperBound...].hasPrefix("True")
   }
 
+  /// Whether the newest game-connection line in `GameNetLogger.log` is a clean leave of the game server
+  /// (`Network.DisconnectFromGameServer()`, written when the end screen opens or the player leaves). An in-game
+  /// reconnect logs `OnGameServerDisconnectEvent` and a new `GotoGameServe()` instead, so it never reads as a leave.
+  public static func sessionLogSaysLeftGameServer(_ text: String) -> Bool {
+    let join = text.range(of: "Network.GotoGameServe() - address=", options: .backwards)
+    guard let leave = text.range(of: "Network.DisconnectFromGameServer()", options: .backwards) else { return false }
+    guard let join else { return true }
+    return leave.lowerBound > join.lowerBound
+  }
+
   public static func phase(gameUUIDPresent: Bool, gameType: Int, mode: String,
                            sessionLogSaysReconnect: Bool,
                            secondsSinceAttachment: TimeInterval) -> LobbyReconnectPhase {
@@ -264,5 +274,76 @@ public enum LobbyMirrorRefreshPolicy {
   public static func isDue(now: Date, snapshotAt: Date, refreshesDone: Int, matchVisible: Bool) -> Bool {
     guard !matchVisible, refreshDelays.indices.contains(refreshesDone) else { return false }
     return now.timeIntervalSince(snapshotAt) >= refreshDelays[refreshesDone]
+  }
+}
+
+/// Decides when the lobby helper reports a match as started or over. Hearthstone rebuilds its game state for about
+/// a second during an in-game reconnect (and once while a match starts): the game id disappears and the same id
+/// comes back. Reporting that as an end plus a new start made the overlay close and redraw (final test, 15 Nov
+/// 2026). So a game id that vanishes is held for `hold` seconds, and the same id back in time is reported as nothing
+/// new. A clean leave of the game server, a different id, or the hold running out still ends the match.
+public struct LobbyMatchTracker: Equatable, Sendable {
+  public static let hold: TimeInterval = 3
+
+  public enum Report: Equatable, Sendable {
+    /// No match to report.
+    case noMatch
+    case started(String)
+    /// The reported match goes on.
+    case ongoing(String)
+    /// The game id is missing, but only for less than `hold`: report nothing new, keep the match.
+    case holding(String)
+    case ended(String)
+    /// A different game id: the first match ended and a new one started.
+    case replaced(ended: String, started: String)
+  }
+
+  /// The match the helper currently reports, if any (also during a hold).
+  public private(set) var reportedGameUUID: String?
+  private var vanishedAt: TimeInterval?
+  /// A match that ended while its game state lingers (the end screen): its id must not start it again.
+  private var finishedGameUUID: String?
+
+  public init() {}
+
+  /// One poll. `gameUUID`: the Battlegrounds game id read now (nil when there is none). `leftGameServer`: the session
+  /// log's newest game-connection line is a clean leave. `now`: seconds on any steady clock.
+  public mutating func observe(gameUUID: String?, leftGameServer: Bool, now: TimeInterval) -> Report {
+    if gameUUID == nil { finishedGameUUID = nil }
+    if let reported = reportedGameUUID {
+      if leftGameServer { return finish(reported, lingering: gameUUID) }
+      if let gameUUID {
+        vanishedAt = nil
+        if gameUUID == reported { return .ongoing(gameUUID) }
+        reportedGameUUID = gameUUID
+        return .replaced(ended: reported, started: gameUUID)
+      }
+      let since = vanishedAt ?? now
+      vanishedAt = since
+      if now - since < Self.hold { return .holding(reported) }
+      return finish(reported, lingering: nil)
+    }
+    guard let gameUUID, gameUUID != finishedGameUUID else { return .noMatch }
+    if leftGameServer {
+      finishedGameUUID = gameUUID
+      return .noMatch
+    }
+    reportedGameUUID = gameUUID
+    vanishedAt = nil
+    return .started(gameUUID)
+  }
+
+  /// Hearthstone quit: the match that was reported (also one on hold), for `match_suspended`. Starts over.
+  public mutating func hearthstoneExited() -> String? {
+    let reported = reportedGameUUID
+    self = LobbyMatchTracker()
+    return reported
+  }
+
+  private mutating func finish(_ reported: String, lingering: String?) -> Report {
+    reportedGameUUID = nil
+    vanishedAt = nil
+    finishedGameUUID = lingering
+    return .ended(reported)
   }
 }
