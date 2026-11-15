@@ -1,7 +1,8 @@
 name: HSReconnect
 
 include:
-  # The lobby capture helper (own Mono reader, no third-party runtime) is part of every build.
+  # The lobby capture helper is part of every build. It uses our own read-only Mono reader
+  # (Shared/MonoReader) and embeds no third-party runtime; no build setting adds HearthMirror.
   - path: project-lobby-helper.yml
 
 options:
