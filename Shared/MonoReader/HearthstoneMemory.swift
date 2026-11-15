@@ -56,19 +56,6 @@ public enum BattlegroundsMode {
   }
 }
 
-public enum BattlegroundsGameType {
-  /// PegasusShared.GameType values of Battlegrounds games: GT_BATTLEGROUNDS (23), _FRIENDLY (24), _AI_VS_AI (35),
-  /// _PLAYER_VS_AI (36) and the Duos types 37–41.
-  public static let values: Set<Int> = [23, 24, 35, 36, 37, 38, 39, 40, 41]
-
-  /// The lobby overlay is for Battlegrounds only. A game type that isn't known yet (0, or unreadable) doesn't rule a
-  /// lobby out: the game can report it late, for example while reconnecting.
-  public static func lobbyApplies(gameType: Int?) -> Bool {
-    guard let gameType, gameType != 0 else { return true }
-    return values.contains(gameType)
-  }
-}
-
 /// What a failed attach means for the lobby helper.
 public enum LobbyReaderFailure: Equatable, Sendable {
   /// The game is starting (or its memory moved mid-read): try again later, silently.

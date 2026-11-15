@@ -79,6 +79,9 @@ private final class LobbyCaptureProbe {
   private var mirror: HearthstoneMemory?
   private var attachedPID: Int32?
   private var activeGameUUID: String?
+  /// The game id positively seen as Battlegrounds (BattlegroundsGameClassifier.confirmedGameUUID). Unlike
+  /// activeGameUUID it never holds a game let through while its type was still unknown.
+  private var confirmedBattlegroundsGameUUID: String?
   private var lastPayload: CaptureEvent?
   private var logSessionDirectory: String?
   private var attachedAt: Date?
@@ -298,10 +301,19 @@ private final class LobbyCaptureProbe {
 
     mirror.beginSnapshot()
     let gameType = mirror.gameType() ?? 0
-    let lobby = BattlegroundsGameType.lobbyApplies(gameType: gameType) ? mirror.matchLobby() : nil
+    let mode = mirror.selectedBattlegroundsMode()
+    // Lobby rows (and the game id) are for Battlegrounds only; BattlegroundsGameClassifier decides, so a game
+    // type Blizzard adds later still counts when the match has Battlegrounds' eight contestants.
+    let match = mirror.matchLobby()
+    let matchUUID = trimmed(match?.gameUUID)
+    let kind = BattlegroundsGameClassifier.kind(BattlegroundsGameClassifier.helperEvidence(
+      gameType: gameType, selectedMode: mode, contestants: match?.players.count,
+      gameUUID: matchUUID, confirmedGameUUID: confirmedBattlegroundsGameUUID))
+    confirmedBattlegroundsGameUUID = BattlegroundsGameClassifier.confirmedGameUUID(
+      kind: kind, gameUUID: matchUUID, previous: confirmedBattlegroundsGameUUID)
+    let lobby = BattlegroundsGameClassifier.countsAsMatch(kind) ? match : nil
     let gameUUID = trimmed(lobby?.gameUUID)
     let account = mirror.accountID()
-    let mode = mirror.selectedBattlegroundsMode()
     let ownRating = BattlegroundsMode.ownRating(mode: mode, ratings: mirror.battlegroundsRatings())
     let players = (lobby?.players ?? []).prefix(8).map {
       CapturedPlayer(
@@ -376,6 +388,7 @@ private final class LobbyCaptureProbe {
     mirror = nil
     attachedPID = nil
     activeGameUUID = nil
+    confirmedBattlegroundsGameUUID = nil
     logSessionDirectory = nil
     attachedAt = nil
     mirrorSnapshotAt = nil

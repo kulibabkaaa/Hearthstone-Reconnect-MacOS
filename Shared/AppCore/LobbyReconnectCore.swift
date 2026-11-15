@@ -13,6 +13,112 @@ public enum LobbyLiveCaptureDisposition: Equatable, Sendable {
   case unsupported
 }
 
+/// What kind of game is on: the Reconnect button counts Solo and Duos, the lobby overlay is Solo-only.
+public enum BattlegroundsMatchKind: Equatable, Sendable {
+  case solo
+  case duos
+  /// Not Battlegrounds: Constructed, Arena, Tavern Brawl, Mercenaries, …, or a game type nobody has seen before
+  /// with no Battlegrounds evidence.
+  case other
+  /// Nothing known yet (no game type, nothing else says either way). Counts, as an unknown game always has.
+  case undetermined
+}
+
+/// Everything that can tell a Battlegrounds game apart. Each part may be unknown (nil).
+public struct BattlegroundsEvidence: Equatable, Sendable {
+  /// PegasusShared.GameType (`GameMgr.m_gameType`, or `GameType=` in Power.log); 0 = none yet.
+  public var gameType: Int?
+  /// The mode selected in the Battlegrounds menu ("solo" / "duos"). It stays set after leaving that menu, so it
+  /// only tells Solo from Duos; it is never evidence that the game itself is Battlegrounds.
+  public var selectedMode: String?
+  /// BACON_DUO_TEAM_ID; nonzero only in Battlegrounds Duos.
+  public var duoTeamID: Int?
+  /// Whether the game was entered from a Battlegrounds scene (BACON…, from the logs); nil when not logged.
+  public var enteredFromBattlegrounds: Bool?
+  /// Players with an account in the match: 8 in Battlegrounds (Solo and Duos), 2–4 in every other mode.
+  public var contestantCount: Int?
+  /// This same game (same game id) was already positively seen as Battlegrounds (Solo or Duos, not merely
+  /// undetermined), so one poll that sees fewer contestants can't end and restart it.
+  public var alreadyCounted: Bool
+
+  public init(gameType: Int? = nil, selectedMode: String? = nil, duoTeamID: Int? = nil,
+              enteredFromBattlegrounds: Bool? = nil, contestantCount: Int? = nil, alreadyCounted: Bool = false) {
+    self.gameType = gameType
+    self.selectedMode = selectedMode
+    self.duoTeamID = duoTeamID
+    self.enteredFromBattlegrounds = enteredFromBattlegrounds
+    self.contestantCount = contestantCount
+    self.alreadyCounted = alreadyCounted
+  }
+}
+
+/// The one place that decides whether a game is Battlegrounds. Known type numbers decide first; a type number
+/// Blizzard adds later counts as Battlegrounds only with other evidence (a Battlegrounds scene, a Duos team, eight
+/// contestants), so a new Battlegrounds mode still shows the button and the overlay, and a new non-Battlegrounds
+/// mode still doesn't.
+public enum BattlegroundsGameClassifier {
+  /// GT_BATTLEGROUNDS (23), _FRIENDLY (24), _AI_VS_AI (35), _PLAYER_VS_AI (36).
+  public static let soloGameTypes: Set<Int> = [23, 24, 35, 36]
+  /// GT_BATTLEGROUNDS_DUO (37), _DUO_VS_AI (38), _DUO_FRIENDLY (39), _DUO_AI_VS_AI (40), _DUO_1_PLAYER_VS_AI (41).
+  public static let duosGameTypes: Set<Int> = [37, 38, 39, 40, 41]
+  /// Every other type Hearthstone 37.0.255790 defines (PegasusShared.GameType in blizzard.bgsclient.dll; Firestone's
+  /// copy lacks 14, 15, 43–45): vs AI/friend, tutorial, Arena, test, Ranked, Casual, Hearthstone Duos (14, 15), Tavern
+  /// Brawl, Fireside, Duels, Mercenaries, Underground Arena (42), achievement test, Arena and Underground Arena vs AI.
+  /// Never Battlegrounds, whatever else is seen.
+  public static let otherGameTypes: Set<Int> = [1, 2, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21, 22, 28, 29, 30,
+                                                31, 32, 33, 34, 42, 43, 44, 45]
+  public static let battlegroundsContestants = 8
+
+  public static func kind(_ evidence: BattlegroundsEvidence) -> BattlegroundsMatchKind {
+    let gameType = evidence.gameType ?? 0
+    if otherGameTypes.contains(gameType) { return .other }
+    let duosSignal = duosGameTypes.contains(gameType) || (evidence.duoTeamID ?? 0) != 0
+      || evidence.selectedMode?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "duos"
+    let battlegroundsEvidence = evidence.enteredFromBattlegrounds == true || (evidence.duoTeamID ?? 0) != 0
+      || (evidence.contestantCount ?? 0) >= battlegroundsContestants || evidence.alreadyCounted
+    let isBattlegrounds: Bool?
+    if soloGameTypes.contains(gameType) || duosGameTypes.contains(gameType) {
+      isBattlegrounds = true
+    } else if evidence.enteredFromBattlegrounds == false {
+      isBattlegrounds = false  // entered from Constructed, Arena, … : a new type there isn't Battlegrounds
+    } else if battlegroundsEvidence {
+      isBattlegrounds = true
+    } else {
+      // No type yet: unknown (counts, as before). A type nobody knows, with no evidence: not Battlegrounds.
+      isBattlegrounds = gameType == 0 ? nil : false
+    }
+    switch isBattlegrounds {
+    case true?: return duosSignal ? .duos : .solo
+    case false?: return .other
+    case nil: return duosSignal ? .duos : .undetermined
+    }
+  }
+
+  /// The Reconnect button and the helper's lobby rows: any Battlegrounds game, Solo or Duos, or one not known yet.
+  public static func countsAsMatch(_ kind: BattlegroundsMatchKind) -> Bool { kind != .other }
+
+  /// What the lobby helper knows from memory: the game type, the menu's mode, how many players with an account the
+  /// match has, and whether this game id is the one it confirmed as Battlegrounds earlier (`confirmedGameUUID`).
+  public static func helperEvidence(gameType: Int, selectedMode: String, contestants: Int?, gameUUID: String?,
+                                    confirmedGameUUID: String?) -> BattlegroundsEvidence {
+    BattlegroundsEvidence(gameType: gameType, selectedMode: selectedMode, contestantCount: contestants,
+                          alreadyCounted: gameUUID != nil && gameUUID == confirmedGameUUID)
+  }
+
+  /// The game id the helper may pass as `confirmedGameUUID` next poll. Only an id positively seen as Solo or Duos is
+  /// latched; one let through while the type was still unknown (`.undetermined`) is not, so a game whose type later
+  /// reads as something new and non-Battlegrounds is dropped instead of staying counted.
+  public static func confirmedGameUUID(kind: BattlegroundsMatchKind, gameUUID: String?,
+                                       previous: String?) -> String? {
+    guard let gameUUID else { return nil }
+    switch kind {
+    case .solo, .duos: return gameUUID
+    case .undetermined: return previous == gameUUID ? previous : nil
+    case .other: return nil
+    }
+  }
+}
+
 public enum LobbyReconnectPolicy {
   public static let startupGrace: TimeInterval = 30
 
@@ -24,7 +130,9 @@ public enum LobbyReconnectPolicy {
   public static func phase(gameUUIDPresent: Bool, gameType: Int, mode: String,
                            sessionLogSaysReconnect: Bool,
                            secondsSinceAttachment: TimeInterval) -> LobbyReconnectPhase {
-    if mode == "duos" || (37...40).contains(gameType) { return .idle }
+    // The Solo-only overlay has nothing to resume in Duos. A Duos selection idles any game, as it always has.
+    let kind = BattlegroundsGameClassifier.kind(BattlegroundsEvidence(gameType: gameType, selectedMode: mode))
+    if kind == .duos || mode == "duos" { return .idle }
     if gameUUIDPresent { return .live }
     if sessionLogSaysReconnect && secondsSinceAttachment <= startupGrace { return .resuming }
     if secondsSinceAttachment < startupGrace { return .probing }

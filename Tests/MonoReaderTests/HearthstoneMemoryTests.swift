@@ -363,21 +363,6 @@ struct BattlegroundsModeTests {
   func noRatings() { #expect(BattlegroundsMode.ownRating(mode: "solo", ratings: nil) == nil) }
 }
 
-@Suite("Battlegrounds game types")
-struct BattlegroundsGameTypeTests {
-  @Test("Battlegrounds solo, duos, friendly and AI games have a lobby", arguments: [23, 24, 35, 36, 37, 38, 39, 40, 41])
-  func battlegrounds(gameType: Int) { #expect(BattlegroundsGameType.lobbyApplies(gameType: gameType)) }
-
-  @Test("ranked, casual, arena, brawl and Mercenaries games don't", arguments: [1, 2, 5, 7, 8, 16, 30, 31, 42])
-  func otherModes(gameType: Int) { #expect(!BattlegroundsGameType.lobbyApplies(gameType: gameType)) }
-
-  @Test("a game type not known yet doesn't hide a lobby")
-  func unknown() {
-    #expect(BattlegroundsGameType.lobbyApplies(gameType: 0))
-    #expect(BattlegroundsGameType.lobbyApplies(gameType: nil))
-  }
-}
-
 @Suite("Lobby reader failures")
 struct LobbyReaderFailureTests {
   @Test("an unsupported layout stops the reader; starting-up states retry")
