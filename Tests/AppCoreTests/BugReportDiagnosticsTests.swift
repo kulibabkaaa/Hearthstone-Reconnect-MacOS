@@ -87,6 +87,21 @@ struct BugReportDiagnosticsTests {
     #expect(redacted.contains("/Users/~/Library/x"))
   }
 
+  @Test func redactsUnusualSpacingCaseAndPathShapes() {
+    let redacted = BugReportDiagnostics.redact(
+      "address= 1.2.3.4:1119, game= 8323, Client=99, SpectateKey=abc hi: 1441, lo: 2222 Ли́са#2345 /Users/John Smith/Library"
+    )
+
+    #expect(!redacted.contains("8323"))
+    #expect(!redacted.contains("99"))
+    #expect(!redacted.contains("abc"))
+    #expect(!redacted.contains("1441"))
+    #expect(!redacted.contains("2222"))
+    #expect(!redacted.contains("Ли"))
+    #expect(!redacted.contains("Smith"))
+    #expect(redacted.contains("1.2.3.4:1119"))
+  }
+
   @Test func readsOnlyTheRegionHostFromBattleNetLog() {
     let battleNet = """
       I 12:26:26.1 [] Connection Request to 'eu.actual.battle.net:1119' with Aurora Version '37.0.0.0'
@@ -196,5 +211,12 @@ struct BugReportDiagnosticsTests {
       )
     )
     #expect(withText.hasSuffix("--B--\r\n"))
+
+    let note = BugReportMultipartBody(
+      content: content, imageJPEGs: [], diagnosticsNote: "left out", boundary: "B"
+    )
+    let noteText = String(decoding: note.data, as: UTF8.self)
+    #expect(noteText.contains("name=\"fi-text-diagnostics\"\r\n\r\nleft out\r\n"))
+    #expect(!noteText.contains("fi-file-diagnostics"))
   }
 }

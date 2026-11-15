@@ -118,7 +118,11 @@ final class BugReportClient {
       // The logs switch is on by default, so a form service that refuses the text file must never cost the
       // report itself: send it once more without the attachment.
       try await send(
-        BugReportMultipartBody(content: content, imageJPEGs: imageData),
+        BugReportMultipartBody(
+          content: content,
+          imageJPEGs: imageData,
+          diagnosticsNote: "The diagnostics file was refused by the form service and left out."
+        ),
         to: endpoint
       )
     }

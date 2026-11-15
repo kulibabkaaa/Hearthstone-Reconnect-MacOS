@@ -905,7 +905,7 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
 
     let explanation = NSTextField(
       wrappingLabelWithString:
-        "Adds HS Reconnect's recent log and Hearthstone's game-connection lines, so the problem can be found without asking you for files. BattleTags, names and account IDs are removed."
+        "Adds HS Reconnect's recent log and only the game-connection lines from Hearthstone's logs, so the problem can be found without asking you for files. Game keys, BattleTags and account IDs are blanked."
     )
     explanation.font = .systemFont(ofSize: 11)
     explanation.textColor = .secondaryLabelColor
@@ -1008,12 +1008,17 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
   /// Also called by the UI harness (`--bug-report --diagnostics-preview`).
   @objc func showDiagnosticsPreview() {
     guard let window, diagnosticsSheet == nil, let task = refreshDiagnostics() else { return }
+    let generation = diagnosticsGeneration
     diagnosticsPreviewButton.isEnabled = false
     Task { @MainActor [weak self] in
       let text = await task.value
       guard let self else { return }
       self.diagnosticsPreviewButton.isEnabled = !self.isSubmitting
-      guard self.window?.isVisible == true, self.diagnosticsSheet == nil else { return }
+      // Only show text that is still the one Submit would send.
+      guard generation == self.diagnosticsGeneration,
+        self.window?.isVisible == true,
+        self.diagnosticsSheet == nil
+      else { return }
       self.presentDiagnosticsSheet(text: text, on: window)
     }
   }

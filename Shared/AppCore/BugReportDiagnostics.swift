@@ -207,20 +207,21 @@ public enum BugReportDiagnostics {
   }
 
   private static let redactions: [(String, String)] = [
-    // Game, client and spectator keys in `GotoGameServe() - address=` lines.
-    ("\\b(game|client|spectateKey)=[^ ,]*", "$1=x"),
+    // Game, client and spectator keys in `GotoGameServe() - address=` lines, in any case and spacing.
+    ("(?i)\\b(game|client|spectateKey)(\\s*=\\s*)[^ ,]*", "$1=x"),
     // Account and player identifiers in `Key=value`, `Key=[hi=… lo=…]` or `key: value` form.
     (
       "(?i)\\b(AccountId|GameAccountId|playerId|BattleTag|gameUuid|uuid|token)(\\s*[=:]\\s*)(\\[[^\\]]{0,200}\\]|[^ ,\\]]*)",
       "$1$2x"
     ),
     // Loose Blizzard account id halves.
-    ("\\b(hi|lo)=[0-9]+", "$1=x"),
+    ("(?i)\\b(hi|lo)(\\s*[=:]\\s*)[0-9]+", "$1$2x"),
     // BattleTags (Name#1234) and email addresses. Quantifiers are bounded so long lines stay fast.
-    ("[\\p{L}\\p{N}_]{2,24}#[0-9]{3,6}", "<battletag>"),
+    ("[\\p{L}\\p{M}\\p{N}_]{2,40}#[0-9]{3,6}", "<battletag>"),
     ("[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(\\.[A-Za-z0-9-]{1,63}){1,8}", "<email>"),
     // Home folder names in file paths.
-    ("/Users/[^/\\s]+", "/Users/~"),
+    // Home folder names in file paths (may contain spaces, so everything up to the next slash goes).
+    ("/Users/[^/\\n]+", "/Users/~"),
   ]
 
   // MARK: - Helpers
@@ -241,10 +242,7 @@ public enum BugReportDiagnostics {
   }
 
   private static func timestamp(_ date: Date) -> String {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime]
-    formatter.timeZone = TimeZone(secondsFromGMT: 0)
-    return formatter.string(from: date)
+    date.formatted(.iso8601)
   }
 
   // MARK: - Finding the newest log folder

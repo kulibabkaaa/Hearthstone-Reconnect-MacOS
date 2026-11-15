@@ -142,6 +142,7 @@ public struct BugReportMultipartBody {
     content: BugReportContent,
     imageJPEGs: [Data],
     diagnosticsText: String? = nil,
+    diagnosticsNote: String? = nil,
     boundary: String = "HSReconnect-\(UUID().uuidString)"
   ) {
     var body = Data()
@@ -163,6 +164,9 @@ public struct BugReportMultipartBody {
         boundary: boundary,
         to: &body
       )
+    }
+    if let diagnosticsNote {
+      Self.append(diagnosticsNote, name: "fi-text-diagnostics", boundary: boundary, to: &body)
     }
     if let diagnosticsText {
       Self.append(
