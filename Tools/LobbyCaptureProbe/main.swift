@@ -95,10 +95,6 @@ private final class LobbyCaptureProbe {
   /// When the attached reader's class list was last read, and how many of the scheduled re-reads are done.
   private var mirrorSnapshotAt: Date?
   private var mirrorRefreshesDone = 0
-  /// Match detection only (lobby info off, Reconnect button on): never show the lobby access dialog.
-  private let quietAttach = ProcessInfo.processInfo.environment["HS_RECONNECT_QUIET_ATTACH"] == "1"
-  private static let quietRetryInterval: TimeInterval = 30
-  private var quietRetryAfter: Date?
 
   func run() -> Never {
     emit(event: "probe_started", detail: "Waiting for native Hearthstone.")
@@ -129,7 +125,6 @@ private final class LobbyCaptureProbe {
   }
 
   private func attach(to pid: Int32) {
-    if quietAttach, let quietRetryAfter, Date() < quietRetryAfter { return }
     if !LobbyAttachRetryPolicy.canAttempt(
       failedPID: failedAttachmentPID,
       retryAfter: attachmentRetryAfter,
@@ -154,16 +149,10 @@ private final class LobbyCaptureProbe {
         detail: "Hearthstone could not be verified as the signed Blizzard application.")
       return
     }
-    // TaskportAuthorization.request() may show a password dialog. Quiet mode skips it and attaches only when macOS
-    // already grants task_for_pid's right without one (an approval within its 10 h timeout, or developer tools
-    // access enabled), and checks again later. So does a retry for a game that is still starting.
-    let grantedWithoutDialog = (quietAttach || retryWithoutPrompt) && Self.taskportRightGrantedWithoutDialog()
-    if quietAttach && !grantedWithoutDialog {
-      quietRetryAfter = Date().addingTimeInterval(Self.quietRetryInterval)
-      emitIfChanged(event: "permission_unavailable", hearthstonePID: pid,
-        detail: "Lobby access isn't granted now; match detection doesn't ask for it.")
-      return
-    }
+    // TaskportAuthorization.request() may show a password dialog. A retry for a game that is still starting skips
+    // it and attaches only when macOS already grants task_for_pid's right without one (an approval within its
+    // 10 h timeout, or developer tools access enabled).
+    let grantedWithoutDialog = retryWithoutPrompt && Self.taskportRightGrantedWithoutDialog()
     if retryWithoutPrompt && !grantedWithoutDialog {
       // The approval ran out (or was revoked) while waiting for the game to sign in, possibly hours after the
       // player last looked. Don't ask now: the app shows "Lobby access needs approval" with Retry instead.
@@ -398,7 +387,6 @@ private final class LobbyCaptureProbe {
     mirrorSnapshotAt = nil
     mirrorRefreshesDone = 0
     if clearRetry {
-      quietRetryAfter = nil
       failedAttachmentPID = nil
       attachmentRetryAfter = nil
       attachmentFailureCount = 0

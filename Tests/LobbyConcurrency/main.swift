@@ -398,7 +398,7 @@ private func testDetectorSignalMapping() throws {
   let expected: [String: MatchDetectorSignal?] = [
     "probe_started": .waiting, "waiting_for_hearthstone": .waiting, "match_suspended": .waiting,
     "attachment_retrying": .waiting,
-    "permission_unavailable": .gaveUp, "permission_failed": .gaveUp, "attachment_failed": .gaveUp,
+    "permission_failed": .gaveUp, "attachment_failed": .gaveUp, "permission_unavailable": nil,
     "attached": .attached, "reconnecting_match": .attached, "match_started": .attached,
     "match_snapshot": .attached, "waiting_for_match": .attached, "match_ended": .attached,
     "something_new": nil,
