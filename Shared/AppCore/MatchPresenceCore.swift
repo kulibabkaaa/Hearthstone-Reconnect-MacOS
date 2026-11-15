@@ -239,7 +239,10 @@ public struct MatchPresenceCore: Equatable, Sendable {
       if !isConnected { kind = .unknown }
     }
     let effectiveKind = kind == .unknown ? menuKind : kind
-    presence = isConnected && effectiveKind != .other ? .inMatch : .notInMatch
+    let entered: Bool? = effectiveKind == .unknown ? nil : effectiveKind == .battlegrounds
+    let counts = BattlegroundsGameClassifier.countsAsMatch(
+      BattlegroundsGameClassifier.kind(BattlegroundsEvidence(enteredFromBattlegrounds: entered)))
+    presence = isConnected && counts ? .inMatch : .notInMatch
     return presence
   }
 
