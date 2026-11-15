@@ -447,6 +447,8 @@ private final class BugReportDescriptionTextView: NSTextView {
 final class BugReportWindowController: NSWindowController, NSTextViewDelegate, NSTextFieldDelegate, NSWindowDelegate {
   private static let compactWindowHeight: CGFloat = 600
   private static let previewWindowHeight: CGFloat = 675
+  /// Extra height for the "Include diagnostic logs" card.
+  private static let diagnosticsCardHeight: CGFloat = 104
 
   private let client = BugReportClient()
   private let descriptionTextView = BugReportDescriptionTextView()
@@ -475,6 +477,18 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     action: nil
   )
   private let statusLabel = NSTextField(labelWithString: "")
+  private let diagnosticsProvider: (@MainActor () async -> String)?
+  private let diagnosticsSwitch = NSSwitch()
+  private let diagnosticsSizeLabel = NSTextField(labelWithString: "")
+  private let diagnosticsPreviewButton = HoverButton(
+    title: "Show What's Included…",
+    target: nil,
+    action: nil
+  )
+  /// The newest collection. Its result is exactly what the preview shows and what Submit sends.
+  private var diagnosticsTask: Task<String, Never>?
+  private var diagnosticsGeneration = 0
+  private var diagnosticsSheet: NSWindow?
 
   private var attachments: [BugReportAttachment] = []
   private var submissionTask: Task<Void, Never>?
@@ -491,13 +505,16 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     return NSSound(contentsOf: url, byReference: true)
   }()
 
-  init() {
+  /// `diagnosticsProvider` builds the optional diagnostics file; without one the form has no diagnostics switch.
+  init(diagnosticsProvider: (@MainActor () async -> String)? = nil) {
+    self.diagnosticsProvider = diagnosticsProvider
     let window = NSWindow(
       contentRect: NSRect(
         x: 0,
         y: 0,
         width: 500,
         height: Self.compactWindowHeight
+          + (diagnosticsProvider == nil ? 0 : Self.diagnosticsCardHeight)
       ),
       styleMask: [.titled, .closable],
       backing: .buffered,
@@ -517,10 +534,14 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
 
   deinit {
     submissionTask?.cancel()
+    diagnosticsTask?.cancel()
     removeTemporaryAttachments()
   }
 
   func present() {
+    if window?.isVisible != true {
+      refreshDiagnostics()
+    }
     showWindow(nil)
     window?.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
@@ -742,7 +763,9 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
 
     let privacyText = NSTextField(
       wrappingLabelWithString:
-        "Sends your description, email, app/macOS versions, and any images you add. Never include passwords or account details."
+        diagnosticsProvider == nil
+          ? "Sends your description, email, app/macOS versions, and any images you add. Never include passwords or account details."
+          : "Sends your description, email, app/macOS versions, any images you add, and diagnostic logs if switched on. Never include passwords or account details."
     )
     privacyText.textColor = .secondaryLabelColor
     privacyText.maximumNumberOfLines = 3
@@ -789,16 +812,19 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     buttonRow.alignment = .centerY
     buttonRow.spacing = 10
 
-    let stack = NSStackView(
-      views: [
-        header,
-        descriptionCard,
-        emailCard,
-        attachmentCard,
-        privacyRow,
-        buttonRow,
-      ]
-    )
+    let diagnosticsCard = diagnosticsProvider == nil
+      ? nil
+      : makeDiagnosticsCard()
+    let formViews = [
+      header,
+      descriptionCard,
+      emailCard,
+      attachmentCard,
+      diagnosticsCard,
+      privacyRow,
+      buttonRow,
+    ].compactMap { $0 }
+    let stack = NSStackView(views: formViews)
     stack.orientation = .vertical
     stack.alignment = .leading
     stack.spacing = 10
@@ -806,14 +832,7 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     contentView.addSubview(stack)
     formContentView = stack
 
-    for view in [
-      header,
-      descriptionCard,
-      emailCard,
-      attachmentCard,
-      privacyRow,
-      buttonRow,
-    ] {
+    for view in formViews {
       view.translatesAutoresizingMaskIntoConstraints = false
       view.widthAnchor.constraint(
         equalTo: stack.widthAnchor
@@ -861,6 +880,224 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
         constant: -16
       ),
     ])
+  }
+
+  private func makeDiagnosticsCard() -> NSView {
+    let title = NSTextField(labelWithString: "Include diagnostic logs")
+    title.font = .systemFont(ofSize: 16, weight: .semibold)
+    let recommendedLabel = NSTextField(labelWithString: "Recommended")
+    recommendedLabel.font = .systemFont(ofSize: 11, weight: .medium)
+    recommendedLabel.textColor = .tertiaryLabelColor
+
+    diagnosticsSwitch.state = .on
+    diagnosticsSwitch.target = self
+    diagnosticsSwitch.action = #selector(diagnosticsSwitchChanged)
+    diagnosticsSwitch.setAccessibilityLabel("Include diagnostic logs")
+
+    let titleSpacer = NSView()
+    titleSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    let headerRow = NSStackView(
+      views: [title, recommendedLabel, titleSpacer, diagnosticsSwitch]
+    )
+    headerRow.orientation = .horizontal
+    headerRow.alignment = .centerY
+    headerRow.spacing = 8
+
+    let explanation = NSTextField(
+      wrappingLabelWithString:
+        "Adds HS Reconnect's recent log and only the game-connection lines from Hearthstone's logs, so the problem can be found without asking you for files. Game keys, BattleTags and account IDs are blanked."
+    )
+    explanation.font = .systemFont(ofSize: 11)
+    explanation.textColor = .secondaryLabelColor
+    explanation.maximumNumberOfLines = 3
+
+    diagnosticsPreviewButton.target = self
+    diagnosticsPreviewButton.action = #selector(showDiagnosticsPreview)
+    diagnosticsPreviewButton.image = NSImage(
+      systemSymbolName: "doc.text.magnifyingglass",
+      accessibilityDescription: nil
+    )
+    diagnosticsPreviewButton.imagePosition = .imageLeading
+    diagnosticsPreviewButton.controlSize = .small
+    diagnosticsSizeLabel.font = .systemFont(ofSize: 11)
+    diagnosticsSizeLabel.textColor = .secondaryLabelColor
+    diagnosticsSizeLabel.alignment = .right
+    diagnosticsSizeLabel.setAccessibilityLabel("Diagnostic logs status")
+    let footerSpacer = NSView()
+    footerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    let footerRow = NSStackView(
+      views: [diagnosticsPreviewButton, footerSpacer, diagnosticsSizeLabel]
+    )
+    footerRow.orientation = .horizontal
+    footerRow.alignment = .centerY
+    footerRow.spacing = 8
+
+    let stack = NSStackView(views: [headerRow, explanation, footerRow])
+    stack.orientation = .vertical
+    stack.alignment = .leading
+    stack.spacing = 6
+    for view in [headerRow, explanation, footerRow] {
+      view.translatesAutoresizingMaskIntoConstraints = false
+      view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+    }
+    updateDiagnosticsLabel()
+    return makeCard(containing: stack)
+  }
+
+  // MARK: - Diagnostics
+
+  private var includesDiagnostics: Bool {
+    diagnosticsProvider != nil && diagnosticsSwitch.state == .on
+  }
+
+  /// Starts a fresh collection; the preview and Submit both use the newest one.
+  @discardableResult
+  private func refreshDiagnostics() -> Task<String, Never>? {
+    guard let diagnosticsProvider else { return nil }
+    diagnosticsGeneration += 1
+    let generation = diagnosticsGeneration
+    let task = Task { @MainActor in await diagnosticsProvider() }
+    diagnosticsTask = task
+    updateDiagnosticsLabel()
+    Task { @MainActor [weak self] in
+      _ = await task.value
+      guard let self, generation == self.diagnosticsGeneration else { return }
+      self.updateDiagnosticsLabel()
+    }
+    return task
+  }
+
+  /// The text to attach, or nil when the switch is off.
+  private func diagnosticsTextForSubmission() async -> String? {
+    guard includesDiagnostics else { return nil }
+    if let diagnosticsTask {
+      return await diagnosticsTask.value
+    }
+    return await refreshDiagnostics()?.value
+  }
+
+  private func updateDiagnosticsLabel() {
+    guard diagnosticsProvider != nil else { return }
+    guard includesDiagnostics else {
+      diagnosticsSizeLabel.stringValue = "Not included"
+      return
+    }
+    let generation = diagnosticsGeneration
+    guard let task = diagnosticsTask else {
+      diagnosticsSizeLabel.stringValue = ""
+      return
+    }
+    diagnosticsSizeLabel.stringValue = "Collecting…"
+    Task { @MainActor [weak self] in
+      let text = await task.value
+      guard let self, generation == self.diagnosticsGeneration, self.includesDiagnostics else { return }
+      self.diagnosticsSizeLabel.stringValue =
+        "\(BugReportDiagnostics.byteCountDescription(text)) text file"
+    }
+  }
+
+  @objc private func diagnosticsSwitchChanged() {
+    if includesDiagnostics && diagnosticsTask == nil {
+      refreshDiagnostics()
+    } else {
+      updateDiagnosticsLabel()
+    }
+    NSAccessibility.post(element: diagnosticsSizeLabel, notification: .valueChanged)
+  }
+
+  /// Also called by the UI harness (`--bug-report --diagnostics-preview`).
+  @objc func showDiagnosticsPreview() {
+    guard let window, diagnosticsSheet == nil, let task = refreshDiagnostics() else { return }
+    let generation = diagnosticsGeneration
+    diagnosticsPreviewButton.isEnabled = false
+    Task { @MainActor [weak self] in
+      let text = await task.value
+      guard let self else { return }
+      self.diagnosticsPreviewButton.isEnabled = !self.isSubmitting
+      // Only show text that is still the one Submit would send.
+      guard generation == self.diagnosticsGeneration,
+        self.window?.isVisible == true,
+        self.diagnosticsSheet == nil
+      else { return }
+      self.presentDiagnosticsSheet(text: text, on: window)
+    }
+  }
+
+  private func presentDiagnosticsSheet(text: String, on parent: NSWindow) {
+    let sheet = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 480, height: 470),
+      styleMask: [.titled],
+      backing: .buffered,
+      defer: false
+    )
+    sheet.title = "What's Included"
+
+    let title = NSTextField(labelWithString: "What's included")
+    title.font = .systemFont(ofSize: 16, weight: .semibold)
+    let explanation = NSTextField(
+      wrappingLabelWithString: includesDiagnostics
+        ? "This exact text is attached to your report as \(BugReportDiagnostics.attachmentFilename) (\(BugReportDiagnostics.byteCountDescription(text)))."
+        : "The switch is off, so this is not attached. Turn it on to attach this exact text (\(BugReportDiagnostics.byteCountDescription(text)))."
+    )
+    explanation.font = .systemFont(ofSize: 12)
+    explanation.textColor = .secondaryLabelColor
+    explanation.maximumNumberOfLines = 3
+
+    // AppKit's ready-made scrollable text view wraps long lines to the sheet's width.
+    let scrollView = NSTextView.scrollableTextView()
+    scrollView.borderType = .bezelBorder
+    scrollView.autohidesScrollers = true
+    if let textView = scrollView.documentView as? NSTextView {
+      textView.string = text
+      textView.isEditable = false
+      textView.isSelectable = true
+      textView.isRichText = false
+      textView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+      textView.textContainerInset = NSSize(width: 6, height: 6)
+      textView.setAccessibilityLabel("Diagnostic logs that will be sent")
+    }
+
+    let doneButton = HoverButton(
+      title: "Done",
+      target: self,
+      action: #selector(closeDiagnosticsPreview)
+    )
+    doneButton.keyEquivalent = "\r"
+    doneButton.bezelStyle = .rounded
+    let buttonSpacer = NSView()
+    buttonSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    let buttonRow = NSStackView(views: [buttonSpacer, doneButton])
+    buttonRow.orientation = .horizontal
+
+    let stack = NSStackView(views: [title, explanation, scrollView, buttonRow])
+    stack.orientation = .vertical
+    stack.alignment = .leading
+    stack.spacing = 10
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    for view in [explanation, scrollView, buttonRow] {
+      view.translatesAutoresizingMaskIntoConstraints = false
+      view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+    }
+    scrollView.setContentHuggingPriority(.defaultLow, for: .vertical)
+    scrollView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+
+    guard let contentView = sheet.contentView else { return }
+    contentView.addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 18),
+      stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -18),
+      stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+      stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+    ])
+    diagnosticsSheet = sheet
+    parent.beginSheet(sheet) { [weak self] _ in
+      self?.diagnosticsSheet = nil
+    }
+  }
+
+  @objc private func closeDiagnosticsPreview() {
+    guard let sheet = diagnosticsSheet else { return }
+    window?.endSheet(sheet)
   }
 
   private func makeSuccessView() -> NSView {
@@ -1144,9 +1381,10 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
 
   private func resizeWindow(showingPreviews: Bool) {
     guard let window else { return }
-    let targetHeight = showingPreviews
+    let targetHeight = (showingPreviews
       ? Self.previewWindowHeight
-      : Self.compactWindowHeight
+      : Self.compactWindowHeight)
+      + (diagnosticsProvider == nil ? 0 : Self.diagnosticsCardHeight)
     guard abs(window.frame.height - targetHeight) > 0.5 else {
       return
     }
@@ -1209,9 +1447,12 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
       submissionTask = Task { [weak self] in
         guard let self else { return }
         do {
+          let diagnosticsText = await diagnosticsTextForSubmission()
+          guard !Task.isCancelled else { return }
           try await client.submit(
             content: content,
-            imageURLs: attachments.map(\.url)
+            imageURLs: attachments.map(\.url),
+            diagnosticsText: diagnosticsText
           )
           guard !Task.isCancelled else { return }
           await MainActor.run {
@@ -1258,6 +1499,7 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
 
   @objc private func sendAnotherReport() {
     resetForm()
+    refreshDiagnostics()
     formContentView?.isHidden = false
     successContentView?.isHidden = true
     window?.makeFirstResponder(descriptionTextView)
@@ -1266,6 +1508,9 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
   func windowWillClose(_ notification: Notification) {
     submissionTask?.cancel()
     submissionTask = nil
+    if let diagnosticsSheet {
+      window?.endSheet(diagnosticsSheet)
+    }
     setSubmitting(false)
     resetForm()
     formContentView?.isHidden = false
@@ -1285,6 +1530,8 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     }
     descriptionTextView.isEditable = !submitting
     replyEmailField.isEnabled = !submitting
+    diagnosticsSwitch.isEnabled = !submitting
+    diagnosticsPreviewButton.isEnabled = !submitting
     statusLabel.textColor = .secondaryLabelColor
     statusLabel.stringValue = submitting ? "Sending…" : ""
     updateSubmitButtonTitle(
@@ -1317,6 +1564,12 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     )
     removeTemporaryAttachments()
     updateAttachmentControls()
+    // Back to the default (on) for the next report; a fresh collection starts when the form is shown again.
+    diagnosticsSwitch.state = .on
+    diagnosticsGeneration += 1
+    diagnosticsTask?.cancel()
+    diagnosticsTask = nil
+    updateDiagnosticsLabel()
     statusLabel.stringValue = ""
   }
 

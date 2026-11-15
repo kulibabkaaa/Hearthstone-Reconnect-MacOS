@@ -47,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private var isRecordingShortcut = false
   /// Which reconnect attempt is running; every attempt ends exactly once (reply, no game, or timeout).
   private var reconnectAttempts = ReconnectAttemptFlow()
+  private var refusalLogThrottle = ReconnectRefusalLogThrottle()
   private var isReconnectRunning: Bool { reconnectAttempts.isRunning }
   /// Ends the running attempt if the extension never replies.
   private var reconnectTimeoutTimer: Timer?
@@ -117,6 +118,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   ) {
     if launchMode.uninstallProcessIdentifier == nil {
       analyticsController.start()
+      // Drops diagnostics-log lines older than three days.
+      DiagnosticLog.store.prepare()
     }
     registerDefaults()
     restoreAutomaticLobbyCaptureIfNeeded()
@@ -517,9 +520,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private func showBugReport() {
     userOpenedWindow = true
     if bugReportWindowController == nil {
-      bugReportWindowController = BugReportWindowController()
+      bugReportWindowController = BugReportWindowController(
+        diagnosticsProvider: { [weak self] in
+          await BugReportDiagnosticsCollector.collect(
+            status: self?.bugReportStatusSnapshot()
+              ?? BugReportStatusSnapshot(extensionState: "unknown", proxyState: "unknown", trackerRecoveryEnabled: false)
+          )
+        }
+      )
     }
     bugReportWindowController?.present()
+  }
+
+  /// Plain-words app state for the optional diagnostics file attached to bug reports.
+  private func bugReportStatusSnapshot() -> BugReportStatusSnapshot {
+    var extensionState: String
+    if let state = lastSystemExtensionState {
+      if state.isEnabled {
+        extensionState = "enabled"
+      } else if state.isAwaitingUserApproval {
+        extensionState = "waiting for approval"
+      } else if state.isInstalled {
+        extensionState = "installed, not enabled"
+      } else {
+        extensionState = "not installed"
+      }
+      if state.hasPendingUninstall { extensionState += ", uninstall pending" }
+    } else {
+      extensionState = "not checked yet"
+    }
+    if systemExtensionRequiresReboot { extensionState += ", restart required" }
+    if systemExtensionApprovalWasDenied { extensionState += ", approval was denied" }
+
+    let proxyState: String
+    switch proxyConnectionStatus {
+    case .connected: proxyState = "connected"
+    case .connecting: proxyState = "connecting"
+    case .reasserting: proxyState = "reasserting"
+    case .disconnecting: proxyState = "disconnecting"
+    case .disconnected: proxyState = "disconnected"
+    case .invalid: proxyState = "not configured"
+    @unknown default: proxyState = "unknown"
+    }
+    return BugReportStatusSnapshot(
+      extensionState: extensionState,
+      proxyState: proxyState + (isProxyReady ? ", ready" : ", not ready"),
+      trackerRecoveryEnabled: UserDefaults.standard.bool(forKey: DefaultsKey.trackerRecoveryEnabled)
+    )
   }
 
   private func configureSystemExtensionStatusHandlers() {
@@ -730,6 +777,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         }
       case .failure(let error):
         NSLog("Reconnect preparation failed: %@", error as NSError)
+        let nsError = error as NSError
+        DiagnosticLog.error(
+          .reconnectTarget, "proxySetup=failed domain=\(nsError.domain) code=\(nsError.code)")
         self.shouldPrepareProxyWhenAvailable = false
         self.isProxyReady = false
         self.proxyPreparationNeedsUserRetry = true
@@ -767,13 +817,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     let attempt: ReconnectAttemptToken
     switch reconnectAttempts.request(proxyReady: isProxyReady, cooldownRemaining: remaining) {
     case .refused(let effects):
+      if let line = refusalLogThrottle.line(
+        status: effects.status, source: source, now: Date().timeIntervalSince1970)
+      {
+        DiagnosticLog.notice(.reconnectTarget, line)
+      }
       applyReconnectEffects(effects)
       return
     case .started(let token, let effects):
+      refusalLogThrottle.attemptStarted()
       attempt = token
       matchMonitor.noteReconnect()
       applyReconnectEffects(effects)
-      scheduleReconnectTimeout(for: token)
+      scheduleReconnectTimeout(for: token, source: source)
     }
 
     // Off the main thread: it reads Hearthstone's logs and sockets.
@@ -795,6 +851,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     // The attempt may have timed out while the target was being looked up.
     guard reconnectAttempts.activeAttempt == attempt else { return }
     guard let endpoint else {
+      DiagnosticLog.notice(.reconnectTarget, ReconnectAttemptOutcome.endpointNotFound.logLine(source: source))
       applyReconnectEffects(reconnectAttempts.endpointNotFound(attempt))
       return
     }
@@ -814,18 +871,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         ),
         didCloseFlow: try? result.get().didCloseFlow
       )
-      self.applyReconnectEffects(self.reconnectAttempts.complete(attempt, completion), source: source)
+      let wasRunning = self.reconnectAttempts.activeAttempt == attempt
+      let effects = self.reconnectAttempts.complete(attempt, completion)
+      // Only replies that still count (the running attempt, or a timed-out one that really closed the flow).
+      if !effects.isNone {
+        DiagnosticLog.notice(
+          .reconnectTarget, ReconnectAttemptOutcome(completion).logLine(source: source, late: !wasRunning))
+      }
+      self.applyReconnectEffects(effects, source: source)
     }
   }
 
-  private func scheduleReconnectTimeout(for attempt: ReconnectAttemptToken) {
+  private func scheduleReconnectTimeout(for attempt: ReconnectAttemptToken, source: ReconnectSource) {
     reconnectTimeoutTimer?.invalidate()
     let timer = Timer(timeInterval: ReconnectAttemptFlow.timeout, repeats: false) {
       [weak self] _ in
       guard let self else { return }
-      self.applyReconnectEffects(
-        self.reconnectAttempts.timeOut(attempt, isUninstalling: self.isUninstalling)
-      )
+      let effects = self.reconnectAttempts.timeOut(attempt, isUninstalling: self.isUninstalling)
+      if !effects.isNone {
+        DiagnosticLog.notice(.reconnectTarget, ReconnectAttemptOutcome.timedOut.logLine(source: source))
+      }
+      self.applyReconnectEffects(effects)
     }
     RunLoop.main.add(timer, forMode: .common)
     reconnectTimeoutTimer = timer

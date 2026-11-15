@@ -25,6 +25,52 @@ public enum ReconnectAttemptOutcome: Equatable, Sendable, CaseIterable {
     case .requestFailed, .extensionUnavailable, .uninstalling, .timedOut: .failed
     }
   }
+
+  /// How a reply from the extension ends the attempt.
+  public init(_ completion: ReconnectCompletion) {
+    switch completion {
+    case .uninstalling: self = .uninstalling
+    case .extensionUnavailable: self = .extensionUnavailable
+    case .failed: self = .requestFailed
+    case .response(didCloseFlow: true): self = .flowClosed
+    case .response(didCloseFlow: false): self = .noFlowClosed
+    }
+  }
+
+  /// Stable name for the diagnostics log.
+  public var logName: String {
+    switch self {
+    case .flowClosed: "flowClosed"
+    case .noFlowClosed: "noFlowClosed"
+    case .endpointNotFound: "endpointNotFound"
+    case .requestFailed: "requestFailed"
+    case .extensionUnavailable: "extensionUnavailable"
+    case .uninstalling: "uninstalling"
+    case .timedOut: "timedOut"
+    }
+  }
+
+  /// The diagnostics-log line for a press that never started an attempt, for example
+  /// `result=refused reason=cooldown source=shortcut`. `status` is the refusal's main-window status.
+  public static func refusalLogLine(status: ReconnectStatusMessage?, source: ReconnectSource) -> String {
+    let reason: String
+    switch status {
+    case .proxyNotReady: reason = "proxyNotReady"
+    case .alreadyRunning: reason = "alreadyRunning"
+    case .cooldown: reason = "cooldown"
+    default: reason = "other"
+    }
+    return "result=refused reason=\(reason) source=\(source.rawValue)"
+  }
+
+  /// The diagnostics-log line for how an attempt ended, for example `result=flowClosed source=shortcut`.
+  /// `late`: the reply of an attempt that had already timed out. Words and names only, never addresses.
+  public func logLine(source: ReconnectSource?, late: Bool = false) -> String {
+    var line = "result=\(logName)"
+    if let source { line += " source=\(source.rawValue)" }
+    if late { line += " late=true" }
+    return line
+  }
 }
 
 public enum ReconnectCooldownDisplay {
@@ -226,5 +272,31 @@ public struct ReconnectAttemptFlow: Equatable, Sendable {
     guard activeAttempt == token else { return false }
     activeAttempt = nil
     return true
+  }
+}
+
+/// Logs a refused press only when it says something new, so mashing the shortcut during the cooldown can't fill the
+/// bug report's per-category line budget and push out the lines that explain a failed reconnect.
+public struct ReconnectRefusalLogThrottle: Equatable, Sendable {
+  /// The same refusal again after this long is logged again.
+  public static let repeatInterval: TimeInterval = 60
+
+  private var lastLine: String?
+  private var lastLoggedAt: TimeInterval = -.infinity
+
+  public init() {}
+
+  /// The line to log for this refusal, or nil when it repeats the previous one within `repeatInterval`.
+  public mutating func line(status: ReconnectStatusMessage?, source: ReconnectSource, now: TimeInterval) -> String? {
+    let line = ReconnectAttemptOutcome.refusalLogLine(status: status, source: source)
+    if line == lastLine, now - lastLoggedAt < Self.repeatInterval { return nil }
+    lastLine = line
+    lastLoggedAt = now
+    return line
+  }
+
+  /// A started attempt ends the run of refusals: the next refusal is logged even if it repeats an earlier one.
+  public mutating func attemptStarted() {
+    lastLine = nil
   }
 }

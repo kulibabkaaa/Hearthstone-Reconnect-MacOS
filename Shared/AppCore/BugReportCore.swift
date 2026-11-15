@@ -141,6 +141,8 @@ public struct BugReportMultipartBody {
   public init(
     content: BugReportContent,
     imageJPEGs: [Data],
+    diagnosticsText: String? = nil,
+    diagnosticsNote: String? = nil,
     boundary: String = "HSReconnect-\(UUID().uuidString)"
   ) {
     var body = Data()
@@ -159,6 +161,19 @@ public struct BugReportMultipartBody {
         name: "fi-file-images[]",
         filename: "hs-reconnect-image-\(index + 1).jpg",
         contentType: "image/jpeg",
+        boundary: boundary,
+        to: &body
+      )
+    }
+    if let diagnosticsNote {
+      Self.append(diagnosticsNote, name: "fi-text-diagnostics", boundary: boundary, to: &body)
+    }
+    if let diagnosticsText {
+      Self.append(
+        Data(diagnosticsText.utf8),
+        name: "fi-file-diagnostics",
+        filename: BugReportDiagnostics.attachmentFilename,
+        contentType: "text/plain; charset=utf-8",
         boundary: boundary,
         to: &body
       )

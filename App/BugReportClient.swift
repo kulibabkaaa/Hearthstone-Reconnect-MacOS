@@ -4,7 +4,7 @@ enum BugReportClientError: Error {
   case notConfigured
   case invalidEndpoint
   case invalidAttachment
-  case rejected
+  case rejected(statusCode: Int)
   case invalidResponse
 }
 
@@ -64,7 +64,8 @@ final class BugReportClient {
 
   func submit(
     content: BugReportContent,
-    imageURLs: [URL]
+    imageURLs: [URL],
+    diagnosticsText: String? = nil
   ) async throws {
     guard let endpoint else {
       throw BugReportClientError.notConfigured
@@ -99,11 +100,39 @@ final class BugReportClient {
     else {
       throw BugReportClientError.invalidAttachment
     }
-    let multipart = BugReportMultipartBody(
-      content: content,
-      imageJPEGs: imageData
-    )
+    if let diagnosticsText,
+      diagnosticsText.utf8.count > BugReportDiagnostics.maximumBytes
+    {
+      throw BugReportClientError.invalidAttachment
+    }
+    do {
+      try await send(
+        BugReportMultipartBody(
+          content: content,
+          imageJPEGs: imageData,
+          diagnosticsText: diagnosticsText
+        ),
+        to: endpoint
+      )
+    } catch BugReportClientError.rejected(let statusCode)
+      where diagnosticsText != nil
+      && BugReportDiagnostics.shouldRetryWithoutAttachment(statusCode: statusCode)
+    {
+      // The logs switch is on by default, so a form service that refuses the request because of its contents must
+      // never cost the report itself: send it once more without the file. Server errors and rate limits are not
+      // retried, since the first request may already be stored.
+      try await send(
+        BugReportMultipartBody(
+          content: content,
+          imageJPEGs: imageData,
+          diagnosticsNote: "The first attempt with the diagnostics file was refused (HTTP \(statusCode)), so the file was left out."
+        ),
+        to: endpoint
+      )
+    }
+  }
 
+  private func send(_ multipart: BugReportMultipartBody, to endpoint: URL) async throws {
     var request = URLRequest(url: endpoint)
     request.httpMethod = "POST"
     request.timeoutInterval = 30
@@ -122,7 +151,7 @@ final class BugReportClient {
       throw BugReportClientError.invalidResponse
     }
     guard (200 ... 299).contains(response.statusCode) else {
-      throw BugReportClientError.rejected
+      throw BugReportClientError.rejected(statusCode: response.statusCode)
     }
   }
 
