@@ -425,6 +425,13 @@ struct HearthstoneLogSessionTests {
     #expect(HearthstoneLogSession.directory(appBundle: app, launchDate: launch) == nil)
   }
 
+  @Test("without the game's start time no folder is trusted")
+  func unknownStart() throws {
+    let (app, logs) = try install()
+    try folder(logs, "Hearthstone_old", created: Date().addingTimeInterval(-86_400))
+    #expect(HearthstoneLogSession.directory(appBundle: app, launchDate: nil) == nil)
+  }
+
   @Test("no Logs folder, no session")
   func noLogs() {
     #expect(HearthstoneLogSession.directory(appBundle: URL(fileURLWithPath: "/nonexistent/Hearthstone.app"),

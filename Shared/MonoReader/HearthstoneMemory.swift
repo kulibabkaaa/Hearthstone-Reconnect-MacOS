@@ -89,8 +89,10 @@ public enum LobbyReaderFailure: Equatable, Sendable {
 
 public enum HearthstoneLogSession {
   /// The folder Hearthstone writes this run's logs to: the newest `<install>/Logs/Hearthstone_*` folder created
-  /// at or after the game started (a minute's slack for clock rounding). Nil until the game has made it.
+  /// at or after the game started (a minute's slack for clock rounding). Nil until the game has made it, and nil
+  /// when the start time is unknown: an older run's folder (and its logs) must never pass for this run's.
   public static func directory(appBundle: URL, launchDate: Date?, fileManager: FileManager = .default) -> URL? {
+    guard let launchDate else { return nil }
     let logs = appBundle.deletingLastPathComponent().appendingPathComponent("Logs", isDirectory: true)
     guard let entries = try? fileManager.contentsOfDirectory(
       at: logs, includingPropertiesForKeys: [.creationDateKey, .isDirectoryKey], options: [.skipsHiddenFiles]) else { return nil }
@@ -98,7 +100,7 @@ public enum HearthstoneLogSession {
       guard url.lastPathComponent.hasPrefix("Hearthstone_"),
             let values = try? url.resourceValues(forKeys: [.creationDateKey, .isDirectoryKey]),
             values.isDirectory == true, let created = values.creationDate else { return nil }
-      if let launchDate, created < launchDate.addingTimeInterval(-60) { return nil }
+      if created < launchDate.addingTimeInterval(-60) { return nil }
       return (url, created)
     }
     return candidates.max { $0.1 < $1.1 }?.0

@@ -96,14 +96,13 @@ public final class MonoRuntime {
     guard let corlib = runtime.assemblies.first(where: { $0.name == "mscorlib" }) else {
       throw MonoReaderError.notReady("mscorlib isn't loaded yet")
     }
+    // Everything below needs a game that is past startup; a slow start must never look like an unknown layout.
+    for name in indexAssemblies where !runtime.assemblies.contains(where: { $0.name == name }) {
+      throw MonoReaderError.notReady("\(name) isn't loaded yet")
+    }
     runtime.layout.imageClassCache = try findClassCache(image: corlib.image, layout: layout, reader: reader)
     try runtime.validateLayout()
-    for name in indexAssemblies {
-      guard runtime.assemblies.contains(where: { $0.name == name }) else {
-        throw MonoReaderError.notReady("\(name) isn't loaded yet")
-      }
-      _ = try runtime.index(assembly: name, force: true)
-    }
+    for name in indexAssemblies { _ = try runtime.index(assembly: name, force: true) }
     reader.clearCache()
     return runtime
   }
@@ -153,7 +152,8 @@ public final class MonoRuntime {
       }
       if checked >= 8, good == checked { return offset }
     }
-    throw MonoReaderError.unsupportedLayout("no class cache in mscorlib's image")
+    // Classes enter the cache as they are first used, so an early cache can be too small to recognise.
+    throw MonoReaderError.notReady("no class cache in mscorlib's image yet")
   }
 
   func readAssemblies() throws -> [MonoAssembly] {
@@ -173,25 +173,37 @@ public final class MonoRuntime {
 
   // MARK: Self-check
 
-  /// Proves the offsets that no accessor gives (and re-proves several that one does) on System.String, Int32
-  /// and DayOfWeek, which every mscorlib has. Throws `.unsupportedLayout` on any mismatch.
+  /// Proves the offsets that no accessor gives (and re-proves several that one does) on classes every mscorlib
+  /// has: System.String, System.Int32 and the enums already loaded. Throws `.unsupportedLayout` on a mismatch, and
+  /// `.notReady` when what it needs hasn't been loaded or initialised yet (classes load as they are first used).
   func validateLayout() throws {
     func fail(_ why: String) -> MonoReaderError { .unsupportedLayout("self-check failed: \(why)") }
     _ = try index(assembly: "mscorlib", force: true)
     guard let string = try findClass("System.String", in: "mscorlib"),
           let int32 = try findClass("System.Int32", in: "mscorlib"),
-          let dayOfWeek = try findClass("System.DayOfWeek", in: "mscorlib") else { throw fail("core classes not found") }
-    guard try kind(string) == MonoClassKind.definition else { throw fail("class kind") }
-    guard try !isValueType(string), try isValueType(int32), try isEnum(dayOfWeek), try !isEnum(int32) else {
+          let enumBase = try findClass("System.Enum", in: "mscorlib") else {
+      throw MonoReaderError.notReady("mscorlib's core classes aren't loaded yet")
+    }
+    let corlib = image(of: "mscorlib") ?? 0
+    let enums = try (classIndex[corlib] ?? [:]).values.filter { try parent($0) == enumBase }.prefix(64)
+    guard !enums.isEmpty else { throw MonoReaderError.notReady("no enum classes loaded yet") }
+    guard try kind(string) == MonoClassKind.definition, try kind(int32) == MonoClassKind.definition else { throw fail("class kind") }
+    guard try !isValueType(string), try !isEnum(string), try isValueType(int32), try !isEnum(int32),
+          try enums.allSatisfy({ try isEnum($0) && isValueType($0) }) else {
       throw fail("class flag bits")
     }
+    // A managed object starts with a vtable pointer and a sync word; String's first field follows them.
+    guard layout.stringLength == layout.objectHeader else { throw fail("object header") }
     let fields = try ownFields(string)
-    guard fields.contains(where: { !$0.isStatic && $0.typeCode == MonoTypeCode.i4 && UInt64($0.offset) == layout.stringLength }),
+    guard fields.count >= 3,
+          fields.contains(where: { !$0.isStatic && $0.typeCode == MonoTypeCode.i4 && UInt64($0.offset) == layout.stringLength }),
           fields.contains(where: { !$0.isStatic && $0.typeCode == MonoTypeCode.char && UInt64($0.offset) == layout.stringChars }) else {
       throw fail("System.String fields")
     }
-    guard let empty = fields.first(where: { $0.name == "Empty" && $0.isStatic && !$0.isLiteral && $0.typeCode == MonoTypeCode.string }),
-          let storage = try staticStorage(string) else { throw fail("System.String.Empty") }
+    guard let empty = fields.first(where: { $0.name == "Empty" && $0.isStatic && !$0.isLiteral && $0.typeCode == MonoTypeCode.string }) else {
+      throw fail("System.String.Empty")
+    }
+    guard let storage = try staticStorage(string) else { throw MonoReaderError.notReady("System.String isn't initialised yet") }
     let emptyString = try reader.pointer(storage + UInt64(UInt32(bitPattern: empty.offset)))
     guard emptyString != 0, try classOf(object: emptyString) == string, try reader.i32(emptyString + layout.stringLength) == 0 else {
       throw fail("static data")

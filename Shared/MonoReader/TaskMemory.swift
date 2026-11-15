@@ -45,6 +45,18 @@ public final class TaskMemory: MemorySource {
   }
 }
 
+public enum ProcessStart {
+  /// When a process started, from the kernel (for processes LaunchServices didn't record a launch date for).
+  public static func date(pid: pid_t) -> Date? {
+    var info = kinfo_proc()
+    var size = MemoryLayout<kinfo_proc>.stride
+    var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+    guard sysctl(&name, 4, &info, &size, nil, 0) == 0, size > 0, info.kp_proc.p_pid == pid else { return nil }
+    let start = info.kp_proc.p_un.__p_starttime
+    return Date(timeIntervalSince1970: TimeInterval(start.tv_sec) + TimeInterval(start.tv_usec) / 1_000_000)
+  }
+}
+
 /// The macOS right task_for_pid checks for a same-user process ("Developer Tools access"). Its rule is shared
 /// in the login session with a 10-hour timeout, so one approval covers later attaches too.
 public enum TaskportAuthorization {

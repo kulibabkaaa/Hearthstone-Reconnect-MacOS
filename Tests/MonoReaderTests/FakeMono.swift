@@ -41,7 +41,7 @@ let expectedLayout: MonoLayout = {
   var layout = MonoLayout(
     assemblyName: 0x10, assemblyImage: 0x60, classElementClass: 0, classKind: 0x1b, classBits: 0x20, classParent: 0x28,
     classNestedIn: 0x30, classImage: 0x38, className: 0x40, classNamespace: 0x48, classSizes: 0x88, classFields: 0x90,
-    classByValArg: 0xb0, fieldType: 0, fieldName: 8, fieldOffset: 0x18, typeCode: 0xa, stringLength: 0x10,
+    fieldType: 0, fieldName: 8, fieldOffset: 0x18, typeCode: 0xa, stringLength: 0x10,
     stringChars: 0x14, arrayLength: 0x18, arrayData: 0x20, classVTableSize: 0x54, vtableSlots: 0x48,
     classRuntimeInfo: 0xc8, classGenericClass: 0xe8, classFieldCount: 0xf8, classNextCache: 0x100, domainID: 0xa4,
     runtimeInfoDomainVTables: 8, typeAttributes: 8, fieldSize: 32, objectHeader: 16, hashTableSize: 24,
@@ -176,11 +176,15 @@ final class FakeMono {
   // MARK: Mono runtime
 
   /// The root domain, mscorlib with System.String / Int32 / DayOfWeek and filler classes, and Assembly-CSharp.
-  func makeRuntime(stringLengthOffset: Int32 = 0x10, assemblies extra: [String] = ["Assembly-CSharp"]) {
+  /// Options model a Mono that is still starting (`loadEnums`, `initialiseString`) or one whose layout differs
+  /// (`stringLengthOffset`, `enumBit`, `stringKind`).
+  func makeRuntime(stringLengthOffset: Int32 = 0x10, assemblies extra: [String] = ["Assembly-CSharp"],
+                   loadEnums: Bool = true, enumBit: Bool = true, initialiseString: Bool = true,
+                   stringKind: UInt8 = MonoClassKind.definition) {
     domain = alloc(0x400)
     let corlib = addAssembly("mscorlib")
     objectClass = addClass(image: corlib, namespace: "System", name: "Object")
-    stringClass = addClass(image: corlib, namespace: "System", name: "String", parent: objectClass)
+    stringClass = addClass(image: corlib, namespace: "System", name: "String", kind: stringKind, parent: objectClass)
     let emptyString = alloc(0x20)
     pointer(emptyString, vtable(for: stringClass))
     setFields(stringClass, [
@@ -189,14 +193,20 @@ final class FakeMono {
       FieldSpec(name: "Empty", type: MonoTypeCode.string, isStatic: true, offset: 0),
       FieldSpec(name: "LengthConst", type: MonoTypeCode.i4, isStatic: true, offset: 0, literal: true),
     ])
-    stringStorage = staticStorage(for: stringClass, size: 16)
-    pointer(stringStorage, emptyString)
+    if initialiseString {
+      stringStorage = staticStorage(for: stringClass, size: 16)
+      pointer(stringStorage, emptyString)
+    }
     let valueType = addClass(image: corlib, namespace: "System", name: "ValueType", parent: objectClass)
     let int32 = addClass(image: corlib, namespace: "System", name: "Int32", parent: valueType, valueType: true)
     setFields(int32, [FieldSpec(name: "m_value", type: MonoTypeCode.i4, offset: 16)])
     let enumBase = addClass(image: corlib, namespace: "System", name: "Enum", parent: valueType)
-    let day = addClass(image: corlib, namespace: "System", name: "DayOfWeek", parent: enumBase, valueType: true, isEnum: true)
-    setFields(day, [FieldSpec(name: "value__", type: MonoTypeCode.i4, offset: 16)])
+    if loadEnums {
+      for name in ["DayOfWeek", "TypeCode"] {
+        let value = addClass(image: corlib, namespace: "System", name: name, parent: enumBase, valueType: true, isEnum: enumBit)
+        setFields(value, [FieldSpec(name: "value__", type: MonoTypeCode.i4, offset: 16)])
+      }
+    }
     for filler in ["Boolean", "Byte", "Char", "Int64", "UInt64", "Array", "Type"] {
       _ = addClass(image: corlib, namespace: "System", name: filler, parent: objectClass)
     }

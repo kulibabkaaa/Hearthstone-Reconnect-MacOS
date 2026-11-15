@@ -130,7 +130,7 @@ extension MonoRuntime {
   }
 
   public func arrayInfo(_ array: ManagedRef) throws -> ArrayInfo {
-    let length = try reader.u64(array.fieldBase + layout.arrayLength)
+    let length = try reader.u32(array.fieldBase + layout.arrayLength)  // mono_array_length is a 32-bit load
     guard length <= 1_000_000 else { throw MonoReaderError.invalidData("array length \(length)") }
     let elementClass = try reader.pointer(array.klass + layout.classElementClass)
     guard elementClass != 0 else { throw MonoReaderError.invalidData("array without element class") }

@@ -79,8 +79,9 @@ enum AccessorDecoder {
     func written(_ register: UInt32) { tracked.remove(register); pages[register] = nil }
 
     for _ in 0..<maxInstructions {
-      if pc - codeBase + 4 > UInt64(code.count) { codeBase = pc; code = try fetch(pc) }
-      guard pc - codeBase + 4 <= UInt64(code.count) else { break }
+      // A branch can land before the fetched window as well as after it.
+      if pc < codeBase || pc - codeBase + 4 > UInt64(code.count) { codeBase = pc; code = try fetch(pc) }
+      guard pc >= codeBase, pc - codeBase + 4 <= UInt64(code.count) else { break }
       let word = code.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: Int(pc - codeBase), as: UInt32.self) }
       let rd = word & 31
       let rn = (word >> 5) & 31

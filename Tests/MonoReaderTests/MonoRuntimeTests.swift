@@ -69,6 +69,29 @@ struct MonoLayoutTests {
     #expect(layout.className == 0x50)
   }
 
+  private func words(_ values: [UInt32]) -> [UInt8] { values.flatMap { withUnsafeBytes(of: $0.littleEndian) { Array($0) } } }
+
+  @Test("a call clobbers x0: a load after bl isn't read as the argument's field")
+  func callClobbersArgument() throws {
+    // bl +8; ldr x0, [x0, #0x40]; ret
+    let code = words([0x9400_0002, 0xf940_2000, 0xd65f_03c0])
+    let decoded = try AccessorDecoder.decode(at: 0x1000, architecture: .arm64) { Array(code[Int($0 - 0x1000)...]) }
+    #expect(decoded.firstLoad(bits: 64) == nil)
+    #expect(decoded.firstLoad(bits: 64, fromArgument: false)?.displacement == 0x40)
+  }
+
+  @Test("a branch back before the fetched code window is followed, not a crash")
+  func backwardBranch() throws {
+    // 0x1000: b +8   0x1004: ldr x0, [x0, #0x40]   0x1008: b -4 (to 0x1004)
+    let code = words([0x1400_0002, 0xf940_2000, 0x17ff_ffff])
+    // Hand out one instruction per fetch, so the window always starts at the branch.
+    let decoded = try AccessorDecoder.decode(at: 0x1000, architecture: .arm64) { address in
+      let start = Int(address - 0x1000)
+      return Array(code[start..<min(start + 4, code.count)])
+    }
+    #expect(decoded.firstLoad(bits: 64)?.displacement == 0x40)
+  }
+
   @Test("a missing export makes the layout unsupported")
   func missingExport() {
     var exports = symbols(.x86_64)
@@ -114,6 +137,80 @@ struct MonoRuntimeAttachTests {
     // String.Empty points at an object of another class.
     let fake = ready(.x86_64) { $0.pointer($0.stringStorage, $0.newObject($0.objectClass)) }
     #expect(throws: MonoReaderError.unsupportedLayout("self-check failed: static data")) { try fake.attach() }
+  }
+
+  @Test("enums without the enum bit fail the self-check")
+  func enumBit() throws {
+    let fake = FakeMono(architecture: .arm64)
+    fake.makeRuntime(enumBit: false)
+    fake.finishClassCaches()
+    fake.install()
+    #expect(throws: MonoReaderError.unsupportedLayout("self-check failed: class flag bits")) { try fake.attach() }
+  }
+
+  @Test("a class-kind byte that doesn't say 'definition' fails the self-check")
+  func classKind() throws {
+    let fake = FakeMono(architecture: .x86_64)
+    fake.makeRuntime(stringKind: MonoClassKind.genericDefinition)
+    fake.finishClassCaches()
+    fake.install()
+    #expect(throws: MonoReaderError.unsupportedLayout("self-check failed: class kind")) { try fake.attach() }
+  }
+
+  @Test("a class-cache chain that leaves the image means next_class_cache is wrong")
+  func cacheChainLeavesImage() throws {
+    let fake = ready(.arm64) { fake in
+      let csharp = fake.image("Assembly-CSharp")
+      let stray = fake.addClass(image: csharp, namespace: "", name: "Stray")
+      fake.pointer(stray + fake.layout.classImage, fake.image("mscorlib"))
+    }
+    #expect(throws: MonoReaderError.unsupportedLayout("class cache entry from another image")) { try fake.attach() }
+  }
+
+  @Test("a game still starting is never mistaken for an unsupported layout")
+  func slowStartup() throws {
+    // mscorlib is up but no enum has been used yet.
+    let noEnums = FakeMono(architecture: .arm64)
+    noEnums.makeRuntime(loadEnums: false)
+    noEnums.finishClassCaches()
+    noEnums.install()
+    #expect(throws: MonoReaderError.notReady("no enum classes loaded yet")) { try noEnums.attach() }
+    // System.String's statics aren't initialised yet.
+    let noStatics = FakeMono(architecture: .x86_64)
+    noStatics.makeRuntime(initialiseString: false)
+    noStatics.finishClassCaches()
+    noStatics.install()
+    #expect(throws: MonoReaderError.notReady("System.String isn't initialised yet")) { try noStatics.attach() }
+    // The game assembly isn't loaded, and mscorlib's cache is still tiny: not ready, checked before anything else.
+    let early = FakeMono(architecture: .arm64)
+    early.makeRuntime(assemblies: [], loadEnums: false)
+    early.finishClassCaches()
+    early.install()
+    #expect(throws: MonoReaderError.notReady("Assembly-CSharp isn't loaded yet")) { try early.attach() }
+    #expect(LobbyReaderFailure(MonoReaderError.notReady("x")) == .gameNotReady)
+  }
+
+  @Test("generic helpers refuse a container of another generic type")
+  func genericName() throws {
+    let fake = ready(.arm64)
+    let runtime = try fake.attach()
+    let corlib = fake.image("mscorlib")
+    let queue = fake.genericDefinition(namespace: "System.Collections.Generic", name: "Queue`1", image: corlib)
+    let instance = fake.genericInstance(of: queue, image: corlib, fields: [
+      FieldSpec(name: "_items", type: MonoTypeCode.szArray, offset: 16), FieldSpec(name: "_size", type: MonoTypeCode.i4, offset: 24)])
+    let object = try #require(try runtime.object(at: fake.newObject(instance)))
+    #expect(throws: MonoReaderError.self) { try runtime.listItems(object) }
+    #expect(throws: MonoReaderError.self) { try runtime.mapSlots(object) }
+  }
+
+  @Test("array length is the 32-bit field mono_array_length reads, whatever follows it")
+  func arrayLength() throws {
+    let fake = ready(.arm64)
+    let runtime = try fake.attach()
+    let (array, _) = fake.newArray(of: fake.objectClass, elementSize: 8, count: 3)
+    fake.memory.write(array + fake.layout.arrayLength + 4, UInt32(0xffff_ffff))
+    let info = try runtime.arrayInfo(try #require(try runtime.object(at: array)))
+    #expect(info.length == 3)
   }
 
   @Test("no Mono library yet means not ready, not unsupported")

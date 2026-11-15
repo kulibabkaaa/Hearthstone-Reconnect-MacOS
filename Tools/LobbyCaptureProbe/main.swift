@@ -205,7 +205,7 @@ private final class LobbyCaptureProbe {
       candidate = nil
     }
     let logSessionDirectory = application.bundleURL.flatMap {
-      HearthstoneLogSession.directory(appBundle: $0, launchDate: application.launchDate)?.path
+      HearthstoneLogSession.directory(appBundle: $0, launchDate: application.launchDate ?? ProcessStart.date(pid: pid))?.path
     } ?? ""
     let signedIn = candidate.map { !logSessionDirectory.isEmpty && Self.isSignedIn($0) } ?? false
     let canRetryWithoutDialog = !signedIn && Self.taskportRightGrantedWithoutDialog()

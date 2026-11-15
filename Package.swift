@@ -38,7 +38,8 @@ let package = Package(
     .testTarget(
       name: "MonoReaderTests",
       dependencies: ["MonoReader"],
-      path: "Tests/MonoReaderTests"
+      path: "Tests/MonoReaderTests",
+      exclude: ["make-accessor-fixture.py"]
     ),
   ]
 )

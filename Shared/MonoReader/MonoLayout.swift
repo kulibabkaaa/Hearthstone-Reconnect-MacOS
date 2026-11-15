@@ -21,7 +21,6 @@ public struct MonoLayout: Equatable, Sendable {
   public var classNamespace: UInt64
   public var classSizes: UInt64
   public var classFields: UInt64
-  public var classByValArg: UInt64
   public var fieldType: UInt64
   public var fieldName: UInt64
   public var fieldOffset: UInt64
@@ -52,10 +51,16 @@ public struct MonoLayout: Equatable, Sendable {
   public var domainAssemblies: UInt64 = 0
   public var imageClassCache: UInt64 = 0
 
-  /// Internal offsets of Unity 6000.3's Mono (MonoBleedingEdge) on macOS, read from the code of internal
-  /// helpers in libmonobdwgc-2.0.dylib: mono_class_get_field_count (generic_class 0xe8, field_count 0xf8),
-  /// mono_class_try_get_vtable (runtime_info 0xc8, domain_id 0xa4, domain_vtables +8). Identical in the
-  /// arm64 and x86_64 slices. Note: Windows builds differ (Firestone's PE table is 8 bytes off from `parent`).
+  /// Internal offsets of Unity 6000.3's Mono (MonoBleedingEdge) on macOS, read by hand from the code of
+  /// non-exported helpers in libmonobdwgc-2.0.dylib: the field-count helper behind mono_class_get_fields
+  /// (generic_class 0xe8, field_count 0xf8) and the vtable lookup behind mono_class_vtable (runtime_info 0xc8,
+  /// domain_id 0xa4, domain_vtables +8). Identical in the arm64 and x86_64 slices. Windows builds differ
+  /// (Firestone's PE table is 8 bytes off from `parent`).
+  ///
+  /// Proven at attach by MonoRuntime.validateLayout(): runtime_info, domain_id, domain_vtables, field_count,
+  /// next_class_cache, type attributes, field size, object header, the class-cache table fields and both flag
+  /// bits. generic_class is checked each time it is used (the definition must be a generic definition with the
+  /// expected name), so a wrong value gives no data rather than wrong data.
   public static let knownInternals = (
     classRuntimeInfo: UInt64(0xc8), classGenericClass: UInt64(0xe8), classFieldCount: UInt64(0xf8),
     classNextCache: UInt64(0x100), domainID: UInt64(0xa4), runtimeInfoDomainVTables: UInt64(8),
@@ -68,7 +73,7 @@ public struct MonoLayout: Equatable, Sendable {
     "_mono_assembly_get_name", "_mono_assembly_get_image", "_mono_class_get_element_class", "_mono_class_get_flags",
     "_mono_class_is_valuetype", "_mono_class_get_parent", "_mono_class_get_nesting_type", "_mono_class_get_image",
     "_mono_class_get_name", "_mono_class_get_namespace", "_mono_array_element_size", "_mono_class_get_fields",
-    "_mono_class_get_type", "_mono_field_get_type", "_mono_field_get_name", "_mono_field_get_offset",
+    "_mono_field_get_type", "_mono_field_get_name", "_mono_field_get_offset",
     "_mono_type_get_type", "_mono_string_length", "_mono_string_chars", "_mono_array_length",
     "_mono_array_addr_with_size", "_mono_vtable_get_static_field_data",
   ]
@@ -114,7 +119,6 @@ public struct MonoLayout: Equatable, Sendable {
       classNamespace: try load64("_mono_class_get_namespace"),
       classSizes: try load32("_mono_array_element_size"),
       classFields: try load64("_mono_class_get_fields"),
-      classByValArg: try offset(try decoded("_mono_class_get_type").firstAddress(), "_mono_class_get_type", pointerAligned: true),
       fieldType: try load64("_mono_field_get_type"),
       fieldName: try load64("_mono_field_get_name"),
       fieldOffset: try load32("_mono_field_get_offset"),
