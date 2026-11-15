@@ -93,35 +93,51 @@ public enum GameLogEndpointParser {
     in text: String
   ) -> GameEndpoint? {
     for line in text.split(whereSeparator: \.isNewline).reversed() {
-      guard let range = line.range(of: marker) else { continue }
-      let value = line[range.upperBound...]
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      guard let address = value.split(
-        separator: ",",
-        maxSplits: 1,
-        omittingEmptySubsequences: false
-      ).first else {
-        continue
-      }
-      let parts = address.split(
-        separator: ":",
-        maxSplits: 1,
-        omittingEmptySubsequences: false
-      )
-      guard
-        parts.count == 2,
-        isPublicIPv4(String(parts[0])),
-        let port = UInt16(parts[1]),
-        port > 0
-      else {
-        continue
-      }
-      return GameEndpoint(host: String(parts[0]), port: port)
+      if let endpoint = endpoint(inLine: line) { return endpoint }
     }
     return nil
   }
 
-  private static func isPublicIPv4(_ value: String) -> Bool {
+  /// Every valid logged game endpoint, newest first, each listed once.
+  public static func recentEndpoints(
+    in text: String
+  ) -> [GameEndpoint] {
+    var endpoints: [GameEndpoint] = []
+    for line in text.split(whereSeparator: \.isNewline).reversed() {
+      guard let endpoint = endpoint(inLine: line), !endpoints.contains(endpoint) else { continue }
+      endpoints.append(endpoint)
+    }
+    return endpoints
+  }
+
+  private static func endpoint(inLine line: Substring) -> GameEndpoint? {
+    guard let range = line.range(of: marker) else { return nil }
+    let value = line[range.upperBound...]
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let address = value.split(
+      separator: ",",
+      maxSplits: 1,
+      omittingEmptySubsequences: false
+    ).first else {
+      return nil
+    }
+    let parts = address.split(
+      separator: ":",
+      maxSplits: 1,
+      omittingEmptySubsequences: false
+    )
+    guard
+      parts.count == 2,
+      isPublicIPv4(String(parts[0])),
+      let port = UInt16(parts[1]),
+      port > 0
+    else {
+      return nil
+    }
+    return GameEndpoint(host: String(parts[0]), port: port)
+  }
+
+  static func isPublicIPv4(_ value: String) -> Bool {
     let pieces = value.split(
       separator: ".",
       omittingEmptySubsequences: false

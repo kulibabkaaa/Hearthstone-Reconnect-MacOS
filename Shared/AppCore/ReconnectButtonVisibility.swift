@@ -1,25 +1,24 @@
 import Foundation
 
-/// How the lobby reader (the match detector) runs.
+/// How the lobby reader (the memory helper) runs. It runs only for lobby info: the Reconnect button has its own
+/// match signal from Hearthstone's logs and connections (`MatchPresenceCore`).
 public enum LobbyReaderMode: Equatable, Sendable {
   case off
   /// Lobby info is on: rows, ratings, statuses; may ask for lobby access as it always did.
   case lobby
-  /// Lobby info is off but the Reconnect button is on: detects matches only. Draws nothing, downloads nothing,
-  /// and never asks for lobby access (it attaches only when macOS already allows it without a dialog).
-  case matchDetectionOnly
 }
 
-/// What the match detector (the lobby reader) can say about the player being in a match.
+/// What a match detector can say about the player being in a match. Used for the Reconnect button's monitor
+/// (`MatchPresenceCore.detectorState`) and for the lobby reader (`MatchDetectorTracker`).
 public enum MatchDetectorState: Equatable, Sendable {
-  /// Not known yet: the reader is off or starting, Hearthstone is still opening or logging in, the helper is
-  /// launching or restarting, or an attach is being retried. The button stays hidden, like the lobby overlay.
+  /// Not known yet: the monitor hasn't read Hearthstone yet, or the lobby reader is off or starting, Hearthstone
+  /// is still opening or logging in, the helper is launching or restarting, or an attach is being retried.
   case connecting
-  /// Attached to Hearthstone, so its match signal can be trusted.
+  /// Its match signal can be trusted.
   case attached
-  /// It won't attach: lobby access isn't granted without a dialog (match detection only) or was declined, the
-  /// attach gave up for this game, the helper is missing, or it kept failing. The button falls back to showing
-  /// whenever Hearthstone is frontmost, so the switch never looks broken.
+  /// It can't tell: Hearthstone's connections can't be read (monitor), or the reader won't attach (access declined,
+  /// the attach gave up, the helper is missing or kept failing). With the monitor unavailable, the button falls back
+  /// to showing whenever Hearthstone is frontmost, so the switch never looks broken.
   case unavailable
 }
 
@@ -75,16 +74,16 @@ public struct MatchDetectorTracker: Equatable, Sendable {
 }
 
 /// When the floating Reconnect button is on screen. Outside layout mode it shows only while the player is in a
-/// Battlegrounds match (Solo or Duos), as the lobby reader sees it. While the reader is still connecting
-/// (launch, login, helper restart) it stays hidden. Only when the reader won't attach at all does the button
-/// fall back to showing whenever Hearthstone is frontmost. Layout mode shows it at any time.
+/// Battlegrounds match (Solo or Duos), as `matchSignal` sees it. Before the monitor's first verdict it stays
+/// hidden. Only when the monitor can't read Hearthstone at all does the button fall back to showing whenever
+/// Hearthstone is frontmost. Layout mode shows it at any time.
 public enum ReconnectButtonVisibilityPolicy {
   /// Duos matches count although the lobby overlay is Solo-only.
   public static let countsDuos = true
 
-  public static func readerMode(lobbyEnabled: Bool, buttonEnabled: Bool, hearthstoneRunning: Bool) -> LobbyReaderMode {
-    if lobbyEnabled { return .lobby }
-    return buttonEnabled && hearthstoneRunning ? .matchDetectionOnly : .off
+  /// The memory helper runs only for lobby info, so with it off nothing asks for Developer Tools access.
+  public static func readerMode(lobbyEnabled: Bool) -> LobbyReaderMode {
+    lobbyEnabled ? .lobby : .off
   }
 
   /// Whether a live lobby capture that has a game UUID is a match for the button.
@@ -106,7 +105,7 @@ public enum ReconnectButtonVisibilityPolicy {
     }
   }
 
-  /// `inMatch` counts only while `detector` is `.attached`.
+  /// `detector` and `inMatch` come from `matchSignal`; `inMatch` counts only while `detector` is `.attached`.
   /// `isShowingFeedback`: the button is on screen now and its phase is `isReconnectFeedback`.
   public static func shouldShow(buttonEnabled: Bool, hasGameWindow: Bool, gameFrontmost: Bool,
                                 detector: MatchDetectorState, inMatch: Bool, isEditingLayout: Bool,

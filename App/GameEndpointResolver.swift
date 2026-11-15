@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import OSLog
 
 enum GameEndpointResolverError: Error {
   case appNotRunning
@@ -11,20 +12,28 @@ struct GameEndpointResolver {
   private static let executableSuffix =
     "/Hearthstone.app/Contents/MacOS/Hearthstone"
   private static let maximumLogBytes: UInt64 = 2 * 1024 * 1024
+  private static let logger = Logger(subsystem: AppConfiguration.bundleIdentifier, category: "ReconnectTarget")
 
-  func reconnectTarget() throws -> ReconnectTarget {
-    if let endpoint = latestEndpoint(in: try logsRoot()) {
-      return .exact(endpoint)
-    }
-    return .uniquePort(ProxyConstants.gamePort)
+  /// Which game connection to close. Reads Hearthstone's logs and its sockets: call off the main thread.
+  func reconnectChoice() throws -> ReconnectTargetChoice {
+    let game = try runningGame()
+    let directory = latestLogDirectory(in: game.logsRoot)
+    let logged = directory.map(loggedEndpoints(in:)) ?? []
+    let open = HearthstoneConnections.openTCPRemoteEndpoints(pid: game.pid)
+    let choice = ReconnectTargetChooser.choose(logged: logged, openConnections: open)
+    // The kind of choice and counts only, never addresses.
+    Self.logger.notice(
+      "choice=\(choice.logName, privacy: .public) logged=\(logged.count, privacy: .public) open=\(open?.count ?? -1, privacy: .public)"
+    )
+    return choice
   }
 
   /// The running game's current `Hearthstone_<date>` log folder, or nil when there is none to be sure of.
   func currentLogDirectory() -> URL? {
-    (try? logsRoot()).flatMap { latestLogDirectory(in: $0) }
+    (try? runningGame()).flatMap { latestLogDirectory(in: $0.logsRoot) }
   }
 
-  private func logsRoot() throws -> URL {
+  private func runningGame() throws -> (pid: pid_t, logsRoot: URL) {
     let applications = NSRunningApplication.runningApplications(
       withBundleIdentifier:
         ProxyConstants.hearthstoneSigningIdentifier
@@ -52,26 +61,24 @@ struct GameEndpointResolver {
       .deletingLastPathComponent()
       .deletingLastPathComponent()
       .deletingLastPathComponent()
-    return
+    let logsRoot =
       appBundle
       .deletingLastPathComponent()
       .appendingPathComponent("Logs", isDirectory: true)
+    return (applications[0].processIdentifier, logsRoot)
   }
 
-  private func latestEndpoint(in logsRoot: URL) -> GameEndpoint? {
-    guard let directory = latestLogDirectory(in: logsRoot) else {
-      return nil
-    }
+  /// Logged game addresses from both logs, GameNetLogger.log's first, each newest first and listed once.
+  /// The two files don't always mirror each other, so both are read.
+  private func loggedEndpoints(in directory: URL) -> [GameEndpoint] {
+    var endpoints: [GameEndpoint] = []
     for name in ["GameNetLogger.log", "Hearthstone.log"] {
-      let file = directory.appendingPathComponent(name)
-      guard let text = try? readTail(of: file) else {
-        continue
-      }
-      if let endpoint = GameLogEndpointParser.latestEndpoint(in: text) {
-        return endpoint
+      guard let text = try? readTail(of: directory.appendingPathComponent(name)) else { continue }
+      for endpoint in GameLogEndpointParser.recentEndpoints(in: text) where !endpoints.contains(endpoint) {
+        endpoints.append(endpoint)
       }
     }
-    return nil
+    return endpoints
   }
 
   private func latestLogDirectory(in root: URL) -> URL? {
