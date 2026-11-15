@@ -28,6 +28,8 @@ public struct BugReportDiagnosticsInput: Sendable {
   public var hearthstoneRunning: Bool
   /// Name of the newest `Hearthstone_<date>` folder, or nil when none was found.
   public var logFolderName: String?
+  /// Folder the `BattleNet.log` came from, which can be older than `logFolderName`.
+  public var battleNetLogFolderName: String?
   /// Raw text (usually the tail) of each log file, or nil when the file was missing or unreadable.
   public var gameNetLog: String?
   public var hearthstoneLog: String?
@@ -45,6 +47,7 @@ public struct BugReportDiagnosticsInput: Sendable {
     trackerRecoveryEnabled: Bool,
     hearthstoneRunning: Bool,
     logFolderName: String?,
+    battleNetLogFolderName: String? = nil,
     gameNetLog: String?,
     hearthstoneLog: String?,
     battleNetLog: String?,
@@ -60,6 +63,7 @@ public struct BugReportDiagnosticsInput: Sendable {
     self.trackerRecoveryEnabled = trackerRecoveryEnabled
     self.hearthstoneRunning = hearthstoneRunning
     self.logFolderName = logFolderName
+    self.battleNetLogFolderName = battleNetLogFolderName
     self.gameNetLog = gameNetLog
     self.hearthstoneLog = hearthstoneLog
     self.battleNetLog = battleNetLog
@@ -78,19 +82,16 @@ public enum BugReportDiagnostics {
   public static let maximumLineLength = 300
   public static let maximumGameLinesPerFile = 150
   public static let maximumAppLogLines = 200
-  /// How far back the app's own log is read.
-  public static let appLogLookback: TimeInterval = 3 * 60 * 60
+  /// How far back the app's own log is read (the same span its log file keeps).
+  public static let appLogLookback: TimeInterval = DiagnosticLogStore.retention
   /// Only how much of each Hearthstone log file is read from its end.
   public static let maximumGameLogReadBytes = 8 * 1_024 * 1_024
 
   /// HS Reconnect log categories whose messages are useful and carry no player data.
   /// `LobbyCapture` (developer helper, logs helper output verbatim) is deliberately absent.
-  public static let appLogCategories: Set<String> = [
-    "ReconnectTarget",
-    "TrackerRecovery",
-    "LoginItem",
-    "Analytics",
-  ]
+  public static let appLogCategories = Set(DiagnosticLogCategory.allCases.map(\.rawValue))
+  /// How many older Hearthstone log folders are searched for a `BattleNet.log`.
+  public static let maximumBattleNetLogFolders = 5
 
   /// Substrings that make a Hearthstone log line worth sending.
   public static let gameLogMarkers = [
@@ -113,8 +114,9 @@ public enum BugReportDiagnostics {
       "Hearthstone running: \(input.hearthstoneRunning ? "yes" : "no")",
       "Hearthstone log folder: \(input.logFolderName.map(safeFolderName) ?? "not found")",
     ]
-    if let battleNetLog = input.battleNetLog {
-      header.append("Battle.net region host: \(regionHost(inBattleNetLog: battleNetLog) ?? "not found")")
+    if let battleNetLog = input.battleNetLog, let host = regionHost(inBattleNetLog: battleNetLog) {
+      let source = input.battleNetLogFolderName.map { " (from \(safeFolderName($0)))" } ?? ""
+      header.append("Battle.net region host: \(host)\(source)")
     } else {
       header.append("Battle.net region host: not found")
     }
@@ -132,7 +134,7 @@ public enum BugReportDiagnostics {
         input.hearthstoneLog == nil ? "file not found" : "no matching lines"
       ),
       (
-        "HS Reconnect log (this run, last 3 hours)",
+        "HS Reconnect log (last 3 days)",
         appLogLines(from: input.appLogEntries, now: input.generatedAt),
         "no entries"
       ),
@@ -166,7 +168,7 @@ public enum BugReportDiagnostics {
     let matching = text.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
       .filter { line in gameLogMarkers.contains { line.contains($0) } }
       .suffix(maximumGameLinesPerFile)
-    return matching.map { clean(String($0)) }
+    return matching.map { cleanLine(String($0)) }
   }
 
   /// The app's own log lines from the allowed categories within the lookback window, redacted.
@@ -178,7 +180,7 @@ public enum BugReportDiagnostics {
       .suffix(maximumAppLogLines)
       .map { entry in
         let message = entry.message.replacingOccurrences(of: "\n", with: " ")
-        return clean("\(timestamp(entry.date)) [\(entry.category)] \(entry.level): \(message)")
+        return cleanLine("\(timestamp(entry.date)) [\(entry.category)] \(entry.level): \(message)")
       }
   }
 
@@ -227,7 +229,7 @@ public enum BugReportDiagnostics {
   // MARK: - Helpers
 
   /// Shortens a raw line before redaction (bounds regex work), redacts, then applies the final length.
-  private static func clean(_ line: String) -> String {
+  public static func cleanLine(_ line: String) -> String {
     clip(redact(String(line.prefix(maximumLineLength * 3))))
   }
 
@@ -252,6 +254,49 @@ public enum BugReportDiagnostics {
   /// have stored the first request already, and resending would create a duplicate.
   public static func shouldRetryWithoutAttachment(statusCode: Int) -> Bool {
     (400 ... 499).contains(statusCode) && statusCode != 408 && statusCode != 429
+  }
+
+  /// The log file's entries (earlier runs) plus this run's os_log entries, without the copies both hold.
+  /// An entry counts as a copy when category, level and message match and the times are within 2 seconds.
+  public static func mergedAppLogEntries(
+    file: [BugReportAppLogEntry],
+    currentRun: [BugReportAppLogEntry]
+  ) -> [BugReportAppLogEntry] {
+    var fileDates: [String: [Date]] = [:]
+    for entry in file {
+      fileDates[key(entry), default: []].append(entry.date)
+    }
+    let extra = currentRun.filter { entry in
+      let normalized = BugReportAppLogEntry(
+        date: entry.date,
+        category: entry.category,
+        level: entry.level,
+        message: DiagnosticLogFormat.clean(entry.message)
+      )
+      return !(fileDates[key(normalized)] ?? []).contains { abs($0.timeIntervalSince(entry.date)) <= 2 }
+    }
+    return (file + extra).sorted { $0.date < $1.date }
+  }
+
+  private static func key(_ entry: BugReportAppLogEntry) -> String {
+    // Compared on the first 200 characters, so a copy that was length-capped twice still matches.
+    "\(entry.category)\t\(entry.level)\t\(entry.message.prefix(200))"
+  }
+
+  /// Folders to try for the Battle.net region, best first: the current folder when it has a `BattleNet.log`,
+  /// then the newest other folders that have one.
+  public static func battleNetLogCandidates(
+    currentFolder: String?,
+    among folders: [(name: String, modified: Date, hasBattleNetLog: Bool)]
+  ) -> [String] {
+    let withLog = folders
+      .filter { $0.name.hasPrefix("Hearthstone_") && $0.hasBattleNetLog }
+      .sorted { $0.modified > $1.modified }
+      .map(\.name)
+    let ordered = withLog.contains { $0 == currentFolder }
+      ? [currentFolder!] + withLog.filter { $0 != currentFolder }
+      : withLog
+    return Array(ordered.prefix(maximumBattleNetLogFolders))
   }
 
   // MARK: - Finding the newest log folder

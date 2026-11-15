@@ -298,6 +298,7 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
       appVersion: "2.2.0", buildNumber: "51", macOSVersion: ProcessInfo.processInfo.operatingSystemVersionString,
       architecture: "arm64", extensionState: "enabled", proxyState: "connected, ready", trackerRecoveryEnabled: false,
       hearthstoneRunning: true, logFolderName: "Hearthstone_2026_11_15_18_00_00",
+      battleNetLogFolderName: "Hearthstone_2026_11_15_18_00_00",
       gameNetLog: """
         I 18:01:10.1000000 GameMgr.ChangeFindGameState() - state: SERVER_GAME_CONNECTING, previous state: BNET_QUEUE_UPDATED
         I 18:01:10.2000000 Network.GotoGameServe() - address= 203.0.113.7:1119, game=1234, client=5678, spectateKey=abc reconnecting=False
@@ -305,7 +306,7 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
         """,
       hearthstoneLog: nil, battleNetLog: "Connection Request to 'eu.actual.battle.net:1119'",
       appLogEntries: [BugReportAppLogEntry(date: Date().addingTimeInterval(-120), category: "ReconnectTarget",
-        level: "notice", message: "choice exact, logged 1, open 2")],
+        level: "notice", message: "choice=exact logged=1 open=2")],
       generatedAt: Date()))
   }
 

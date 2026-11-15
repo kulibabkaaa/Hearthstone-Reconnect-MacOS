@@ -115,6 +115,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   ) {
     if launchMode.uninstallProcessIdentifier == nil {
       analyticsController.start()
+      // Drops diagnostics-log lines older than three days.
+      DiagnosticLog.store.prepare()
     }
     registerDefaults()
     restoreAutomaticLobbyCaptureIfNeeded()

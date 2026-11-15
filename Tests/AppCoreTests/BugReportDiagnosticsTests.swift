@@ -127,7 +127,7 @@ struct BugReportDiagnosticsTests {
         date: now.addingTimeInterval(-30), category: "LobbyCapture", level: "notice",
         message: "helper: lobby of Somebody"),
       BugReportAppLogEntry(
-        date: now.addingTimeInterval(-4 * 60 * 60), category: "TrackerRecovery", level: "notice",
+        date: now.addingTimeInterval(-4 * 24 * 60 * 60), category: "TrackerRecovery", level: "notice",
         message: "too old"),
       BugReportAppLogEntry(
         date: now.addingTimeInterval(-10), category: "TrackerRecovery", level: "notice",
@@ -150,7 +150,7 @@ struct BugReportDiagnosticsTests {
     #expect(text.contains("Network extension: enabled"))
     #expect(text.contains("Hearthstone log folder: not found"))
     #expect(text.contains("== Hearthstone.log (matching lines only) ==\n(file not found)"))
-    #expect(text.contains("== HS Reconnect log (this run, last 3 hours) ==\n(no entries)"))
+    #expect(text.contains("== HS Reconnect log (last 3 days) ==\n(no entries)"))
     #expect(text.contains("spectateKey=x"))
   }
 
@@ -185,6 +185,37 @@ struct BugReportDiagnosticsTests {
     for status in [200, 301, 408, 429, 500, 502, 503] {
       #expect(!BugReportDiagnostics.shouldRetryWithoutAttachment(statusCode: status))
     }
+  }
+
+  @Test func findsTheBattleNetRegionInAnOlderFolderAndSaysWhere() {
+    let folders: [(name: String, modified: Date, hasBattleNetLog: Bool)] = [
+      ("Hearthstone_2026_11_15_18_00_00", Date(timeIntervalSince1970: 900), false),
+      ("Hearthstone_2026_11_11_12_26_22", Date(timeIntervalSince1970: 500), true),
+      ("Hearthstone_2026_11_10_00_47_36", Date(timeIntervalSince1970: 100), true),
+      ("Other", Date(timeIntervalSince1970: 999), true),
+    ]
+
+    #expect(
+      BugReportDiagnostics.battleNetLogCandidates(currentFolder: "Hearthstone_2026_11_15_18_00_00", among: folders)
+        == ["Hearthstone_2026_11_11_12_26_22", "Hearthstone_2026_11_10_00_47_36"]
+    )
+    #expect(
+      BugReportDiagnostics.battleNetLogCandidates(currentFolder: "Hearthstone_2026_11_10_00_47_36", among: folders)
+        == ["Hearthstone_2026_11_10_00_47_36", "Hearthstone_2026_11_11_12_26_22"]
+    )
+    let many = (0 ..< 9).map { ("Hearthstone_\($0)", Date(timeIntervalSince1970: Double($0)), true) }
+    #expect(
+      BugReportDiagnostics.battleNetLogCandidates(currentFolder: nil, among: many).count
+        == BugReportDiagnostics.maximumBattleNetLogFolders
+    )
+
+    var withSource = input(battleNetLog: "Connecting to wss://eu.actual.battle.net:1119/")
+    withSource.battleNetLogFolderName = "Hearthstone_2026_11_11_12_26_22"
+    #expect(
+      BugReportDiagnostics.render(withSource)
+        .contains("Battle.net region host: eu.actual.battle.net (from Hearthstone_2026_11_11_12_26_22)")
+    )
+    #expect(BugReportDiagnostics.render(input(battleNetLog: "no host")).contains("Battle.net region host: not found"))
   }
 
   @Test func picksTheNewestHearthstoneLogFolder() {

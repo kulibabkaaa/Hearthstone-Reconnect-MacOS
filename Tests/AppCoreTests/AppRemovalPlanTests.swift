@@ -92,6 +92,11 @@ struct AppRemovalPlanTests {
           == "/Users/Test Person/Library/Containers/io.github.kulibabkaaa.HSReconnect.ProxyExtension"
       }
     )
+    #expect(
+      plan.userDataURLs.contains {
+        $0.path == "/Users/Test Person/Library/Logs/HS Reconnect"
+      }
+    )
   }
 
   @Test("privileged removal command quotes paths")

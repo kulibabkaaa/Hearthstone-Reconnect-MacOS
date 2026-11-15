@@ -1,5 +1,4 @@
 import Foundation
-import OSLog
 import TelemetryDeck
 
 enum AnalyticsEvent: String {
@@ -10,10 +9,6 @@ enum AnalyticsEvent: String {
 }
 
 final class AnalyticsController {
-  private let logger = Logger(
-    subsystem: AppConfiguration.bundleIdentifier,
-    category: "Analytics"
-  )
   private var isStarted = false
 
   func start() {
@@ -24,7 +19,7 @@ final class AnalyticsController {
       ) as? String,
       UUID(uuidString: appID) != nil
     else {
-      logger.error("TelemetryDeck configuration is missing or invalid")
+      DiagnosticLog.error(.analytics, "TelemetryDeck configuration is missing or invalid")
       return
     }
 

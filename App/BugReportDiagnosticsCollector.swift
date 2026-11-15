@@ -24,7 +24,17 @@ enum BugReportDiagnosticsCollector {
     ).contains { !$0.isTerminated }
 
     return await Task.detached(priority: .userInitiated) {
-      let directory = runningDirectory ?? newestLogDirectory(in: defaultLogsRoot)
+      let logsRoot = runningDirectory?.deletingLastPathComponent() ?? defaultLogsRoot
+      let folders = logFolders(in: logsRoot)
+      let directory = runningDirectory
+        ?? BugReportDiagnostics.newestLogFolder(among: folders.map { ($0.name, $0.modified) }).map {
+          logsRoot.appendingPathComponent($0, isDirectory: true)
+        }
+      let battleNet = battleNetLog(
+        in: logsRoot,
+        currentFolder: directory?.lastPathComponent,
+        folders: folders
+      )
       let input = BugReportDiagnosticsInput(
         appVersion: appVersion,
         buildNumber: buildNumber,
@@ -35,10 +45,14 @@ enum BugReportDiagnosticsCollector {
         trackerRecoveryEnabled: status.trackerRecoveryEnabled,
         hearthstoneRunning: hearthstoneRunning,
         logFolderName: directory?.lastPathComponent,
+        battleNetLogFolderName: battleNet?.folder,
         gameNetLog: directory.flatMap { readTail(of: $0.appendingPathComponent("GameNetLogger.log")) },
         hearthstoneLog: directory.flatMap { readTail(of: $0.appendingPathComponent("Hearthstone.log")) },
-        battleNetLog: directory.flatMap { readTail(of: $0.appendingPathComponent("BattleNet.log")) },
-        appLogEntries: appLogEntries(),
+        battleNetLog: battleNet?.text,
+        appLogEntries: BugReportDiagnostics.mergedAppLogEntries(
+          file: DiagnosticLog.store.entries(),
+          currentRun: currentRunLogEntries()
+        ),
         generatedAt: Date()
       )
       return BugReportDiagnostics.render(input)
@@ -53,7 +67,7 @@ enum BugReportDiagnosticsCollector {
     #endif
   }
 
-  private static func newestLogDirectory(in root: URL) -> URL? {
+  private static func logFolders(in root: URL) -> [(name: String, modified: Date, hasBattleNetLog: Bool)] {
     let keys: [URLResourceKey] = [.contentModificationDateKey, .isDirectoryKey]
     guard
       let candidates = try? FileManager.default.contentsOfDirectory(
@@ -62,17 +76,33 @@ enum BugReportDiagnosticsCollector {
         options: [.skipsHiddenFiles]
       )
     else {
-      return nil
+      return []
     }
-    let folders = candidates.compactMap { url -> (name: String, modified: Date)? in
+    return candidates.compactMap { url in
       guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isDirectory == true else {
         return nil
       }
-      return (url.lastPathComponent, values.contentModificationDate ?? .distantPast)
+      return (
+        url.lastPathComponent,
+        values.contentModificationDate ?? .distantPast,
+        FileManager.default.fileExists(atPath: url.appendingPathComponent("BattleNet.log").path)
+      )
     }
-    return BugReportDiagnostics.newestLogFolder(among: folders).map {
-      root.appendingPathComponent($0, isDirectory: true)
+  }
+
+  /// The first `BattleNet.log` (current folder first, then newer before older) that names a region host.
+  private static func battleNetLog(
+    in root: URL,
+    currentFolder: String?,
+    folders: [(name: String, modified: Date, hasBattleNetLog: Bool)]
+  ) -> (folder: String, text: String)? {
+    for name in BugReportDiagnostics.battleNetLogCandidates(currentFolder: currentFolder, among: folders) {
+      let file = root.appendingPathComponent(name, isDirectory: true).appendingPathComponent("BattleNet.log")
+      if let text = readTail(of: file), BugReportDiagnostics.regionHost(inBattleNetLog: text) != nil {
+        return (name, text)
+      }
     }
+    return nil
   }
 
   /// The end of a log file, starting at a whole line.
@@ -90,8 +120,8 @@ enum BugReportDiagnosticsCollector {
     return String(text[text.index(after: firstBreak)...])
   }
 
-  /// HS Reconnect's own log lines for this run. macOS only lets an app read its own process's log.
-  private static func appLogEntries() -> [BugReportAppLogEntry] {
+  /// This run's os_log lines. macOS only lets an app read its own process's log; earlier runs come from the file.
+  private static func currentRunLogEntries() -> [BugReportAppLogEntry] {
     guard let store = try? OSLogStore(scope: .currentProcessIdentifier) else { return [] }
     let position = store.position(date: Date().addingTimeInterval(-BugReportDiagnostics.appLogLookback))
     let predicate = NSPredicate(

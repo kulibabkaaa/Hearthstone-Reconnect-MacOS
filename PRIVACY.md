@@ -74,14 +74,25 @@ is sent. When it is on, the report carries one small text file (at most about
   whether Hearthstone is running, and the name of Hearthstone's newest log
   folder (a date);
 - the Battle.net region host name only (for example `eu.actual.battle.net`),
-  and nothing else from Hearthstone's Battle.net log;
+  and nothing else from Hearthstone's Battle.net log. When the newest log
+  folder has no Battle.net log, it is taken from the newest older folder that
+  has one, and the file names that folder (a date);
 - from Hearthstone's `GameNetLogger.log` and `Hearthstone.log`, only the lines
   about connecting to and disconnecting from a game server and about looking
   for a game (at most the newest 150 of each). They include the game server's
   address. Game, client, and spectator keys in those lines are removed;
 - HS Reconnect's own log messages about choosing the reconnect target, Keep
   HSTracker working, the Open with Hearthstone helper, and analytics setup,
-  from the current run of the app and at most the last three hours.
+  from at most the last three days (newest 200).
+
+So these messages survive a restart of the app or the Mac, HS Reconnect also
+writes them to a small log file on this Mac, in `~/Library/Logs/HS Reconnect/`
+(two files of at most 256 KB each; lines older than three days are deleted
+when the app starts and are never read).
+Only those message types are written there, and they are cleaned the same way
+before they are saved. The file never leaves the Mac on its own: it is read only
+to build the diagnostic file above, and only when the switch is on. Uninstalling
+HS Reconnect from the app removes it.
 
 Before attaching, the app also removes anything in those lines that looks like
 a BattleTag, email address, Blizzard account ID, or the Mac's user folder name.
