@@ -17,8 +17,11 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
     if ProcessInfo.processInfo.arguments.contains("--bug-report")
       || UserDefaults.standard.bool(forKey: "HarnessBugReportMode")
     {
-      bugReport = BugReportWindowController()
+      bugReport = BugReportWindowController(diagnosticsProvider: { Self.sampleDiagnostics() })
       bugReport?.present()
+      if ProcessInfo.processInfo.arguments.contains("--diagnostics-preview") {
+        bugReport?.showDiagnosticsPreview()
+      }
       return
     }
     let scale = ProcessInfo.processInfo.arguments.compactMap { $0.hasPrefix("--scale=") ? Double($0.dropFirst(8)) : nil }.first ?? 1
@@ -289,9 +292,26 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
     phases.first { $0.0 == name }?.1 ?? .ready
   }
 
+  /// A realistic diagnostics file, so the bug form's switch and preview can be checked without Hearthstone.
+  private static func sampleDiagnostics() -> String {
+    BugReportDiagnostics.render(BugReportDiagnosticsInput(
+      appVersion: "2.2.0", buildNumber: "51", macOSVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+      architecture: "arm64", extensionState: "enabled", proxyState: "connected, ready", trackerRecoveryEnabled: false,
+      hearthstoneRunning: true, logFolderName: "Hearthstone_2026_11_15_18_00_00",
+      gameNetLog: """
+        I 18:01:10.1000000 GameMgr.ChangeFindGameState() - state: SERVER_GAME_CONNECTING, previous state: BNET_QUEUE_UPDATED
+        I 18:01:10.2000000 Network.GotoGameServe() - address= 203.0.113.7:1119, game=1234, client=5678, spectateKey=abc reconnecting=False
+        I 18:20:41.0000000 Network.DisconnectFromGameServer() - Reason: EndGameScreen
+        """,
+      hearthstoneLog: nil, battleNetLog: "Connection Request to 'eu.actual.battle.net:1119'",
+      appLogEntries: [BugReportAppLogEntry(date: Date().addingTimeInterval(-120), category: "ReconnectTarget",
+        level: "notice", message: "choice exact, logged 1, open 2")],
+      generatedAt: Date()))
+  }
+
   private func showBugReport() {
     if bugReport == nil {
-      bugReport = BugReportWindowController()
+      bugReport = BugReportWindowController(diagnosticsProvider: { Self.sampleDiagnostics() })
     }
     bugReport?.present()
   }

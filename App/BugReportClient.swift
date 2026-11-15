@@ -64,7 +64,8 @@ final class BugReportClient {
 
   func submit(
     content: BugReportContent,
-    imageURLs: [URL]
+    imageURLs: [URL],
+    diagnosticsText: String? = nil
   ) async throws {
     guard let endpoint else {
       throw BugReportClientError.notConfigured
@@ -99,11 +100,31 @@ final class BugReportClient {
     else {
       throw BugReportClientError.invalidAttachment
     }
-    let multipart = BugReportMultipartBody(
-      content: content,
-      imageJPEGs: imageData
-    )
+    if let diagnosticsText,
+      diagnosticsText.utf8.count > BugReportDiagnostics.maximumBytes
+    {
+      throw BugReportClientError.invalidAttachment
+    }
+    do {
+      try await send(
+        BugReportMultipartBody(
+          content: content,
+          imageJPEGs: imageData,
+          diagnosticsText: diagnosticsText
+        ),
+        to: endpoint
+      )
+    } catch BugReportClientError.rejected where diagnosticsText != nil {
+      // The logs switch is on by default, so a form service that refuses the text file must never cost the
+      // report itself: send it once more without the attachment.
+      try await send(
+        BugReportMultipartBody(content: content, imageJPEGs: imageData),
+        to: endpoint
+      )
+    }
+  }
 
+  private func send(_ multipart: BugReportMultipartBody, to endpoint: URL) async throws {
     var request = URLRequest(url: endpoint)
     request.httpMethod = "POST"
     request.timeoutInterval = 30

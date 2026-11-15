@@ -517,9 +517,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private func showBugReport() {
     userOpenedWindow = true
     if bugReportWindowController == nil {
-      bugReportWindowController = BugReportWindowController()
+      bugReportWindowController = BugReportWindowController(
+        diagnosticsProvider: { [weak self] in
+          await BugReportDiagnosticsCollector.collect(
+            status: self?.bugReportStatusSnapshot()
+              ?? BugReportStatusSnapshot(extensionState: "unknown", proxyState: "unknown", trackerRecoveryEnabled: false)
+          )
+        }
+      )
     }
     bugReportWindowController?.present()
+  }
+
+  /// Plain-words app state for the optional diagnostics file attached to bug reports.
+  private func bugReportStatusSnapshot() -> BugReportStatusSnapshot {
+    var extensionState: String
+    if let state = lastSystemExtensionState {
+      if state.isEnabled {
+        extensionState = "enabled"
+      } else if state.isAwaitingUserApproval {
+        extensionState = "waiting for approval"
+      } else if state.isInstalled {
+        extensionState = "installed, not enabled"
+      } else {
+        extensionState = "not installed"
+      }
+      if state.hasPendingUninstall { extensionState += ", uninstall pending" }
+    } else {
+      extensionState = "not checked yet"
+    }
+    if systemExtensionRequiresReboot { extensionState += ", restart required" }
+    if systemExtensionApprovalWasDenied { extensionState += ", approval was denied" }
+
+    let proxyState: String
+    switch proxyConnectionStatus {
+    case .connected: proxyState = "connected"
+    case .connecting: proxyState = "connecting"
+    case .reasserting: proxyState = "reasserting"
+    case .disconnecting: proxyState = "disconnecting"
+    case .disconnected: proxyState = "disconnected"
+    case .invalid: proxyState = "not configured"
+    @unknown default: proxyState = "unknown"
+    }
+    return BugReportStatusSnapshot(
+      extensionState: extensionState,
+      proxyState: proxyState + (isProxyReady ? ", ready" : ", not ready"),
+      trackerRecoveryEnabled: UserDefaults.standard.bool(forKey: DefaultsKey.trackerRecoveryEnabled)
+    )
   }
 
   private func configureSystemExtensionStatusHandlers() {
