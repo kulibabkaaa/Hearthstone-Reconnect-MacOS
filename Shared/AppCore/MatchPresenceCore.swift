@@ -160,8 +160,13 @@ public struct MatchPresenceCore: Equatable, Sendable {
 
   /// Log lines in the order they were read. Lines older than the newest one already applied (the same event read
   /// again from the other log, or one flushed late) don't change the phase.
-  public mutating func ingest(_ lines: [MatchLogLine], now: TimeInterval) {
-    for line in lines { ingest(line, now: now) }
+  ///
+  /// `historical`: lines that were already in the file when reading began (the app or the button started, or a
+  /// log started over). They set the phase and the game's mode, but a leave among them happened at an unknown
+  /// time, so it doesn't mark the connections open now as the old match's: Hearthstone may have started a match it
+  /// didn't log since then, and that match must still count.
+  public mutating func ingest(_ lines: [MatchLogLine], now: TimeInterval, historical: Bool = false) {
+    for line in lines { ingest(line, now: now, historical: historical) }
   }
 
   /// The app asked for a reconnect: the game connection is about to close and reopen.
@@ -248,7 +253,7 @@ public struct MatchPresenceCore: Equatable, Sendable {
     reconnectGapSeen = false
   }
 
-  private mutating func ingest(_ line: MatchLogLine, now: TimeInterval) {
+  private mutating func ingest(_ line: MatchLogLine, now: TimeInterval, historical: Bool) {
     // Quiet for hours: the old time stamps can't be ordered against new ones any more.
     if let observed = phaseObservedAt, now - observed >= Self.logOrderingWindow {
       phaseTime = nil
@@ -277,8 +282,9 @@ public struct MatchPresenceCore: Equatable, Sendable {
     switch line.event {
     case .left(let menu):
       leaveTime = line.time
-      leaveObservedAt = now
-      leaveSnapshotPending = true
+      leaveObservedAt = historical ? nil : now
+      leaveSnapshotPending = !historical
+      if historical { connectionsAtLeave = nil }
       kind = .unknown
       if let menu { menuKind = Self.kind(ofMenu: menu) }
     case .dropped:

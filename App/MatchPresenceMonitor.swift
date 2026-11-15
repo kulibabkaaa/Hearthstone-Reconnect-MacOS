@@ -109,7 +109,8 @@ final class MatchPresenceMonitor {
         }
       }
       for index in tails.indices {
-        core.ingest(tails[index].readNewLines().compactMap(MatchLogParser.parse), now: now)
+        let historical = !tails[index].hasRead
+        core.ingest(tails[index].readNewLines().compactMap(MatchLogParser.parse), now: now, historical: historical)
       }
       let connections = HearthstoneConnections.openTCPRemoteEndpoints(pid: game.processIdentifier)?
         .map { "\($0.host):\($0.port)" }
@@ -146,6 +147,8 @@ final class MatchPresenceMonitor {
     static let maximumBytesPerRead: UInt64 = 4 * 1024 * 1024
     let url: URL
     private var offset: UInt64?
+    /// False until the first read that reached the file: what that read returns was written before monitoring.
+    private(set) var hasRead = false
     private var remainder = Data()
 
     init(url: URL) { self.url = url }
@@ -154,6 +157,7 @@ final class MatchPresenceMonitor {
       guard let handle = try? FileHandle(forReadingFrom: url) else { return [] }
       defer { try? handle.close() }
       guard let length = try? handle.seekToEnd() else { return [] }
+      defer { hasRead = true }
       var start: UInt64
       if let offset, offset <= length {
         start = offset

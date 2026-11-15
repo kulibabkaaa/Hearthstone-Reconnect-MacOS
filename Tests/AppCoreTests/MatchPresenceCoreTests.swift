@@ -36,9 +36,10 @@ private struct Session {
   var core = MatchPresenceCore()
   var now: Double = 1_000
 
-  mutating func poll(_ connections: [String]?, logs: [String] = [], seconds: Double = 1) -> MatchPresence {
+  mutating func poll(_ connections: [String]?, logs: [String] = [], historical: Bool = false,
+                     seconds: Double = 1) -> MatchPresence {
     now += seconds
-    core.ingest(logs.compactMap(MatchLogParser.parse), now: now)
+    core.ingest(logs.compactMap(MatchLogParser.parse), now: now, historical: historical)
     return core.evaluate(openConnections: connections, now: now)
   }
   /// Polls until two connections on the game port count (`confirmPolls`); returns the presence after the last.
@@ -189,13 +190,22 @@ struct MatchPresenceCoreTests {
     #expect(session.poll([Lines.battleNet, Lines.game]) == .inMatch)
   }
 
-  @Test("app started in menus after a logged match: two old connections don't count until a new one opens")
-  func staleAtLaunch() {
+  @Test("started mid-match (app launch, button switched on) after the last match's logged end: the match counts")
+  func startedMidUnloggedMatch() {
+    // The app (or the button) starts during a match Hearthstone didn't log; the newest line on file is the last
+    // match's end. Read as history, it doesn't mark the open connections as that old match's.
     var session = Session()
     let backlog = [Lines.goto("12:27:44.80"), Lines.awake("12:27:50.58", from: "BACON"), Lines.leave("12:30:52.24")]
-    #expect(session.poll([Lines.battleNet, Lines.newBattleNet], logs: backlog) == .notInMatch)
-    #expect(session.hold([Lines.battleNet, Lines.newBattleNet], for: 30).allSatisfy { $0 == .notInMatch })
-    #expect(session.confirm([Lines.battleNet, Lines.newBattleNet, Lines.otherGame]) == .inMatch)
+    _ = session.poll([Lines.battleNet, Lines.otherGame], logs: backlog, historical: true)
+    #expect(session.hold([Lines.battleNet, Lines.otherGame], for: MatchPresenceCore.confirmPolls - 1).last == .inMatch)
+    #expect(session.hold([Lines.battleNet, Lines.otherGame], for: 60).allSatisfy { $0 == .inMatch })
+    // The old match's mode doesn't carry over, and the historical leave doesn't end this one early.
+    let after = session.hold([Lines.battleNet], for: 10)
+    #expect(after.prefix(Int(MatchPresenceCore.leaveGrace) - 1).allSatisfy { $0 == .inMatch })
+    #expect(after.last == .notInMatch)
+    // A leave read live afterwards still ends a match at once.
+    _ = session.confirm([Lines.battleNet, Lines.game])
+    #expect(session.poll([Lines.battleNet, Lines.game], logs: [Lines.leave("13:00:00.0")]) == .notInMatch)
   }
 
   @Test("a menu scene in LoadingScreen.log counts as a clean leave")
