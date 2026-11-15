@@ -816,13 +816,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     let attempt: ReconnectAttemptToken
     switch reconnectAttempts.request(proxyReady: isProxyReady, cooldownRemaining: remaining) {
     case .refused(let effects):
+      DiagnosticLog.notice(
+        .reconnectTarget, ReconnectAttemptOutcome.refusalLogLine(status: effects.status, source: source))
       applyReconnectEffects(effects)
       return
     case .started(let token, let effects):
       attempt = token
       matchMonitor.noteReconnect()
       applyReconnectEffects(effects)
-      scheduleReconnectTimeout(for: token)
+      scheduleReconnectTimeout(for: token, source: source)
     }
 
     // Off the main thread: it reads Hearthstone's logs and sockets.
@@ -875,14 +877,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     }
   }
 
-  private func scheduleReconnectTimeout(for attempt: ReconnectAttemptToken) {
+  private func scheduleReconnectTimeout(for attempt: ReconnectAttemptToken, source: ReconnectSource) {
     reconnectTimeoutTimer?.invalidate()
     let timer = Timer(timeInterval: ReconnectAttemptFlow.timeout, repeats: false) {
       [weak self] _ in
       guard let self else { return }
       let effects = self.reconnectAttempts.timeOut(attempt, isUninstalling: self.isUninstalling)
       if !effects.isNone {
-        DiagnosticLog.notice(.reconnectTarget, ReconnectAttemptOutcome.timedOut.logLine(source: nil))
+        DiagnosticLog.notice(.reconnectTarget, ReconnectAttemptOutcome.timedOut.logLine(source: source))
       }
       self.applyReconnectEffects(effects)
     }

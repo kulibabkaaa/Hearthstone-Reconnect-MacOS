@@ -50,6 +50,19 @@ public enum ReconnectAttemptOutcome: Equatable, Sendable, CaseIterable {
     }
   }
 
+  /// The diagnostics-log line for a press that never started an attempt, for example
+  /// `result=refused reason=cooldown source=shortcut`. `status` is the refusal's main-window status.
+  public static func refusalLogLine(status: ReconnectStatusMessage?, source: ReconnectSource) -> String {
+    let reason: String
+    switch status {
+    case .proxyNotReady: reason = "proxyNotReady"
+    case .alreadyRunning: reason = "alreadyRunning"
+    case .cooldown: reason = "cooldown"
+    default: reason = "other"
+    }
+    return "result=refused reason=\(reason) source=\(source.rawValue)"
+  }
+
   /// The diagnostics-log line for how an attempt ended, for example `result=flowClosed source=shortcut`.
   /// `late`: the reply of an attempt that had already timed out. Words and names only, never addresses.
   public func logLine(source: ReconnectSource?, late: Bool = false) -> String {

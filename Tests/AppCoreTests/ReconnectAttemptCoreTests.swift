@@ -328,4 +328,17 @@ struct ReconnectOutcomeLogLineTests {
       ReconnectAttemptOutcome.flowClosed.logLine(source: .overlayButton, late: true)
         == "result=flowClosed source=overlayButton late=true")
   }
+
+  @Test("refused presses say why and which control")
+  func refusalLine() {
+    #expect(
+      ReconnectAttemptOutcome.refusalLogLine(status: .cooldown(seconds: 3), source: .shortcut)
+        == "result=refused reason=cooldown source=shortcut")
+    #expect(
+      ReconnectAttemptOutcome.refusalLogLine(status: .proxyNotReady, source: .menu)
+        == "result=refused reason=proxyNotReady source=menu")
+    #expect(
+      ReconnectAttemptOutcome.refusalLogLine(status: .alreadyRunning, source: .overlayButton)
+        == "result=refused reason=alreadyRunning source=overlayButton")
+  }
 }

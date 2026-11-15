@@ -85,6 +85,22 @@ struct BugReportDiagnosticsTests {
     #expect(lines.first?.contains("[ReconnectTarget]") == true)
   }
 
+  @Test func everyGeneratedReconnectLinePassesRedactionUnchanged() {
+    var lines: [String] = []
+    for source in ReconnectSource.allCases {
+      for outcome in ReconnectAttemptOutcome.allCases {
+        lines.append(outcome.logLine(source: source))
+        lines.append(outcome.logLine(source: source, late: true))
+      }
+      for status: ReconnectStatusMessage in [.proxyNotReady, .alreadyRunning, .cooldown(seconds: 4), .failed] {
+        lines.append(ReconnectAttemptOutcome.refusalLogLine(status: status, source: source))
+      }
+    }
+    for line in lines {
+      #expect(BugReportDiagnostics.redact(line) == line)
+    }
+  }
+
   @Test func keepsOnlyConnectionLinesFromGameLogs() {
     let lines = BugReportDiagnostics.gameLogLines(in: gameNetLog)
 
