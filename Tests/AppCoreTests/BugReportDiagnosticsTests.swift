@@ -222,6 +222,7 @@ struct BugReportDiagnosticsTests {
 
   @Test func reportsUnknownRegionCodesAsOther() {
     #expect(BugReportDiagnostics.region(inHearthstoneLog: "I 10:00:00.1 Region: JOHN") == "other")
+    #expect(BugReportDiagnostics.knownRegions == ["US", "EU", "KR", "CN", "TW", "AP", "SG", "PTR"])
     for code in BugReportDiagnostics.knownRegions {
       #expect(BugReportDiagnostics.region(inHearthstoneLog: "I 10:00:00.1 Region: \(code)") == code)
     }
@@ -241,7 +242,7 @@ struct BugReportDiagnosticsTests {
     #expect(BugReportDiagnostics.olderRegionFolders(currentFolder: nil, among: many).count
       == BugReportDiagnostics.maximumBattleNetLogFolders)
 
-    // The current log has no login yet: the older folder's region is shown with where it came from.
+    // The current log has no login line: the older folder's region is shown with where it came from.
     var fallback = input(hearthstoneLog: "I 22:20:46.1 [Startup] Startup stage ConnectingToBattlenet")
     fallback.olderFolderRegion = ("EU", "Hearthstone_2026_11_15_17_52_19")
     #expect(BugReportDiagnostics.render(fallback).contains("Battle.net region: EU (from Hearthstone_2026_11_15_17_52_19)\n"))

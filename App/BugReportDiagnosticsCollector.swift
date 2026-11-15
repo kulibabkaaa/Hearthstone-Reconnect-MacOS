@@ -110,7 +110,7 @@ enum BugReportDiagnosticsCollector {
     return nil
   }
 
-  /// The region from the newest older folder whose `Hearthstone.log` has a login (the current one may not yet).
+  /// The region from the newest older folder whose `Hearthstone.log` has a login line (the current one may have none).
   private static func olderFolderRegion(
     in root: URL,
     currentFolder: String?,

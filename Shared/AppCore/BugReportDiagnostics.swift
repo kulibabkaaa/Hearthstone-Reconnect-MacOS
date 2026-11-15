@@ -34,7 +34,7 @@ public struct BugReportDiagnosticsInput: Sendable {
   public var gameNetLog: String?
   public var hearthstoneLog: String?
   public var battleNetLog: String?
-  /// The region from the newest older folder's `Hearthstone.log`, used when the current one has no login yet.
+  /// The region from the newest older folder's `Hearthstone.log`, used when the current one has no login line.
   public var olderFolderRegion: (region: String, folder: String)?
   public var appLogEntries: [BugReportAppLogEntry]
   public var generatedAt: Date
