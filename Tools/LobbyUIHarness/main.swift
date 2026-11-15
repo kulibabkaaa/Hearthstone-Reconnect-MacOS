@@ -22,6 +22,20 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
       if ProcessInfo.processInfo.arguments.contains("--diagnostics-preview") {
         bugReport?.showDiagnosticsPreview()
       }
+      // `--sending-preview` (Debug builds): the form as it looks right after Submit (nothing is sent). With
+      // `--capture=<png>` it captures the window, then quits.
+#if DEBUG
+      if ProcessInfo.processInfo.arguments.contains("--sending-preview"), let form = bugReport {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [self] in
+          form.showSendingStateForPreview()
+          guard let path = argument("capture"), let window = form.window else { return }
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            WhatsNewDiagnostics.capture(host: window, to: path)
+            NSApp.terminate(nil)
+          }
+        }
+      }
+#endif
       return
     }
     let scale = ProcessInfo.processInfo.arguments.compactMap { $0.hasPrefix("--scale=") ? Double($0.dropFirst(8)) : nil }.first ?? 1
