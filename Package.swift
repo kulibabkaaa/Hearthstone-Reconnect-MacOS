@@ -9,6 +9,7 @@ let package = Package(
   products: [
     .library(name: "ProxyCore", targets: ["ProxyCore"]),
     .library(name: "AppCore", targets: ["AppCore"]),
+    .library(name: "MonoReader", targets: ["MonoReader"]),
   ],
   targets: [
     .target(
@@ -19,6 +20,11 @@ let package = Package(
       name: "AppCore",
       path: "Shared/AppCore"
     ),
+    .target(
+      name: "MonoReader",
+      path: "Shared/MonoReader",
+      exclude: ["NOTICE.md"]
+    ),
     .testTarget(
       name: "ProxyCoreTests",
       dependencies: ["ProxyCore"],
@@ -28,6 +34,12 @@ let package = Package(
       name: "AppCoreTests",
       dependencies: ["AppCore"],
       path: "Tests/AppCoreTests"
+    ),
+    .testTarget(
+      name: "MonoReaderTests",
+      dependencies: ["MonoReader"],
+      path: "Tests/MonoReaderTests",
+      exclude: ["make-accessor-fixture.py"]
     ),
   ]
 )
