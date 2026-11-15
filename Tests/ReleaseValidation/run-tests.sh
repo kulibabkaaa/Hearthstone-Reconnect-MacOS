@@ -336,16 +336,32 @@ fi
 [[ "${archive_output}" == *FORBIDDEN* && "${archive_output}" == *HearthMirror.framework* ]] \
   || fail "the update archive verifier rejected HearthMirror without naming it"
 
+# The whole ZIP is scanned, not only the app: a forbidden file next to the app is caught too.
+extra_zip_root="${fixture_dir}/zip-extra"
+mkdir -p "${extra_zip_root}"
+ditto "${app}" "${extra_zip_root}/HS Reconnect.app"
+print -r -- "closed" > "${extra_zip_root}/libcoreclr.dylib"
+extra_zip="${fixture_dir}/extra-file.zip"
+(cd "${extra_zip_root}" && ditto -c -k . "${extra_zip}")
+if "${project_dir}/Scripts/verify-update-archive.sh" "${extra_zip}" >/dev/null 2>&1; then
+  fail "the update archive verifier accepted a HearthMirror file next to the app"
+fi
+/usr/bin/grep -Fq 'verify-no-hearthmirror.sh" "${mountpoint}"' "${project_dir}/Scripts/verify-dmg-contents.sh" \
+  || fail "the DMG check does not scan the whole mounted disk image"
+
 # build-release.sh refuses to start when either HearthMirror switch is set. It must stop
 # at the very first step; with a bare PATH any later step would fail differently, so the
 # message proves the guard (not some other failure) did the stopping.
 for hm_switch in HS_RECONNECT_HEARTHMIRROR HS_RECONNECT_ALLOW_HEARTHMIRROR_LOCAL; do
-  if release_output="$(env -i PATH=/var/empty "${hm_switch}=YES" \
-    /bin/zsh "${project_dir}/Scripts/build-release.sh" 2>&1)"; then
-    fail "build-release.sh ran with ${hm_switch} set"
-  fi
+  release_status=0
+  release_output="$(env -i PATH=/var/empty "${hm_switch}=YES" \
+    /bin/zsh "${project_dir}/Scripts/build-release.sh" 2>&1)" || release_status=$?
+  [[ "${release_status}" == 1 ]] \
+    || fail "build-release.sh did not exit 1 with ${hm_switch} set (exit ${release_status})"
   [[ "${release_output}" == *"Refusing to build a release: ${hm_switch} is set"* ]] \
     || fail "build-release.sh did not refuse ${hm_switch} with a clear message"
+  [[ "${release_output}" != *"command not found"* ]] \
+    || fail "build-release.sh kept running after refusing ${hm_switch}"
 done
 
 # The release script never turns HearthMirror on, and scans the app and the installer.

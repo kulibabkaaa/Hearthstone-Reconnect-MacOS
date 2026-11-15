@@ -49,7 +49,7 @@ archive_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString
   exit 1
 }
 
-"${script_dir}/verify-no-hearthmirror.sh" "${app}"
+"${script_dir}/verify-no-hearthmirror.sh" "${temporary_dir}"
 codesign --verify --deep --strict --verbose=2 "${app}"
 if [[ "${require_notarization}" == "--require-notarization" ]]; then
   spctl --assess --type execute --verbose=2 "${app}"

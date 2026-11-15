@@ -47,6 +47,9 @@ package="${mountpoint}/Install HS Reconnect.pkg"
   exit 1
 }
 
+# Scan everything on the disk image, not only the installer payload.
+"${script_dir}/verify-no-hearthmirror.sh" "${mountpoint}"
+
 pkgutil --check-signature "${package}"
 pkgutil --expand-full "${package}" "${expanded_package}"
 "${script_dir}/verify-expanded-installer.sh" "${expanded_package}"

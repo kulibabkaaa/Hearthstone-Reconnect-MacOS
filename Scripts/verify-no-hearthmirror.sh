@@ -49,7 +49,7 @@ linked_forbidden_libraries() {
     # otool exits 0 on a damaged Mach-O and prints an error line instead of the library list
     # (a library line is indented; an architecture header ends in ':'). Treat that as unreadable.
     if print -r -- "${libraries}" | /usr/bin/tail -n +2 \
-      | /usr/bin/grep -v ':$' | /usr/bin/grep -q '^[^[:space:]]'; then
+      | /usr/bin/grep -v ':$' | /usr/bin/grep -v '^Archive :' | /usr/bin/grep -q '^[^[:space:]]'; then
       print -r -- "${file} -> (otool could not read this Mach-O)"
       continue
     fi
@@ -57,7 +57,7 @@ linked_forbidden_libraries() {
     # id first for a dylib, then each linked library). Universal binaries repeat a header ending in ':'.
     print -r -- "${libraries}" \
       | /usr/bin/tail -n +2 \
-      | { /usr/bin/grep -v ':$' || true; } \
+      | { /usr/bin/grep -v ':$' | /usr/bin/grep -v '^Archive :' || true; } \
       | { /usr/bin/grep -iE 'hearthmirror|coreclr' || true; } \
       | /usr/bin/sed -E 's/^[[:space:]]+//; s/ \(compatibility version.*$//' \
       | while IFS= read -r library; do
