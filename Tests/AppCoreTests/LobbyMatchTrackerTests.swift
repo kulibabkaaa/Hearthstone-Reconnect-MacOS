@@ -83,6 +83,12 @@ struct LobbyMatchTrackerTests {
       == [.started("a"), .ended("a"), .noMatch, .started("b"), .ongoing("b"), .ongoing("b")])
   }
 
+  @Test("a match started under the previous game's leave still ends at once on its own leave, after its join")
+  func staleLeaveClearedByJoin() {
+    #expect(run([(0, "a", false), (5, "a", true), (6, nil, true), (10, "b", true), (11, "b", false), (60, "b", true)])
+      == [.started("a"), .ended("a"), .noMatch, .started("b"), .ongoing("b"), .ended("b")])
+  }
+
   @Test("the ended match's state coming back on its end screen never restarts it")
   func endScreenBlip() {
     #expect(run([(0, "a", false), (5, "a", true), (6, nil, true), (7, "a", true), (8, "a", false), (9, nil, false)])
