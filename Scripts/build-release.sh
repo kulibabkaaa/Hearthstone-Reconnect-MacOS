@@ -1,6 +1,16 @@
 #!/bin/zsh
 set -euo pipefail
 
+# HearthSim asked us to stop distributing HearthMirror. A release build must never include it,
+# so refuse to run if anyone has switched it on, before doing any work.
+for hearthmirror_switch in HS_RECONNECT_HEARTHMIRROR HS_RECONNECT_ALLOW_HEARTHMIRROR_LOCAL; do
+  if [[ -n "${(P)hearthmirror_switch:-}" ]]; then
+    echo "Refusing to build a release: ${hearthmirror_switch} is set." >&2
+    echo "HearthSim's HearthMirror must never be in a release. Unset it and run again." >&2
+    exit 1
+  fi
+done
+
 script_dir="${0:A:h}"
 project_dir="${script_dir:h}"
 version="$(
@@ -38,11 +48,8 @@ installer_identity="${INSTALLER_SIGNING_IDENTITY:-$(
 
 cd "${project_dir}"
 
-"${script_dir}/verify-vendor.sh"
-if [[ -d "${project_dir}/Vendor/HearthMirror" ]]; then
-  # HearthMirror is not in the repository; build the lobby helper only from a local copy.
-  export HS_RECONNECT_HEARTHMIRROR=YES
-fi
+# Never include HearthMirror in a release, even if a local copy of it exists on this Mac.
+unset HS_RECONNECT_HEARTHMIRROR
 xcodegen generate
 "${script_dir}/verify-system-extension-config.sh"
 swift test
@@ -78,6 +85,7 @@ xcodebuild archive \
 }
 
 xattr -cr "${exported_app}"
+"${script_dir}/verify-no-hearthmirror.sh" "${exported_app}"
 codesign --verify --deep --strict --verbose=2 "${exported_app}"
 codesign -dv --verbose=4 "${exported_app}" 2>&1 \
   | grep "Authority=Developer ID Application:" >/dev/null
@@ -92,20 +100,17 @@ verify_universal \
   "${exported_app}/Contents/MacOS/HS Reconnect"
 verify_universal \
   "${exported_app}/Contents/Library/LoginItems/HS Reconnect Watcher.app/Contents/MacOS/HS Reconnect Watcher"
-verify_universal \
-  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe"
-if strings \
-  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe" \
-  | grep -q 'HS_LOBBY_CAPTURE_LOG'; then
-  echo "Release lobby helper contains debug file logging." >&2
-  exit 1
+# The lobby helper may be absent from a release; check it only when it is present. Whatever
+# helper ships, HearthSim's HearthMirror files must not be inside (checked right below).
+lobby_helper_binary="${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe"
+if [[ -e "${lobby_helper_binary}" ]]; then
+  verify_universal "${lobby_helper_binary}"
+  if strings "${lobby_helper_binary}" | grep -q 'HS_LOBBY_CAPTURE_LOG'; then
+    echo "Release lobby helper contains debug file logging." >&2
+    exit 1
+  fi
 fi
-verify_universal \
-  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/HearthMirror.framework/Versions/A/HearthMirror"
-verify_universal \
-  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libcoreclr.dylib"
-verify_universal \
-  "${exported_app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libSystem.Native.dylib"
+"${script_dir}/verify-no-hearthmirror.sh" "${exported_app}"
 verify_universal \
   "${exported_app}/Contents/Library/SystemExtensions/io.github.kulibabkaaa.HSReconnect.ProxyExtension.systemextension/Contents/MacOS/io.github.kulibabkaaa.HSReconnect.ProxyExtension"
 verify_universal \

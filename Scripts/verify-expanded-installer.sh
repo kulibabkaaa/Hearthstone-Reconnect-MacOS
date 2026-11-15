@@ -16,6 +16,9 @@ installer_scripts="${expanded_package}/Scripts"
   exit 1
 }
 
+# HearthSim's HearthMirror must never ship, whichever helper app is inside.
+"${0:A:h}/verify-no-hearthmirror.sh" "${expanded_package}"
+
 if /usr/bin/find "${expanded_package}/Payload" -name '._*' -print -quit \
   | /usr/bin/grep -q .; then
   echo "Installer payload contains AppleDouble metadata files." >&2
