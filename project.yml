@@ -1,11 +1,8 @@
 name: HSReconnect
 
 include:
-  # The lobby capture helper links HearthMirror, which this repository does not include.
-  # Scripts/build-local.sh and build-release.sh set HS_RECONNECT_HEARTHMIRROR=YES only when
-  # Vendor/HearthMirror exists on the build machine; otherwise the app builds without the helper.
+  # The lobby capture helper (own Mono reader, no third-party runtime) is part of every build.
   - path: project-lobby-helper.yml
-    enable: ${HS_RECONNECT_HEARTHMIRROR}
 
 options:
   minimumXcodeGenVersion: 2.44.0
