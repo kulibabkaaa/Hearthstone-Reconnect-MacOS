@@ -201,4 +201,191 @@ HS_RECONNECT_TEST_PUBLIC_KEY="${public_key}" \
   "${project_dir}/Scripts/check-update-build.sh" \
   "${build_number}" "${archive}" "${appcast}" >/dev/null
 
+# --- HearthMirror must never ship -------------------------------------------------------------
+# HearthSim asked us to stop distributing HearthMirror. These tests pin every guard: the file
+# scanner, the archive check, the release/local build switches and the vendor check in CI.
+hm_checker="${project_dir}/Scripts/verify-no-hearthmirror.sh"
+
+expect_forbidden() {
+  local label="$1"
+  local folder="$2"
+  local output
+  if output="$("${hm_checker}" "${folder}" 2>&1)"; then
+    fail "the HearthMirror check accepted ${label}"
+  fi
+  [[ "${output}" == *FORBIDDEN* ]] \
+    || fail "the HearthMirror check failed for ${label} without a clear message"
+}
+
+make_clean_helper_app() {
+  local root="$1"
+  mkdir -p "${root}/HS Reconnect.app/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS"
+  print -r -- "own reader" > "${root}/HS Reconnect.app/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe"
+}
+
+clean_tree="${fixture_dir}/hm-clean"
+make_clean_helper_app "${clean_tree}"
+"${hm_checker}" "${clean_tree}" >/dev/null \
+  || fail "the HearthMirror check rejected a helper app that has only its own binary"
+[[ "$("${hm_checker}" 2>&1 >/dev/null; print -r -- $?)" == *2 ]] \
+  || fail "the HearthMirror check must refuse to run without a path"
+if "${hm_checker}" "${fixture_dir}/does-not-exist" >/dev/null 2>&1; then
+  fail "the HearthMirror check accepted a path that does not exist"
+fi
+
+helper_rel="HS Reconnect.app/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app"
+forbidden_paths=(
+  "Contents/Frameworks/HearthMirror.framework/Versions/A/HearthMirror"
+  "Contents/Frameworks/hearthmirror.framework/Versions/A/Resources/Info.plist"
+  "Contents/Frameworks/libcoreclr.dylib"
+  "Contents/Frameworks/libSystem.Native.dylib"
+  "Contents/Resources/HearthMirror-version.txt"
+  "Contents/Resources/mono-version.txt"
+  "Contents/Resources/CoreCLR-LICENSE.txt"
+  "Contents/Resources/CoreCLR-THIRD-PARTY-NOTICES.txt"
+  "Contents/Resources/HSTracker-LICENSE.txt"
+  "Contents/Resources/Resources/Managed/arm64/System.Private.CoreLib.dll"
+  "Contents/Resources/Resources/Managed/x64/Other.DLL"
+  "Contents/MacOS/anything.dll"
+)
+for forbidden_path in "${forbidden_paths[@]}"; do
+  tainted="${fixture_dir}/hm-tainted"
+  rm -rf -- "${tainted}"
+  make_clean_helper_app "${tainted}"
+  mkdir -p "${tainted}/${helper_rel}/${forbidden_path:h}"
+  print -r -- "x" > "${tainted}/${helper_rel}/${forbidden_path}"
+  expect_forbidden "${forbidden_path}" "${tainted}"
+done
+
+# A symlink or folder with a forbidden name counts too, anywhere in the tree.
+tainted="${fixture_dir}/hm-tainted-link"
+rm -rf -- "${tainted}"
+make_clean_helper_app "${tainted}"
+ln -s /nonexistent "${tainted}/HS Reconnect.app/Contents/libcoreclr.dylib"
+expect_forbidden "a symlink named libcoreclr.dylib" "${tainted}"
+
+# A zipped app that contains HearthMirror.framework is rejected by the archive verifier,
+# while the same app without it passes (so the rejection is the new check, not the fixture).
+clean_zip_root="${fixture_dir}/zip-clean"
+mkdir -p "${clean_zip_root}"
+ditto "${app}" "${clean_zip_root}/HS Reconnect.app"
+clean_zip="${fixture_dir}/clean-with-helper.zip"
+ditto -c -k --keepParent "${clean_zip_root}/HS Reconnect.app" "${clean_zip}"
+"${project_dir}/Scripts/verify-update-archive.sh" "${clean_zip}" >/dev/null 2>&1 \
+  || fail "the update archive verifier rejected the clean fixture app"
+
+tainted_zip_root="${fixture_dir}/zip-tainted"
+mkdir -p "${tainted_zip_root}"
+ditto "${app}" "${tainted_zip_root}/HS Reconnect.app"
+tainted_helper="${tainted_zip_root}/${helper_rel}"
+mkdir -p \
+  "${tainted_helper}/Contents/Frameworks/HearthMirror.framework/Versions/A" \
+  "${tainted_helper}/Contents/MacOS"
+print -r -- "closed binary" > "${tainted_helper}/Contents/Frameworks/HearthMirror.framework/Versions/A/HearthMirror"
+print -r -- "own reader" > "${tainted_helper}/Contents/MacOS/HS Reconnect Lobby Capture Probe"
+tainted_zip="${fixture_dir}/tainted-with-hearthmirror.zip"
+ditto -c -k --keepParent "${tainted_zip_root}/HS Reconnect.app" "${tainted_zip}"
+if archive_output="$("${project_dir}/Scripts/verify-update-archive.sh" "${tainted_zip}" 2>&1)"; then
+  fail "the update archive verifier accepted an app containing HearthMirror.framework"
+fi
+[[ "${archive_output}" == *FORBIDDEN* && "${archive_output}" == *HearthMirror.framework* ]] \
+  || fail "the update archive verifier rejected HearthMirror without naming it"
+
+# build-release.sh refuses to start when either HearthMirror switch is set. It must stop
+# at the very first step; with a bare PATH any later step would fail differently, so the
+# message proves the guard (not some other failure) did the stopping.
+for hm_switch in HS_RECONNECT_HEARTHMIRROR HS_RECONNECT_ALLOW_HEARTHMIRROR_LOCAL; do
+  if release_output="$(env -i PATH=/var/empty "${hm_switch}=YES" \
+    /bin/zsh "${project_dir}/Scripts/build-release.sh" 2>&1)"; then
+    fail "build-release.sh ran with ${hm_switch} set"
+  fi
+  [[ "${release_output}" == *"Refusing to build a release: ${hm_switch} is set"* ]] \
+    || fail "build-release.sh did not refuse ${hm_switch} with a clear message"
+done
+
+# The release script never turns HearthMirror on, and scans the app and the installer.
+release_script="${project_dir}/Scripts/build-release.sh"
+if /usr/bin/grep -Eq '^[[:space:]]*export[[:space:]]+HS_RECONNECT_HEARTHMIRROR' "${release_script}"; then
+  fail "build-release.sh exports HS_RECONNECT_HEARTHMIRROR"
+fi
+if /usr/bin/grep -q 'Vendor/HearthMirror' "${release_script}"; then
+  fail "build-release.sh depends on a local Vendor/HearthMirror copy"
+fi
+/usr/bin/grep -Fq 'unset HS_RECONNECT_HEARTHMIRROR' "${release_script}" \
+  || fail "build-release.sh does not clear HS_RECONNECT_HEARTHMIRROR before generating the project"
+/usr/bin/grep -Fq 'verify-no-hearthmirror.sh" "${exported_app}"' "${release_script}" \
+  || fail "build-release.sh does not scan the exported app for HearthMirror"
+/usr/bin/grep -Fq 'verify-expanded-installer.sh' "${release_script}" \
+  || fail "build-release.sh does not verify the expanded installer"
+/usr/bin/grep -Fq 'verify-no-hearthmirror.sh' "${project_dir}/Scripts/verify-expanded-installer.sh" \
+  || fail "the installer check does not scan for HearthMirror (it also covers the DMG)"
+/usr/bin/grep -Fq 'verify-expanded-installer.sh' "${project_dir}/Scripts/verify-dmg-contents.sh" \
+  || fail "the DMG check does not run the installer check that scans for HearthMirror"
+/usr/bin/grep -Fq 'verify-no-hearthmirror.sh' "${project_dir}/Scripts/verify-update-archive.sh" \
+  || fail "the update archive check does not scan for HearthMirror"
+for release_check in verify-dmg-contents.sh verify-update-archive.sh; do
+  /usr/bin/grep -Fq "${release_check}" "${project_dir}/Scripts/verify-release.sh" \
+    || fail "verify-release.sh does not run ${release_check}"
+done
+
+# build-local.sh: HearthMirror is off unless HS_RECONNECT_ALLOW_HEARTHMIRROR_LOCAL=YES.
+local_script="${project_dir}/Scripts/build-local.sh"
+/usr/bin/grep -Fq 'hearthmirror-local-optin.sh' "${local_script}" \
+  || fail "build-local.sh does not use the HearthMirror opt-in"
+# Any assignment of the switch (export, typeset, plain) outside the opt-in helper is a bypass.
+for switch_script in "${local_script}" "${release_script}"; do
+  if /usr/bin/grep -Eq 'HS_RECONNECT_HEARTHMIRROR[[:space:]]*=' "${switch_script}"; then
+    fail "${switch_script:t} assigns HS_RECONNECT_HEARTHMIRROR itself"
+  fi
+done
+/usr/bin/grep -Fq 'LOCAL-HEARTHMIRROR-DO-NOT-SHARE' "${local_script}" \
+  || fail "build-local.sh does not rename a HearthMirror build so it cannot pass for a release file"
+/usr/bin/grep -Fq -- '-n "${installer_identity}" && "${hearthmirror_local_build}" != "true"' "${local_script}" \
+  || fail "build-local.sh may package a HearthMirror build as an installer"
+
+fake_project="${fixture_dir}/fake-project"
+mkdir -p "${fake_project}/Vendor/HearthMirror" "${fixture_dir}/empty-project"
+optin="${project_dir}/Scripts/hearthmirror-local-optin.sh"
+run_optin() {
+  # $1 project dir; the rest are environment assignments for the child shell.
+  local dir="$1"
+  shift
+  env -i PATH=/usr/bin:/bin "$@" /bin/zsh -c '
+    source "$1"
+    configure_hearthmirror_for_local_build "$2" || { print -r -- "STATUS=failed"; exit 0; }
+    print -r -- "STATUS=ok MODE=${hearthmirror_local_build} SWITCH=${HS_RECONNECT_HEARTHMIRROR:-unset}"
+  ' _ "${optin}" "${dir}" 2>&1
+}
+
+[[ "$(run_optin "${fake_project}")" == "STATUS=ok MODE=false SWITCH=unset" ]] \
+  || fail "HearthMirror is not off by default when Vendor/HearthMirror exists"
+[[ "$(run_optin "${fake_project}" HS_RECONNECT_HEARTHMIRROR=YES)" == "STATUS=ok MODE=false SWITCH=unset" ]] \
+  || fail "an inherited HS_RECONNECT_HEARTHMIRROR leaked into a local build"
+for not_optin in yes 1 true NO ""; do
+  [[ "$(run_optin "${fake_project}" "HS_RECONNECT_ALLOW_HEARTHMIRROR_LOCAL=${not_optin}")" == "STATUS=ok MODE=false SWITCH=unset" ]] \
+    || fail "HS_RECONNECT_ALLOW_HEARTHMIRROR_LOCAL=${not_optin} turned HearthMirror on"
+done
+optin_output="$(run_optin "${fake_project}" HS_RECONNECT_ALLOW_HEARTHMIRROR_LOCAL=YES)"
+[[ "${optin_output}" == *"STATUS=ok MODE=true SWITCH=YES"* ]] \
+  || fail "the explicit opt-in did not turn HearthMirror on"
+[[ "${optin_output}" == *WARNING* && "${optin_output}" == *"NEVER share"* ]] \
+  || fail "the opt-in did not print the never-share warning"
+[[ "$(run_optin "${fixture_dir}/empty-project" HS_RECONNECT_ALLOW_HEARTHMIRROR_LOCAL=YES)" == *"STATUS=failed" ]] \
+  || fail "the opt-in without a local HearthMirror copy must fail"
+
+# CI runs the vendor check with --if-present; it must pass when HearthMirror is absent
+# (the normal state of a checkout) and still fail when a required copy is incomplete.
+HS_RECONNECT_VENDOR_DIR="${fixture_dir}/no-such-vendor" \
+  "${project_dir}/Scripts/verify-vendor.sh" --if-present >/dev/null \
+  || fail "verify-vendor.sh --if-present failed although HearthMirror is absent"
+if HS_RECONNECT_VENDOR_DIR="${fixture_dir}/no-such-vendor" \
+  "${project_dir}/Scripts/verify-vendor.sh" >/dev/null 2>&1; then
+  fail "verify-vendor.sh without --if-present accepted a missing vendor folder"
+fi
+/usr/bin/grep -Fq 'verify-vendor.sh" --if-present' "${project_dir}/Scripts/verify-release.sh" \
+  || fail "verify-release.sh must not require a local HearthMirror copy"
+if /usr/bin/grep -Eq 'verify-vendor\.sh"?$' "${release_script}"; then
+  fail "build-release.sh requires a local HearthMirror copy"
+fi
+
 echo "Release validation tests passed."

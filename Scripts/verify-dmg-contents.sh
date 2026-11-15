@@ -60,14 +60,10 @@ verify_universal \
   "${app}/Contents/MacOS/HS Reconnect"
 verify_universal \
   "${app}/Contents/Library/LoginItems/HS Reconnect Watcher.app/Contents/MacOS/HS Reconnect Watcher"
-verify_universal \
-  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe"
-verify_universal \
-  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/HearthMirror.framework/Versions/A/HearthMirror"
-verify_universal \
-  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libcoreclr.dylib"
-verify_universal \
-  "${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/Frameworks/libSystem.Native.dylib"
+lobby_helper_binary="${app}/Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app/Contents/MacOS/HS Reconnect Lobby Capture Probe"
+if [[ -e "${lobby_helper_binary}" ]]; then
+  verify_universal "${lobby_helper_binary}"
+fi
 verify_universal \
   "${app}/Contents/Library/SystemExtensions/io.github.kulibabkaaa.HSReconnect.ProxyExtension.systemextension/Contents/MacOS/io.github.kulibabkaaa.HSReconnect.ProxyExtension"
 

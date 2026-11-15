@@ -22,9 +22,14 @@ trap cleanup EXIT
 
 cd "${project_dir}"
 
-if [[ -d "${project_dir}/Vendor/HearthMirror" ]]; then
-  # HearthMirror is not in the repository; build the lobby helper only from a local copy.
-  export HS_RECONNECT_HEARTHMIRROR=YES
+# HearthMirror (HearthSim's closed runtime) is OFF by default. Only the explicit opt-in
+# HS_RECONNECT_ALLOW_HEARTHMIRROR_LOCAL=YES turns it on, and such a build must never be shared.
+source "${script_dir}/hearthmirror-local-optin.sh"
+configure_hearthmirror_for_local_build "${project_dir}"
+if [[ "${hearthmirror_local_build}" == "true" ]]; then
+  # Never let a HearthMirror build look like a release file, and never package it as an installer.
+  staged_zip="${HOME}/Downloads/HS-Reconnect-${prototype_version}-LOCAL-HEARTHMIRROR-DO-NOT-SHARE.zip"
+  staged_pkg=""
 fi
 xcodegen generate
 "${script_dir}/verify-system-extension-config.sh"
@@ -45,6 +50,9 @@ rm -rf "${staged_app}"
 ditto --norsrc --noextattr "${built_app}" "${staged_app}"
 xattr -cr "${staged_app}"
 codesign --verify --deep --strict --verbose=2 "${staged_app}"
+if [[ "${hearthmirror_local_build}" != "true" ]]; then
+  "${script_dir}/verify-no-hearthmirror.sh" "${staged_app}"
+fi
 
 rm -f "${staged_zip}"
 ditto -c -k --norsrc --noextattr --keepParent \
@@ -61,7 +69,7 @@ installer_identity="$(
     | head -n 1
 )"
 
-if [[ -n "${installer_identity}" ]]; then
+if [[ -n "${installer_identity}" && "${hearthmirror_local_build}" != "true" ]]; then
   rm -f "${staged_pkg}"
   mkdir -p \
     "${verification_dir}/payload/Applications" \
@@ -105,8 +113,11 @@ if [[ -n "${installer_identity}" ]]; then
     "${verification_dir}/package/Payload/Applications/HS Reconnect.app"
 fi
 
+if [[ "${hearthmirror_local_build}" == "true" ]]; then
+  hearthmirror_warning
+fi
 echo "Built app: ${staged_app}"
 echo "Built archive: ${staged_zip}"
-if [[ -n "${installer_identity}" ]]; then
+if [[ -n "${staged_pkg}" && -n "${installer_identity}" ]]; then
   echo "Built installer: ${staged_pkg}"
 fi
