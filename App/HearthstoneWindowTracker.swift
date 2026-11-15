@@ -12,7 +12,9 @@ final class HearthstoneWindowTracker {
   private var subscribers: [(owner: ObjectIdentifier, handler: (NSRect?) -> Void)] = []
   private var timer: Timer?
   private var lookupCache = ProcessLookupCache()
-  private var cachedApp: NSRunningApplication?
+  /// Only the pid is kept: every property read on an `NSRunningApplication` (even `processIdentifier` and
+  /// `isTerminated`) re-fetches it from Launch Services in the running app.
+  private var cachedPID: pid_t?
   private var workspaceObservers: [NSObjectProtocol] = []
   var isPolling: Bool { timer != nil }
 
@@ -55,17 +57,16 @@ final class HearthstoneWindowTracker {
     subscribers.forEach { $0.handler(frame) }
   }
 
-  /// The running Hearthstone, found again only when `ProcessLookupCache` says so.
-  private func hearthstone() -> NSRunningApplication? {
+  /// The running Hearthstone's pid, looked up again only when `ProcessLookupCache` says so.
+  private func hearthstonePID() -> pid_t? {
     let now = ProcessInfo.processInfo.systemUptime
-    // Asked of the kernel: `isTerminated` makes a Launch Services round trip in the running app.
-    let cachedIsRunning = cachedApp.map { Self.processExists($0.processIdentifier) } ?? false
+    let cachedIsRunning = cachedPID.map(Self.processExists) ?? false
     if lookupCache.needsLookup(now: now, cachedIsRunning: cachedIsRunning) {
-      cachedApp = NSRunningApplication.runningApplications(withBundleIdentifier: HearthstoneApp.bundleIdentifier)
-        .first { !$0.isTerminated }
-      lookupCache.didLookUp(now: now, found: cachedApp != nil)
+      cachedPID = NSRunningApplication.runningApplications(withBundleIdentifier: HearthstoneApp.bundleIdentifier)
+        .first { !$0.isTerminated }?.processIdentifier
+      lookupCache.didLookUp(now: now, found: cachedPID != nil)
     }
-    return cachedApp
+    return cachedPID
   }
 
   /// Whether a process with this pid still exists. A quit also arrives as a Workspace notification, which looks up
@@ -77,8 +78,7 @@ final class HearthstoneWindowTracker {
 
   /// The largest Hearthstone window in AppKit coordinates, or nil when the game isn't running or has no window.
   func frame(includeOffscreen: Bool = false) -> NSRect? {
-    guard let app = hearthstone() else { return nil }
-    let pid = app.processIdentifier
+    guard let pid = hearthstonePID() else { return nil }
     let options: CGWindowListOption = includeOffscreen ? [.optionAll, .excludeDesktopElements] : [.optionOnScreenOnly, .excludeDesktopElements]
     let items = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
     // Only the game's own windows are measured and sorted, largest first.
