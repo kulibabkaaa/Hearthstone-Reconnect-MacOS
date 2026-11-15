@@ -313,8 +313,9 @@ private final class LobbyCaptureProbe {
     // Lobby rows (and the game id) are for Battlegrounds only; BattlegroundsGameClassifier decides, so a game
     // type Blizzard adds later still counts when the match has Battlegrounds' eight contestants.
     let match = mirror.matchLobby()
-    let kind = BattlegroundsGameClassifier.kind(BattlegroundsEvidence(
-      gameType: gameType, selectedMode: mode, contestantCount: match?.players.count))
+    let kind = BattlegroundsGameClassifier.kind(BattlegroundsGameClassifier.helperEvidence(
+      gameType: gameType, selectedMode: mode, contestants: match?.players.count,
+      gameUUID: trimmed(match?.gameUUID), countedGameUUID: activeGameUUID))
     let lobby = BattlegroundsGameClassifier.countsAsMatch(kind) ? match : nil
     let gameUUID = trimmed(lobby?.gameUUID)
     let account = mirror.accountID()

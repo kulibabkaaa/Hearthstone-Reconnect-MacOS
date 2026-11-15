@@ -35,16 +35,20 @@ public struct BattlegroundsEvidence: Equatable, Sendable {
   public var duoTeamID: Int?
   /// Whether the game was entered from a Battlegrounds scene (BACON…, from the logs); nil when not logged.
   public var enteredFromBattlegrounds: Bool?
-  /// Players with an account in the match: 8 in Battlegrounds (Solo and Duos), 2 in every other mode.
+  /// Players with an account in the match: 8 in Battlegrounds (Solo and Duos), 2–4 in every other mode.
   public var contestantCount: Int?
+  /// This same game (same game id) was already counted as Battlegrounds, so one poll that sees fewer contestants
+  /// can't end and restart it.
+  public var alreadyCounted: Bool
 
   public init(gameType: Int? = nil, selectedMode: String? = nil, duoTeamID: Int? = nil,
-              enteredFromBattlegrounds: Bool? = nil, contestantCount: Int? = nil) {
+              enteredFromBattlegrounds: Bool? = nil, contestantCount: Int? = nil, alreadyCounted: Bool = false) {
     self.gameType = gameType
     self.selectedMode = selectedMode
     self.duoTeamID = duoTeamID
     self.enteredFromBattlegrounds = enteredFromBattlegrounds
     self.contestantCount = contestantCount
+    self.alreadyCounted = alreadyCounted
   }
 }
 
@@ -57,10 +61,12 @@ public enum BattlegroundsGameClassifier {
   public static let soloGameTypes: Set<Int> = [23, 24, 35, 36]
   /// GT_BATTLEGROUNDS_DUO (37), _DUO_VS_AI (38), _DUO_FRIENDLY (39), _DUO_AI_VS_AI (40), _DUO_1_PLAYER_VS_AI (41).
   public static let duosGameTypes: Set<Int> = [37, 38, 39, 40, 41]
-  /// Every other type Hearthstone 37 defines: Constructed, Arena, Tavern Brawl, Fireside, Duels, Mercenaries,
-  /// reserved values and Underground Arena (42). Never Battlegrounds, whatever else is seen.
-  public static let otherGameTypes: Set<Int> = [1, 2, 4, 5, 6, 7, 8, 16, 17, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29,
-                                                30, 31, 32, 33, 34, 42]
+  /// Every other type Hearthstone 37.0.255790 defines (PegasusShared.GameType in blizzard.bgsclient.dll; Firestone's
+  /// copy lacks 14, 15, 43–45): vs AI/friend, tutorial, Arena, test, Ranked, Casual, Hearthstone Duos (14, 15), Tavern
+  /// Brawl, Fireside, Duels, Mercenaries, Underground Arena (42), achievement test, Arena and Underground Arena vs AI.
+  /// Never Battlegrounds, whatever else is seen.
+  public static let otherGameTypes: Set<Int> = [1, 2, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21, 22, 28, 29, 30,
+                                                31, 32, 33, 34, 42, 43, 44, 45]
   public static let battlegroundsContestants = 8
 
   public static func kind(_ evidence: BattlegroundsEvidence) -> BattlegroundsMatchKind {
@@ -69,7 +75,7 @@ public enum BattlegroundsGameClassifier {
     let duosSignal = duosGameTypes.contains(gameType) || (evidence.duoTeamID ?? 0) != 0
       || evidence.selectedMode?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "duos"
     let battlegroundsEvidence = evidence.enteredFromBattlegrounds == true || (evidence.duoTeamID ?? 0) != 0
-      || (evidence.contestantCount ?? 0) >= battlegroundsContestants
+      || (evidence.contestantCount ?? 0) >= battlegroundsContestants || evidence.alreadyCounted
     let isBattlegrounds: Bool?
     if soloGameTypes.contains(gameType) || duosGameTypes.contains(gameType) {
       isBattlegrounds = true
@@ -90,6 +96,14 @@ public enum BattlegroundsGameClassifier {
 
   /// The Reconnect button and the helper's lobby rows: any Battlegrounds game, Solo or Duos, or one not known yet.
   public static func countsAsMatch(_ kind: BattlegroundsMatchKind) -> Bool { kind != .other }
+
+  /// What the lobby helper knows from memory: the game type, the menu's mode, how many players with an account the
+  /// match has, and whether this game id is the one it already reports (`countedGameUUID`).
+  public static func helperEvidence(gameType: Int, selectedMode: String, contestants: Int?, gameUUID: String?,
+                                    countedGameUUID: String?) -> BattlegroundsEvidence {
+    BattlegroundsEvidence(gameType: gameType, selectedMode: selectedMode, contestantCount: contestants,
+                          alreadyCounted: gameUUID != nil && gameUUID == countedGameUUID)
+  }
 }
 
 public enum LobbyReconnectPolicy {

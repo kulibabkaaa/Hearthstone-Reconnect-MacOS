@@ -25,14 +25,14 @@ struct BattlegroundsGameClassifierTests {
   }
 
   @Test("Constructed, Arena, Brawl, Mercenaries and Underground Arena never count, whatever else is seen",
-        arguments: [1, 2, 4, 5, 6, 7, 8, 16, 20, 28, 29, 30, 31, 32, 33, 34, 42])
+        arguments: [1, 2, 4, 5, 6, 7, 8, 14, 15, 16, 20, 28, 29, 30, 31, 32, 33, 34, 42, 43, 44, 45])
   func knownOther(gameType: Int) {
     #expect(kind(.init(gameType: gameType)) == .other)
     #expect(kind(.init(gameType: gameType, selectedMode: "solo", duoTeamID: 1, enteredFromBattlegrounds: true,
                        contestantCount: 8)) == .other)
   }
 
-  @Test("an unknown new type with Battlegrounds evidence counts", arguments: [43, 44, 60, 999])
+  @Test("an unknown new type with Battlegrounds evidence counts", arguments: [46, 47, 60, 999])
   func newTypeWithEvidence(gameType: Int) {
     #expect(kind(.init(gameType: gameType, selectedMode: "solo", contestantCount: 8)) == .solo)
     #expect(kind(.init(gameType: gameType, enteredFromBattlegrounds: true)) == .solo)
@@ -41,7 +41,7 @@ struct BattlegroundsGameClassifierTests {
     #expect(BattlegroundsGameClassifier.countsAsMatch(kind(.init(gameType: gameType, contestantCount: 8))))
   }
 
-  @Test("an unknown new type without Battlegrounds evidence doesn't count", arguments: [43, 44, 60, 999])
+  @Test("an unknown new type without Battlegrounds evidence doesn't count", arguments: [46, 47, 60, 999])
   func newTypeWithoutEvidence(gameType: Int) {
     // The menu's Battlegrounds selection stays set in every mode: it isn't evidence.
     #expect(kind(.init(gameType: gameType, selectedMode: "solo")) == .other)
@@ -52,7 +52,31 @@ struct BattlegroundsGameClassifierTests {
 
   @Test("a new type entered from another scene isn't Battlegrounds, even with eight players")
   func newTypeFromOtherScene() {
-    #expect(kind(.init(gameType: 43, enteredFromBattlegrounds: false, contestantCount: 8)) == .other)
+    #expect(kind(.init(gameType: 46, enteredFromBattlegrounds: false, contestantCount: 8)) == .other)
+  }
+
+  @Test("a game already counted keeps counting through a poll that sees fewer players; a known other type doesn't")
+  func alreadyCounted() {
+    #expect(kind(.init(gameType: 46, contestantCount: 7, alreadyCounted: true)) == .solo)
+    #expect(kind(.init(gameType: 46, contestantCount: 7)) == .other)
+    #expect(kind(.init(gameType: 7, contestantCount: 2, alreadyCounted: true)) == .other)
+  }
+
+  @Test("the helper's evidence: players counted, and 'already counted' only for the same game id")
+  func helperEvidence() {
+    let fresh = BattlegroundsGameClassifier.helperEvidence(gameType: 46, selectedMode: "solo", contestants: 8,
+                                                           gameUUID: "a", countedGameUUID: nil)
+    #expect(fresh.contestantCount == 8 && !fresh.alreadyCounted)
+    #expect(kind(fresh) == .solo)
+    let same = BattlegroundsGameClassifier.helperEvidence(gameType: 46, selectedMode: "solo", contestants: 7,
+                                                          gameUUID: "a", countedGameUUID: "a")
+    #expect(same.alreadyCounted && kind(same) == .solo)
+    let other = BattlegroundsGameClassifier.helperEvidence(gameType: 46, selectedMode: "solo", contestants: 7,
+                                                           gameUUID: "b", countedGameUUID: "a")
+    #expect(!other.alreadyCounted && kind(other) == .other)
+    let none = BattlegroundsGameClassifier.helperEvidence(gameType: 46, selectedMode: "solo", contestants: 7,
+                                                          gameUUID: nil, countedGameUUID: nil)
+    #expect(!none.alreadyCounted)
   }
 
   @Test("no game type yet: undetermined (counts) unless something says otherwise")
@@ -100,7 +124,7 @@ struct LobbyReconnectPhaseClassifierTests {
   func soloLive() {
     #expect(LobbyReconnectPolicy.phase(gameUUIDPresent: true, gameType: 23, mode: "solo",
                                        sessionLogSaysReconnect: false, secondsSinceAttachment: 60) == .live)
-    #expect(LobbyReconnectPolicy.phase(gameUUIDPresent: true, gameType: 43, mode: "solo",
+    #expect(LobbyReconnectPolicy.phase(gameUUIDPresent: true, gameType: 46, mode: "solo",
                                        sessionLogSaysReconnect: false, secondsSinceAttachment: 60) == .live)
   }
 }
