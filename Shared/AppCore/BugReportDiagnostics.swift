@@ -115,7 +115,8 @@ public enum BugReportDiagnostics {
       "Hearthstone log folder: \(input.logFolderName.map(safeFolderName) ?? "not found")",
     ]
     if let battleNetLog = input.battleNetLog, let host = regionHost(inBattleNetLog: battleNetLog) {
-      let source = input.battleNetLogFolderName.map { " (from \(safeFolderName($0)))" } ?? ""
+      let source = input.battleNetLogFolderName
+        .flatMap { $0 == input.logFolderName ? nil : " (from \(safeFolderName($0)))" } ?? ""
       header.append("Battle.net region host: \(host)\(source)")
     } else {
       header.append("Battle.net region host: not found")

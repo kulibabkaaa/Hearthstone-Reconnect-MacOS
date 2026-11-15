@@ -26,7 +26,7 @@ struct DiagnosticLogStoreTests {
     let clock = TestClock(start)
 
     let first = DiagnosticLogStore(directory: directory, now: { clock.now })
-    first.append(.reconnectTarget, .notice, "choice=exact logged=1 open=2")
+    first.append(.reconnectTarget, .notice, "choice=loggedAndOpen logged=1 open=1")
     first.append(.loginItem, .error, "Couldn't register: /Users/somebody/Library\nfor Name#1234")
     _ = first.entries()
 
@@ -37,7 +37,7 @@ struct DiagnosticLogStoreTests {
 
     #expect(entries.count == 2)
     #expect(entries[0].category == "ReconnectTarget")
-    #expect(entries[0].message == "choice=exact logged=1 open=2")
+    #expect(entries[0].message == "choice=loggedAndOpen logged=1 open=1")
     #expect(entries[1].level == "error")
     #expect(entries[1].message == "Couldn't register: /Users/~/Library for <battletag>")
     let raw = try String(contentsOf: directory.appendingPathComponent(DiagnosticLogStore.currentFileName), encoding: .utf8)
@@ -92,7 +92,10 @@ struct DiagnosticLogStoreTests {
     defer { try? FileManager.default.removeItem(at: directory) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let good = DiagnosticLogFormat.line(date: start, category: .loginItem, level: .notice, message: "fine")
-    try Data((good + "2026-11-15T17:00:00.000Z\tLoginIt").utf8)
+    let cutInMessage = DiagnosticLogFormat.line(
+      date: start, category: .loginItem, level: .notice, message: "Couldn't register the helper again"
+    ).dropLast(12)
+    try Data((good + cutInMessage).utf8)
       .write(to: directory.appendingPathComponent(DiagnosticLogStore.currentFileName))
     let clock = TestClock(start.addingTimeInterval(10))
 
@@ -100,6 +103,36 @@ struct DiagnosticLogStoreTests {
     store.append(.loginItem, .notice, "after restart")
 
     #expect(store.entries().map(\.message) == ["fine", "after restart"])
+  }
+
+  @Test func aDamagedByteDoesNotCostTheWholeFile() throws {
+    let directory = try makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    var data = Data(DiagnosticLogFormat.line(date: start, category: .loginItem, level: .notice, message: "keep me").utf8)
+    data.append(Data([0xFF, 0x0A]))
+    try data.write(to: directory.appendingPathComponent(DiagnosticLogStore.currentFileName))
+    let clock = TestClock(start.addingTimeInterval(10))
+
+    let store = DiagnosticLogStore(directory: directory, now: { clock.now })
+
+    #expect(store.entries().map(\.message) == ["keep me"])
+  }
+
+  @Test func appendsAfterAnotherWriterInsteadOfOverwriting() throws {
+    let directory = try makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let clock = TestClock(start)
+    let first = DiagnosticLogStore(directory: directory, now: { clock.now })
+    let second = DiagnosticLogStore(directory: directory, now: { clock.now })
+    _ = first.entries()
+    _ = second.entries()
+
+    first.append(.loginItem, .notice, "from first")
+    _ = first.entries()
+    second.append(.loginItem, .notice, "from second")
+
+    #expect(second.entries().map(\.message) == ["from first", "from second"])
   }
 
   @Test func formatRoundTripsAndRejectsUnknownCategories() {
@@ -121,12 +154,12 @@ struct DiagnosticLogStoreTests {
         date: start.addingTimeInterval(100.4), category: "LoginItem", level: "notice", message: "both"),
       BugReportAppLogEntry(
         date: start.addingTimeInterval(200), category: "ReconnectTarget", level: "notice",
-        message: "choice=exact logged=1 open=2"),
+        message: "choice=loggedAndOpen logged=1 open=1"),
       BugReportAppLogEntry(
         date: start.addingTimeInterval(300), category: "LoginItem", level: "notice", message: "both"),
     ]
     let merged = BugReportDiagnostics.mergedAppLogEntries(file: file, currentRun: currentRun)
 
-    #expect(merged.map(\.message) == ["earlier run", "both", "choice=exact logged=1 open=2", "both"])
+    #expect(merged.map(\.message) == ["earlier run", "both", "choice=loggedAndOpen logged=1 open=1", "both"])
   }
 }

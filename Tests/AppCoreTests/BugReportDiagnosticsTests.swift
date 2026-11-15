@@ -210,12 +210,15 @@ struct BugReportDiagnosticsTests {
     )
 
     var withSource = input(battleNetLog: "Connecting to wss://eu.actual.battle.net:1119/")
-    withSource.battleNetLogFolderName = "Hearthstone_2026_11_11_12_26_22"
+    withSource.battleNetLogFolderName = "Hearthstone_2026_11_10_00_47_36"
     #expect(
       BugReportDiagnostics.render(withSource)
-        .contains("Battle.net region host: eu.actual.battle.net (from Hearthstone_2026_11_11_12_26_22)")
+        .contains("Battle.net region host: eu.actual.battle.net (from Hearthstone_2026_11_10_00_47_36)")
     )
     #expect(BugReportDiagnostics.render(input(battleNetLog: "no host")).contains("Battle.net region host: not found"))
+    var sameFolder = input(battleNetLog: "Connecting to wss://eu.actual.battle.net:1119/")
+    sameFolder.battleNetLogFolderName = sameFolder.logFolderName
+    #expect(BugReportDiagnostics.render(sameFolder).contains("Battle.net region host: eu.actual.battle.net\n"))
   }
 
   @Test func picksTheNewestHearthstoneLogFolder() {

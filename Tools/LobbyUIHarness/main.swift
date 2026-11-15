@@ -306,7 +306,7 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
         """,
       hearthstoneLog: nil, battleNetLog: "Connection Request to 'eu.actual.battle.net:1119'",
       appLogEntries: [BugReportAppLogEntry(date: Date().addingTimeInterval(-120), category: "ReconnectTarget",
-        level: "notice", message: "choice=exact logged=1 open=2")],
+        level: "notice", message: "choice=loggedAndOpen logged=1 open=1")],
       generatedAt: Date()))
   }
 

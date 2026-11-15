@@ -32,10 +32,12 @@ public enum DiagnosticLogFormat {
     return BugReportDiagnostics.cleanLine(flat)
   }
 
-  /// Entries from a file's text. Malformed lines (for example one cut short by a crash) and unknown categories
-  /// are skipped.
+  /// Entries from a file's text. Malformed lines, unknown categories and a last line without its newline (one
+  /// cut short by a crash, wherever the cut fell) are skipped.
   public static func parse(_ text: String) -> [BugReportAppLogEntry] {
-    text.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
+    var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+    lines.removeLast()  // Empty when the text ends with a newline, otherwise an unfinished line.
+    return lines.compactMap { line in
       let fields = line.split(separator: "\t", maxSplits: 3, omittingEmptySubsequences: false)
       guard
         fields.count == 4,
@@ -122,7 +124,8 @@ public final class DiagnosticLogStore: @unchecked Sendable {
       prepareIfNeeded()
       let earliest = now().addingTimeInterval(-Self.retention)
       return [previousURL, currentURL]
-        .compactMap { try? String(contentsOf: $0, encoding: .utf8) }
+        .compactMap { try? Data(contentsOf: $0) }
+        .map { String(decoding: $0, as: UTF8.self) }
         .flatMap(DiagnosticLogFormat.parse)
         .filter { $0.date >= earliest }
     }
@@ -142,11 +145,14 @@ public final class DiagnosticLogStore: @unchecked Sendable {
       )
       let currentTime = now()
       for url in [previousURL, currentURL] where fileManager.fileExists(atPath: url.path) {
-        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        // Lenient decoding: one damaged byte must not cost the whole file.
+        let text = (try? Data(contentsOf: url)).map { String(decoding: $0, as: UTF8.self) } ?? ""
         let kept = DiagnosticLogFormat.retained(text, now: currentTime, retention: Self.retention)
+        // Untouched unless something was trimmed: another running copy may have this file open.
+        guard kept != text else { continue }
         if kept.isEmpty {
           try? fileManager.removeItem(at: url)
-        } else if kept != text {
+        } else {
           // Also repairs a last line left unfinished by a crash.
           try Data(kept.utf8).write(to: url, options: .atomic)
         }
@@ -158,14 +164,13 @@ public final class DiagnosticLogStore: @unchecked Sendable {
   }
 
   private func openCurrentFile() throws {
-    if !FileManager.default.fileExists(atPath: currentURL.path) {
-      FileManager.default.createFile(
-        atPath: currentURL.path,
-        contents: nil,
-        attributes: [.posixPermissions: 0o600]
-      )
+    // Append mode, so two running copies of the app (say a Debug build next to the installed one) add lines
+    // after each other instead of writing over each other.
+    let descriptor = open(currentURL.path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o600)
+    guard descriptor >= 0 else {
+      throw CocoaError(.fileWriteUnknown)
     }
-    let fileHandle = try FileHandle(forWritingTo: currentURL)
+    let fileHandle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     currentSize = Int(try fileHandle.seekToEnd())
     handle = fileHandle
   }
@@ -178,8 +183,8 @@ public final class DiagnosticLogStore: @unchecked Sendable {
       if currentSize > 0, currentSize + data.count > Self.maximumFileBytes {
         try rotate()
       }
-      // One write per complete line: a crash can at worst leave one unfinished last line, which is dropped
-      // the next time the store opens.
+      // One write per complete line: a crash can at worst leave one unfinished last line, which is never read
+      // and is removed the next time the store opens.
       try handle?.write(contentsOf: data)
       currentSize += data.count
     } catch {
