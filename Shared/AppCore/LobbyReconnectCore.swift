@@ -303,10 +303,15 @@ public struct LobbyMatchTracker: Equatable, Sendable {
   private var vanishedAt: TimeInterval?
   /// A match that ended while its game state lingers (the end screen): its id must not start it again.
   private var finishedGameUUID: String?
-  /// An unreported id seen once while the log's newest line is a clean leave. It is taken as a lingering, finished
-  /// game only if it is still there on the next poll with the leave still newest: a new game's id that shows up one
-  /// poll before its join line reaches the log must not be lost.
+  /// The match that ended last. Under a clean leave its id can only be that game lingering on its end screen, and
+  /// any other id can only be a new game, so both are decided at once however late the log is.
+  private var lastEndedGameUUID: String?
+  /// Only when nothing ended while attached (a fresh attach during an end screen): an unreported id seen once under a
+  /// clean leave, taken as a lingering, finished game if it is still there on the next poll with the leave newest.
   private var lingeringCandidate: String?
+  /// The reported match started while the previous game's clean leave was still the newest log line: that leave
+  /// isn't this match's end. Cleared once a join (any non-leave line) is newest.
+  private var leaveIsStale = false
 
   public init() {}
 
@@ -321,12 +326,24 @@ public struct LobbyMatchTracker: Equatable, Sendable {
       lingeringCandidate = nil
     }
     if let reported = reportedGameUUID {
-      // Only the match that just ended can linger on its end screen; any other id is left free to start.
-      if leftGameServer { return finish(reported, lingering: gameUUID == reported ? reported : nil) }
+      if !leftGameServer { leaveIsStale = false }
+      if leftGameServer && !leaveIsStale {
+        // A different id under the leave is the next game (its join line isn't in the log yet).
+        if let gameUUID, gameUUID != reported {
+          lastEndedGameUUID = reported
+          reportedGameUUID = gameUUID
+          vanishedAt = nil
+          leaveIsStale = true
+          return .replaced(ended: reported, started: gameUUID)
+        }
+        return finish(reported, lingering: gameUUID)
+      }
       if let gameUUID {
         vanishedAt = nil
         if gameUUID == reported { return .ongoing(gameUUID) }
+        lastEndedGameUUID = reported
         reportedGameUUID = gameUUID
+        leaveIsStale = leftGameServer
         return .replaced(ended: reported, started: gameUUID)
       }
       let since = vanishedAt ?? now
@@ -335,7 +352,11 @@ public struct LobbyMatchTracker: Equatable, Sendable {
       return finish(reported, lingering: nil)
     }
     guard let gameUUID, gameUUID != finishedGameUUID else { return .noMatch }
-    if leftGameServer {
+    if leftGameServer, gameUUID == lastEndedGameUUID {
+      finishedGameUUID = gameUUID  // the ended match's state is back on its end screen
+      return .noMatch
+    }
+    if leftGameServer, lastEndedGameUUID == nil {
       if lingeringCandidate == gameUUID {
         finishedGameUUID = gameUUID
         lingeringCandidate = nil
@@ -345,8 +366,10 @@ public struct LobbyMatchTracker: Equatable, Sendable {
       return .noMatch
     }
     lingeringCandidate = nil
+    lastEndedGameUUID = nil
     reportedGameUUID = gameUUID
     vanishedAt = nil
+    leaveIsStale = leftGameServer
     return .started(gameUUID)
   }
 
@@ -361,6 +384,8 @@ public struct LobbyMatchTracker: Equatable, Sendable {
     reportedGameUUID = nil
     vanishedAt = nil
     finishedGameUUID = lingering
+    lastEndedGameUUID = reported
+    leaveIsStale = false
     return .ended(reported)
   }
 }

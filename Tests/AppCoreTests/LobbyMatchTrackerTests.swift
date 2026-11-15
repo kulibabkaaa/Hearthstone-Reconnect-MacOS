@@ -72,9 +72,28 @@ struct LobbyMatchTrackerTests {
   func newIDBeforeJoinLine() {
     // The previous game's leave is still the newest log line when the new id first appears.
     #expect(run([(0, "b", true), (1, "b", false), (2, "b", false)]) == [.noMatch, .started("b"), .ongoing("b")])
-    // Same while a match is reported: a different id under a stale leave ends the old match but isn't latched.
+    // While a match is reported, a different id under a stale leave is the next game: end the old, start the new.
     #expect(run([(0, "a", false), (1, "b", true), (2, "b", false)])
-      == [.started("a"), .ended("a"), .started("b")])
+      == [.started("a"), .replaced(ended: "a", started: "b"), .ongoing("b")])
+  }
+
+  @Test("after a known end, a new game starts however late its join line is logged")
+  func newGameAfterEndWithLateLog() {
+    #expect(run([(0, "a", false), (5, "a", true), (6, nil, true), (10, "b", true), (11, "b", true), (12, "b", false)])
+      == [.started("a"), .ended("a"), .noMatch, .started("b"), .ongoing("b"), .ongoing("b")])
+  }
+
+  @Test("the ended match's state coming back on its end screen never restarts it")
+  func endScreenBlip() {
+    #expect(run([(0, "a", false), (5, "a", true), (6, nil, true), (7, "a", true), (8, "a", false), (9, nil, false)])
+      == [.started("a"), .ended("a"), .noMatch, .noMatch, .noMatch, .noMatch])
+  }
+
+  @Test("a fresh attach under a leave takes an id seen on two polls as the finished game (deliberate trade-off)")
+  func freshAttachLateLog() {
+    // Nothing ended while attached, so an id under a leave can't be told apart from the old game. One poll late is
+    // covered (newIDBeforeJoinLine); a log two or more polls late at a fresh attach would miss that match.
+    #expect(run([(0, "b", true), (1, "b", true), (2, "b", false)]) == [.noMatch, .noMatch, .noMatch])
   }
 
   @Test("a finished match's id is forgotten once its state is gone: the same id later is a new match")
