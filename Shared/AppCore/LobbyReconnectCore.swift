@@ -37,8 +37,8 @@ public struct BattlegroundsEvidence: Equatable, Sendable {
   public var enteredFromBattlegrounds: Bool?
   /// Players with an account in the match: 8 in Battlegrounds (Solo and Duos), 2–4 in every other mode.
   public var contestantCount: Int?
-  /// This same game (same game id) was already counted as Battlegrounds, so one poll that sees fewer contestants
-  /// can't end and restart it.
+  /// This same game (same game id) was already positively seen as Battlegrounds (Solo or Duos, not merely
+  /// undetermined), so one poll that sees fewer contestants can't end and restart it.
   public var alreadyCounted: Bool
 
   public init(gameType: Int? = nil, selectedMode: String? = nil, duoTeamID: Int? = nil,
@@ -98,11 +98,24 @@ public enum BattlegroundsGameClassifier {
   public static func countsAsMatch(_ kind: BattlegroundsMatchKind) -> Bool { kind != .other }
 
   /// What the lobby helper knows from memory: the game type, the menu's mode, how many players with an account the
-  /// match has, and whether this game id is the one it already reports (`countedGameUUID`).
+  /// match has, and whether this game id is the one it confirmed as Battlegrounds earlier (`confirmedGameUUID`).
   public static func helperEvidence(gameType: Int, selectedMode: String, contestants: Int?, gameUUID: String?,
-                                    countedGameUUID: String?) -> BattlegroundsEvidence {
+                                    confirmedGameUUID: String?) -> BattlegroundsEvidence {
     BattlegroundsEvidence(gameType: gameType, selectedMode: selectedMode, contestantCount: contestants,
-                          alreadyCounted: gameUUID != nil && gameUUID == countedGameUUID)
+                          alreadyCounted: gameUUID != nil && gameUUID == confirmedGameUUID)
+  }
+
+  /// The game id the helper may pass as `confirmedGameUUID` next poll. Only an id positively seen as Solo or Duos is
+  /// latched; one let through while the type was still unknown (`.undetermined`) is not, so a game whose type later
+  /// reads as something new and non-Battlegrounds is dropped instead of staying counted.
+  public static func confirmedGameUUID(kind: BattlegroundsMatchKind, gameUUID: String?,
+                                       previous: String?) -> String? {
+    guard let gameUUID else { return nil }
+    switch kind {
+    case .solo, .duos: return gameUUID
+    case .undetermined: return previous == gameUUID ? previous : nil
+    case .other: return nil
+    }
   }
 }
 

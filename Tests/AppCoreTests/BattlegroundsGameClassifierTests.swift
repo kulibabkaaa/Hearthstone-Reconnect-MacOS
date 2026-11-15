@@ -65,17 +65,17 @@ struct BattlegroundsGameClassifierTests {
   @Test("the helper's evidence: players counted, and 'already counted' only for the same game id")
   func helperEvidence() {
     let fresh = BattlegroundsGameClassifier.helperEvidence(gameType: 46, selectedMode: "solo", contestants: 8,
-                                                           gameUUID: "a", countedGameUUID: nil)
+                                                           gameUUID: "a", confirmedGameUUID: nil)
     #expect(fresh.contestantCount == 8 && !fresh.alreadyCounted)
     #expect(kind(fresh) == .solo)
     let same = BattlegroundsGameClassifier.helperEvidence(gameType: 46, selectedMode: "solo", contestants: 7,
-                                                          gameUUID: "a", countedGameUUID: "a")
+                                                          gameUUID: "a", confirmedGameUUID: "a")
     #expect(same.alreadyCounted && kind(same) == .solo)
     let other = BattlegroundsGameClassifier.helperEvidence(gameType: 46, selectedMode: "solo", contestants: 7,
-                                                           gameUUID: "b", countedGameUUID: "a")
+                                                           gameUUID: "b", confirmedGameUUID: "a")
     #expect(!other.alreadyCounted && kind(other) == .other)
     let none = BattlegroundsGameClassifier.helperEvidence(gameType: 46, selectedMode: "solo", contestants: 7,
-                                                          gameUUID: nil, countedGameUUID: nil)
+                                                          gameUUID: nil, confirmedGameUUID: nil)
     #expect(!none.alreadyCounted)
   }
 
@@ -95,6 +95,39 @@ struct BattlegroundsGameClassifierTests {
     #expect(BattlegroundsGameClassifier.countsAsMatch(.solo))
     #expect(BattlegroundsGameClassifier.countsAsMatch(.duos))
     #expect(!BattlegroundsGameClassifier.countsAsMatch(.other))
+  }
+
+  @Test("only a game positively seen as Battlegrounds is latched, never one let through while its type was unknown")
+  func confirmedLatch() {
+    #expect(BattlegroundsGameClassifier.confirmedGameUUID(kind: .solo, gameUUID: "a", previous: nil) == "a")
+    #expect(BattlegroundsGameClassifier.confirmedGameUUID(kind: .duos, gameUUID: "a", previous: nil) == "a")
+    #expect(BattlegroundsGameClassifier.confirmedGameUUID(kind: .undetermined, gameUUID: "a", previous: nil) == nil)
+    #expect(BattlegroundsGameClassifier.confirmedGameUUID(kind: .undetermined, gameUUID: "a", previous: "a") == "a")
+    #expect(BattlegroundsGameClassifier.confirmedGameUUID(kind: .undetermined, gameUUID: "b", previous: "a") == nil)
+    #expect(BattlegroundsGameClassifier.confirmedGameUUID(kind: .other, gameUUID: "a", previous: "a") == nil)
+    #expect(BattlegroundsGameClassifier.confirmedGameUUID(kind: .solo, gameUUID: nil, previous: "a") == nil)
+  }
+
+  /// Runs the helper's two steps (classify, then latch) over a sequence of polls of one game.
+  private func polls(_ samples: [(gameType: Int, players: Int)], id: String = "g") -> [BattlegroundsMatchKind] {
+    var confirmed: String?
+    return samples.map { sample in
+      let result = kind(BattlegroundsGameClassifier.helperEvidence(gameType: sample.gameType, selectedMode: "solo",
+        contestants: sample.players, gameUUID: id, confirmedGameUUID: confirmed))
+      confirmed = BattlegroundsGameClassifier.confirmedGameUUID(kind: result, gameUUID: id, previous: confirmed)
+      return result
+    }
+  }
+
+  @Test("a 2-player game first seen with no type, then an unknown type, is dropped (review finding on PR #61)")
+  func provisionalGameIsDropped() {
+    #expect(polls([(0, 2), (0, 2), (46, 2), (46, 2)]) == [.undetermined, .undetermined, .other, .other])
+  }
+
+  @Test("an eight-player game of a new type stays counted through a poll that misreads a player")
+  func confirmedGameStays() {
+    #expect(polls([(46, 8), (46, 7), (46, 8)]) == [.solo, .solo, .solo])
+    #expect(polls([(0, 8), (46, 7)]) == [.solo, .solo])
   }
 
   @Test("the known type lists don't overlap")
