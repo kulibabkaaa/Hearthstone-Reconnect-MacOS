@@ -2,8 +2,9 @@ import Foundation
 
 /// When to look up a running app again instead of reusing the one found last time.
 ///
-/// Finding Hearthstone among the running apps asks Launch Services about every app's bundle identifier, a
-/// round trip per app. Done four times a second it was most of HS Reconnect's idle CPU. Once found, the process
+/// Finding Hearthstone by checking every running app's bundle identifier costs a Launch Services round trip for
+/// each app that has none (about 50 on a typical Mac). Done four times a second it was most of HS Reconnect's idle
+/// CPU. Once found, the process
 /// can't change identity until it quits, so it is reused while it runs. It is looked up again only when:
 /// - nothing was looked up yet, or an app launched or quit since (`invalidate()` on Workspace notifications);
 /// - the process found last time has exited (a restart of the game);

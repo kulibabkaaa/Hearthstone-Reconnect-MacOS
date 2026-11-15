@@ -4,8 +4,9 @@ import AppKit
 /// One poll feeds the lobby and the Reconnect button, so neither depends on the other being enabled or running.
 /// Each overlay checks that Hearthstone is frontmost itself (`HearthstoneApp.isFrontmost`).
 ///
-/// The Hearthstone process is found once and reused while it runs (`ProcessLookupCache`): finding it means asking
-/// Launch Services about every running app, which at four polls a second was most of the app's idle CPU.
+/// The Hearthstone process is found once and reused while it runs (`ProcessLookupCache`): checking every running
+/// app's bundle identifier cost a Launch Services round trip per app without one, at four polls a second most of the
+/// app's idle CPU.
 final class HearthstoneWindowTracker {
   static let pollInterval: TimeInterval = 0.25
   private var subscribers: [(owner: ObjectIdentifier, handler: (NSRect?) -> Void)] = []
