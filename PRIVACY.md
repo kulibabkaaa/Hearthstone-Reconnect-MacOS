@@ -88,6 +88,7 @@ is sent. When it is on, the report carries one small text file (at most about
 - HS Reconnect's own log messages about choosing the reconnect target and how
   each reconnect press ended (for example "reconnected", "no game found", or
   "refused during the cooldown", with which control was used; no addresses),
+  whether reconnect setup failed (an error code only),
   whether a match is in progress for the Reconnect button (states and counts
   only, no addresses), Keep HSTracker working, the Open with Hearthstone
   helper, and analytics setup,

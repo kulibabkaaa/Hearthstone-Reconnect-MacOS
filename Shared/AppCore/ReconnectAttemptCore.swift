@@ -274,3 +274,29 @@ public struct ReconnectAttemptFlow: Equatable, Sendable {
     return true
   }
 }
+
+/// Logs a refused press only when it says something new, so mashing the shortcut during the cooldown can't fill the
+/// bug report's per-category line budget and push out the lines that explain a failed reconnect.
+public struct ReconnectRefusalLogThrottle: Equatable, Sendable {
+  /// The same refusal again after this long is logged again.
+  public static let repeatInterval: TimeInterval = 60
+
+  private var lastLine: String?
+  private var lastLoggedAt: TimeInterval = -.infinity
+
+  public init() {}
+
+  /// The line to log for this refusal, or nil when it repeats the previous one within `repeatInterval`.
+  public mutating func line(status: ReconnectStatusMessage?, source: ReconnectSource, now: TimeInterval) -> String? {
+    let line = ReconnectAttemptOutcome.refusalLogLine(status: status, source: source)
+    if line == lastLine, now - lastLoggedAt < Self.repeatInterval { return nil }
+    lastLine = line
+    lastLoggedAt = now
+    return line
+  }
+
+  /// A started attempt ends the run of refusals: the next refusal is logged even if it repeats an earlier one.
+  public mutating func attemptStarted() {
+    lastLine = nil
+  }
+}

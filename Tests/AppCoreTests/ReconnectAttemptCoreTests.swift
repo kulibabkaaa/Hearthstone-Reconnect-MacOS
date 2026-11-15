@@ -341,4 +341,17 @@ struct ReconnectOutcomeLogLineTests {
       ReconnectAttemptOutcome.refusalLogLine(status: .alreadyRunning, source: .overlayButton)
         == "result=refused reason=alreadyRunning source=overlayButton")
   }
+
+  @Test("repeated identical refusals are logged once a minute, new ones at once")
+  func refusalThrottle() {
+    var throttle = ReconnectRefusalLogThrottle()
+    let cooldown = ReconnectStatusMessage.cooldown(seconds: 4)
+    #expect(throttle.line(status: cooldown, source: .shortcut, now: 100) == "result=refused reason=cooldown source=shortcut")
+    #expect(throttle.line(status: .cooldown(seconds: 3), source: .shortcut, now: 101) == nil)
+    #expect(throttle.line(status: cooldown, source: .menu, now: 102) == "result=refused reason=cooldown source=menu")
+    #expect(throttle.line(status: cooldown, source: .menu, now: 161) == nil)
+    #expect(throttle.line(status: cooldown, source: .menu, now: 162) != nil)
+    throttle.attemptStarted()
+    #expect(throttle.line(status: cooldown, source: .menu, now: 163) != nil)
+  }
 }

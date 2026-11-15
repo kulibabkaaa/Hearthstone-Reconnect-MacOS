@@ -47,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
   private var isRecordingShortcut = false
   /// Which reconnect attempt is running; every attempt ends exactly once (reply, no game, or timeout).
   private var reconnectAttempts = ReconnectAttemptFlow()
+  private var refusalLogThrottle = ReconnectRefusalLogThrottle()
   private var isReconnectRunning: Bool { reconnectAttempts.isRunning }
   /// Ends the running attempt if the extension never replies.
   private var reconnectTimeoutTimer: Timer?
@@ -816,11 +817,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     let attempt: ReconnectAttemptToken
     switch reconnectAttempts.request(proxyReady: isProxyReady, cooldownRemaining: remaining) {
     case .refused(let effects):
-      DiagnosticLog.notice(
-        .reconnectTarget, ReconnectAttemptOutcome.refusalLogLine(status: effects.status, source: source))
+      if let line = refusalLogThrottle.line(
+        status: effects.status, source: source, now: Date().timeIntervalSince1970)
+      {
+        DiagnosticLog.notice(.reconnectTarget, line)
+      }
       applyReconnectEffects(effects)
       return
     case .started(let token, let effects):
+      refusalLogThrottle.attemptStarted()
       attempt = token
       matchMonitor.noteReconnect()
       applyReconnectEffects(effects)

@@ -98,7 +98,10 @@ struct BugReportDiagnosticsTests {
     }
     for line in lines {
       #expect(BugReportDiagnostics.redact(line) == line)
+      #expect(DiagnosticLogFormat.clean(line) == line)
     }
+    #expect(DiagnosticLogFormat.clean("proxySetup=failed domain=NEConfigurationErrorDomain code=5")
+      == "proxySetup=failed domain=NEConfigurationErrorDomain code=5")
   }
 
   @Test func keepsOnlyConnectionLinesFromGameLogs() {
