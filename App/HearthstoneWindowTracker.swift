@@ -58,13 +58,21 @@ final class HearthstoneWindowTracker {
   /// The running Hearthstone, found again only when `ProcessLookupCache` says so.
   private func hearthstone() -> NSRunningApplication? {
     let now = ProcessInfo.processInfo.systemUptime
-    let cachedIsRunning = cachedApp.map { !$0.isTerminated } ?? false
+    // Asked of the kernel: `isTerminated` makes a Launch Services round trip in the running app.
+    let cachedIsRunning = cachedApp.map { Self.processExists($0.processIdentifier) } ?? false
     if lookupCache.needsLookup(now: now, cachedIsRunning: cachedIsRunning) {
       cachedApp = NSRunningApplication.runningApplications(withBundleIdentifier: HearthstoneApp.bundleIdentifier)
         .first { !$0.isTerminated }
       lookupCache.didLookUp(now: now, found: cachedApp != nil)
     }
     return cachedApp
+  }
+
+  /// Whether a process with this pid still exists. A quit also arrives as a Workspace notification, which looks up
+  /// again at once; this catches the rest.
+  private static func processExists(_ pid: pid_t) -> Bool {
+    guard pid > 0 else { return false }
+    return kill(pid, 0) == 0 || errno == EPERM
   }
 
   /// The largest Hearthstone window in AppKit coordinates, or nil when the game isn't running or has no window.
