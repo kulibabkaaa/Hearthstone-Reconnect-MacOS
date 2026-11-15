@@ -8,8 +8,9 @@ public enum MatchLogEvent: Equatable, Sendable {
   case joined(address: String?, fromMode: String?)
   /// The game connection dropped and Hearthstone reconnects (`OnGameServerDisconnectEvent` with an error).
   case dropped
-  /// Hearthstone left the game (`Network.DisconnectFromGameServer()`), or a menu scene loaded (`LoadingScreen.log`).
-  case left
+  /// Hearthstone left the game (`Network.DisconnectFromGameServer()`), or a menu scene loaded (`LoadingScreen.log`,
+  /// with that scene as `toMode`).
+  case left(toMode: String?)
 }
 
 public struct MatchLogLine: Equatable, Sendable {
@@ -42,19 +43,20 @@ public enum MatchLogParser {
       let address = value.prefix { $0 != "," && $0 != " " }
       return .joined(address: address.contains(":") ? String(address) : nil, fromMode: nil)
     }
-    if line.contains("Network.DisconnectFromGameServer()") { return .left }
+    if line.contains("Network.DisconnectFromGameServer()") { return .left(toMode: nil) }
     if line.contains("Network.OnGameServerDisconnectEvent()") {
       // ERROR_OK follows a clean DisconnectFromGameServer; anything else is a drop Hearthstone recovers from.
       return line.contains("error: ERROR_OK") ? nil : .dropped
     }
-    if line.contains("SERVER_GAME_STARTED event - Loading Gameplay Scene") {
+    if line.contains("SERVER_GAME_STARTED event - "), line.contains("Gameplay Scene") {
       return .joined(address: nil, fromMode: nil)
     }
     if line.contains("Gameplay.Awake()") {
       return .joined(address: nil, fromMode: value(of: "PrevMode=", in: line))
     }
     if line.contains("LoadingScreen.OnSceneLoaded()"), let current = value(of: "currMode=", in: line) {
-      return current == "GAMEPLAY" ? .joined(address: nil, fromMode: value(of: "prevMode=", in: line)) : .left
+      return current == "GAMEPLAY" ? .joined(address: nil, fromMode: value(of: "prevMode=", in: line))
+        : .left(toMode: current)
     }
     return nil
   }
@@ -90,25 +92,35 @@ public enum MatchPresence: Equatable, Sendable {
 ///
 /// The connections are the ground truth. Game servers and Battle.net both use port 1119: in menus Hearthstone has one
 /// connection there (Battle.net), in a match two (the game server too). A connection to a game server the logs named
-/// counts at once; two connections on the port count once they are seen on two polls in a row, so Battle.net
-/// briefly overlapping itself while it reconnects doesn't count. Hearthstone doesn't always log a new match's game
+/// counts at once; two connections on the port count once they are seen on `confirmPolls` polls in a row, so
+/// Battle.net briefly overlapping itself while it reconnects doesn't count. Hearthstone doesn't always log a new match's game
 /// server, so the logs are never required. They only help:
 /// - A logged clean leave (or a menu scene) ends the match at once instead of after the grace period. Until a new
 ///   connection opens after it, the connections that were open then don't count as a match.
 /// - A game entered from a scene other than Battlegrounds (Constructed, Arena, Mercenaries, …) isn't a match for the
-///   button. Without a logged scene the match counts, so Duos and unlogged matches still show it.
+///   button. Without a logged scene the match counts, so Duos and unlogged matches still show it. When
+///   `LoadingScreen.log` names the menu the player was in, a game-mode menu decides before the game's own scene
+///   loads, so those games don't flash the button.
 /// - A reconnect (logged drop, or one the app started) keeps the match for `reconnectHold`, not `leaveGrace`, while
-///   the game connection is closed.
+///   the game connection is closed. The hold ends once the connection is back.
 public struct MatchPresenceCore: Equatable, Sendable {
   public static let gamePort: UInt16 = 1119
-  /// Polls in a row with two connections on the game port before they count as a match.
-  public static let confirmPolls = 2
+  /// Polls in a row with two connections on the game port before they count as a match (about 2–3 s).
+  public static let confirmPolls = 3
   /// How long a match outlasts its game connection when nothing says it ended.
   public static let leaveGrace: TimeInterval = 6
   /// How long it outlasts it while Hearthstone reconnects.
   public static let reconnectHold: TimeInterval = 20
+  /// A reconnect whose game connection is still open this long after it was asked for no longer holds the match.
+  public static let reconnectSettle: TimeInterval = 5
   /// Unreadable polls in a row before the presence is `unknown`.
   public static let unreadablePollsBeforeUnknown = 3
+  /// With nothing applied for this long, a new line is taken as newer whatever its time of day says (time stamps
+  /// carry no date, so after 12 h quiet the midnight rule would read every new line as older).
+  public static let logOrderingWindow: TimeInterval = 6 * 3600
+  /// Menu scenes that only start games other than Battlegrounds.
+  static let otherGameMenus: Set<String> = ["TOURNAMENT", "DRAFT", "ADVENTURE", "TAVERN_BRAWL", "FRIENDLY",
+                                            "PVP_DUNGEON_RUN", "FIRESIDE_GATHERING", "GAME_MODE"]
 
   public enum MatchKind: Equatable, Sendable { case unknown, battlegrounds, other }
   public enum LogPhase: Equatable, Sendable { case none, joined, dropped, left }
@@ -125,6 +137,13 @@ public struct MatchPresenceCore: Equatable, Sendable {
   public private(set) var lastSawLoggedGameServer = false
 
   private var phaseTime: TimeInterval?
+  private var phaseObservedAt: TimeInterval?
+  /// What the menu the player was last in starts (`LoadingScreen.log` only). Used while the game's own scene is
+  /// unknown.
+  private var menuKind = MatchKind.unknown
+  /// Set by a logged drop or a reconnect the app asked for; ends when the game connection is back.
+  private var reconnectSince: TimeInterval?
+  private var reconnectGapSeen = false
   private var phaseCategory: LogPhase = .none
   private var leaveTime: TimeInterval?
   private var leaveObservedAt: TimeInterval?
@@ -136,7 +155,6 @@ public struct MatchPresenceCore: Equatable, Sendable {
   private var lastEvidenceAt: TimeInterval?
   private var matchStartedAt: TimeInterval?
   private var unreadablePolls = 0
-  private var lastReconnectAt: TimeInterval?
 
   public init() {}
 
@@ -147,7 +165,7 @@ public struct MatchPresenceCore: Equatable, Sendable {
   }
 
   /// The app asked for a reconnect: the game connection is about to close and reopen.
-  public mutating func noteReconnect(at now: TimeInterval) { lastReconnectAt = now }
+  public mutating func noteReconnect(at now: TimeInterval) { startReconnectHold(at: now) }
 
   /// One poll. `openConnections`: Hearthstone's open TCP connections as "host:port", nil when they can't be read.
   @discardableResult
@@ -183,6 +201,11 @@ public struct MatchPresenceCore: Equatable, Sendable {
     lastGamePortConnections = onPort.count
     lastSawLoggedGameServer = loggedServerOpen
 
+    if let since = reconnectSince {
+      // The connection is back after the reconnect closed it, or stayed open long enough that it never closed.
+      if !evidence { reconnectGapSeen = true }
+      else if reconnectGapSeen || now - since >= Self.reconnectSettle { reconnectSince = nil }
+    }
     if evidence {
       evidencePolls += 1
       lastEvidenceAt = now
@@ -194,7 +217,8 @@ public struct MatchPresenceCore: Equatable, Sendable {
       evidencePolls = 0
       if isConnected && shouldEnd(now: now) { endMatch() }
     }
-    presence = isConnected && kind != .other ? .inMatch : .notInMatch
+    let effectiveKind = kind == .unknown ? menuKind : kind
+    presence = isConnected && effectiveKind != .other ? .inMatch : .notInMatch
     return presence
   }
 
@@ -207,7 +231,7 @@ public struct MatchPresenceCore: Equatable, Sendable {
   private func shouldEnd(now: TimeInterval) -> Bool {
     let startedAt = matchStartedAt ?? now
     if phase == .left, let observed = leaveObservedAt, observed >= startedAt { return true }
-    let reconnecting = phase == .dropped || lastReconnectAt.map { now - $0 <= Self.reconnectHold } == true
+    let reconnecting = reconnectSince.map { now - $0 <= Self.reconnectHold } == true
     let hold = reconnecting ? Self.reconnectHold : Self.leaveGrace
     return now - (lastEvidenceAt ?? startedAt) >= hold
   }
@@ -216,9 +240,21 @@ public struct MatchPresenceCore: Equatable, Sendable {
     isConnected = false
     matchStartedAt = nil
     kind = .unknown
+    reconnectSince = nil
+  }
+
+  private mutating func startReconnectHold(at now: TimeInterval) {
+    reconnectSince = now
+    reconnectGapSeen = false
   }
 
   private mutating func ingest(_ line: MatchLogLine, now: TimeInterval) {
+    // Quiet for hours: the old time stamps can't be ordered against new ones any more.
+    if let observed = phaseObservedAt, now - observed >= Self.logOrderingWindow {
+      phaseTime = nil
+      leaveTime = nil
+      phaseObservedAt = nil
+    }
     let category: LogPhase
     switch line.event {
     case .joined(let address, let fromMode):
@@ -235,20 +271,31 @@ public struct MatchPresenceCore: Equatable, Sendable {
       if line.time == previous && category == phaseCategory { return }
     }
     phaseTime = line.time
+    phaseObservedAt = now
     phaseCategory = category
     phase = category
-    switch category {
-    case .left:
+    switch line.event {
+    case .left(let menu):
       leaveTime = line.time
       leaveObservedAt = now
       leaveSnapshotPending = true
       kind = .unknown
-    case .joined, .dropped:
+      if let menu { menuKind = Self.kind(ofMenu: menu) }
+    case .dropped:
+      startReconnectHold(at: now)
       connectionsAtLeave = nil
       leaveSnapshotPending = false
-    case .none:
-      break
+    case .joined:
+      connectionsAtLeave = nil
+      leaveSnapshotPending = false
     }
+  }
+
+  /// What the next game will be, from the menu it is started from; unknown for menus that start no game.
+  static func kind(ofMenu menu: String) -> MatchKind {
+    if menu.hasPrefix("BACON") { return .battlegrounds }
+    if otherGameMenus.contains(menu) || menu.hasPrefix("LETTUCE") { return .other }
+    return .unknown
   }
 
   /// A reload (`GAMEPLAY`) or a game resumed at launch (`LOGIN`, `STARTUP`) keeps what the match was.

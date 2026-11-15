@@ -65,7 +65,7 @@ struct ReconnectButtonVisibilityTests {
     #expect(show(detector: state([.starting, .waiting, .gaveUp])))
     // Still unavailable after the helper's later checks repeat it.
     #expect(state([.starting, .gaveUp, .gaveUp]) == .unavailable)
-    // Access granted later (the quiet helper checks again): back to the match rule.
+    // Access granted later (the helper checks again): back to the match rule.
     #expect(state([.starting, .gaveUp, .attached]) == .attached)
   }
   @Test("a helper that keeps failing without attaching counts as unavailable")

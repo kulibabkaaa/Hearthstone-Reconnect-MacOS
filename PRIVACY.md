@@ -25,14 +25,15 @@ Hearthstone's local game state. Captured player names and identifiers stay on
 this Mac. The last complete lobby roster is stored locally for up to three
 hours so it can be restored if Hearthstone restarts during that match.
 
-When lobby info is off but the Reconnect button is on, the app still reads
-Hearthstone's local game state while Hearthstone runs, in the same way as lobby
-info, to tell whether a Battlegrounds match is in progress so it can show the
-button. The app uses only whether a match is in progress and discards the rest
-of the captured lobby: it shows no lobby overlay, requests no ratings, stores no
-lobby roster, and sends no lobby analytics. It reads the game only when macOS
-already allows it without a new prompt; otherwise the button shows whenever
-Hearthstone is in front. Turning off the Reconnect button stops this reading.
+While the Reconnect button is on and Hearthstone runs, the app checks about once
+a second whether a Battlegrounds match is in progress, so it can show the button.
+For this it reads only the newest lines of Hearthstone's own log files on this
+Mac and the list of addresses Hearthstone is connected to (what `lsof` shows,
+never any traffic). It keeps only whether a match is in progress, sends none of
+it anywhere, and its own diagnostic log records counts, never addresses. This
+needs no permission and doesn't read Hearthstone's memory. If the connections
+can't be read, the button shows whenever Hearthstone is in front. Turning off
+the Reconnect button stops this checking.
 
 When Keep HSTracker working is on and HSTracker is running, the app reads the
 newest part of HSTracker's log file and of Hearthstone's loading log on this
