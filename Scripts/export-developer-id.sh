@@ -1,6 +1,7 @@
 #!/bin/zsh
 set -euo pipefail
 
+script_dir="${0:A:h}"
 archive_path="${1:?Usage: export-developer-id.sh ARCHIVE OUTPUT_APP}"
 output_app="${2:?Usage: export-developer-id.sh ARCHIVE OUTPUT_APP}"
 team_id="D8KUYWS8JN"
@@ -12,9 +13,6 @@ source_app="${archive_path}/Products/Applications/HS Reconnect.app"
 extension_relative_path="Contents/Library/SystemExtensions/${extension_bundle_id}.systemextension"
 watcher_relative_path="Contents/Library/LoginItems/HS Reconnect Watcher.app"
 helper_relative_path="Contents/Library/LoginItems/HS Reconnect Lobby Capture Probe.app"
-hearth_mirror_relative_path="${helper_relative_path}/Contents/Frameworks/HearthMirror.framework"
-coreclr_relative_path="${helper_relative_path}/Contents/Frameworks/libcoreclr.dylib"
-system_native_relative_path="${helper_relative_path}/Contents/Frameworks/libSystem.Native.dylib"
 sparkle_relative_path="Contents/Frameworks/Sparkle.framework"
 temporary_dir="$(mktemp -d /tmp/hs-reconnect-developer-id.XXXXXX)"
 
@@ -117,12 +115,16 @@ mkdir -p "${output_app:h}"
 ditto --norsrc --noextattr "${source_app}" "${output_app}"
 xattr -cr "${output_app}"
 
+# HearthSim's HearthMirror must never ship, whichever helper app is (or is not) inside.
+"${script_dir}/verify-no-hearthmirror.sh" "${output_app}"
+
 extension_path="${output_app}/${extension_relative_path}"
 watcher_path="${output_app}/${watcher_relative_path}"
 helper_path="${output_app}/${helper_relative_path}"
-hearth_mirror_path="${output_app}/${hearth_mirror_relative_path}"
-coreclr_path="${output_app}/${coreclr_relative_path}"
-system_native_path="${output_app}/${system_native_relative_path}"
+# The lobby helper is optional. When it is absent every helper step below is skipped; when it
+# is present it is signed with its debugger entitlement and must contain no HearthMirror files.
+helper_present=false
+[[ -d "${helper_path}" ]] && helper_present=true
 sparkle_path="${output_app}/${sparkle_relative_path}"
 sparkle_autoupdate_path="${sparkle_path}/Versions/B/Autoupdate"
 sparkle_updater_path="${sparkle_path}/Versions/B/Updater.app"
@@ -140,14 +142,6 @@ helper_entitlements="${temporary_dir}/helper-entitlements.plist"
   echo "The archived Hearthstone watcher is missing." >&2
   exit 1
 }
-[[ -d "${helper_path}" ]] || {
-  echo "The archived lobby capture helper is missing." >&2
-  exit 1
-}
-[[ -d "${hearth_mirror_path}" ]] || {
-  echo "The archived HearthMirror framework is missing." >&2
-  exit 1
-}
 [[ -d "${sparkle_path}" ]] || {
   echo "The archived Sparkle framework is missing." >&2
   exit 1
@@ -162,19 +156,15 @@ for sparkle_component in \
     exit 1
   }
 done
-for runtime_path in "${coreclr_path}" "${system_native_path}"; do
-  [[ -f "${runtime_path}" ]] || {
-    echo "The archived runtime is missing: ${runtime_path}" >&2
-    exit 1
-  }
-done
 
 codesign -d --entitlements "${host_entitlements}" --xml \
   "${output_app}" 2>/dev/null
 codesign -d --entitlements "${extension_entitlements}" --xml \
   "${extension_path}" 2>/dev/null
-codesign -d --entitlements "${helper_entitlements}" --xml \
-  "${helper_path}" 2>/dev/null
+if [[ "${helper_present}" == "true" ]]; then
+  codesign -d --entitlements "${helper_entitlements}" --xml \
+    "${helper_path}" 2>/dev/null
+fi
 
 /usr/libexec/PlistBuddy \
   -c "Set :com.apple.developer.networking.networkextension:0 app-proxy-provider-systemextension" \
@@ -188,9 +178,11 @@ codesign -d --entitlements "${helper_entitlements}" --xml \
 /usr/libexec/PlistBuddy \
   -c "Delete :com.apple.security.get-task-allow" \
   "${extension_entitlements}" 2>/dev/null || true
-/usr/libexec/PlistBuddy \
-  -c "Delete :com.apple.security.get-task-allow" \
-  "${helper_entitlements}" 2>/dev/null || true
+if [[ "${helper_present}" == "true" ]]; then
+  /usr/libexec/PlistBuddy \
+    -c "Delete :com.apple.security.get-task-allow" \
+    "${helper_entitlements}" 2>/dev/null || true
+fi
 /usr/libexec/PlistBuddy \
   -c "Delete :com.apple.security.cs.debugger" \
   "${host_entitlements}" 2>/dev/null || true
@@ -220,13 +212,6 @@ for embedded_profile_and_bundle in \
   fi
 done
 
-for runtime_path in "${coreclr_path}" "${system_native_path}"; do
-  codesign --force \
-    --sign "${application_identity}" \
-    --options runtime \
-    --timestamp \
-    "${runtime_path}"
-done
 for sparkle_component in \
   "${sparkle_autoupdate_path}" \
   "${sparkle_updater_path}" \
@@ -243,17 +228,14 @@ codesign --force \
   --options runtime \
   --timestamp \
   "${sparkle_path}"
-codesign --force \
-  --sign "${application_identity}" \
-  --options runtime \
-  --timestamp \
-  "${hearth_mirror_path}"
-codesign --force \
-  --sign "${application_identity}" \
-  --options runtime \
-  --timestamp \
-  --entitlements "${helper_entitlements}" \
-  "${helper_path}"
+if [[ "${helper_present}" == "true" ]]; then
+  codesign --force \
+    --sign "${application_identity}" \
+    --options runtime \
+    --timestamp \
+    --entitlements "${helper_entitlements}" \
+    "${helper_path}"
+fi
 codesign --force \
   --sign "${application_identity}" \
   --options runtime \
@@ -293,25 +275,26 @@ for signed_entitlements in "${signed_host_entitlements}" "${signed_extension_ent
   }
 done
 
-for signed_path in \
-  "${coreclr_path}" \
-  "${system_native_path}" \
-  "${hearth_mirror_path}" \
-  "${sparkle_autoupdate_path}" \
-  "${sparkle_updater_path}" \
-  "${sparkle_downloader_path}" \
-  "${sparkle_installer_path}" \
-  "${sparkle_path}" \
-  "${helper_path}" \
-  "${watcher_path}" \
-  "${extension_path}" \
-  "${output_app}"; do
+signed_paths=(
+  "${sparkle_autoupdate_path}"
+  "${sparkle_updater_path}"
+  "${sparkle_downloader_path}"
+  "${sparkle_installer_path}"
+  "${sparkle_path}"
+  "${watcher_path}"
+  "${extension_path}"
+  "${output_app}"
+)
+[[ "${helper_present}" == "true" ]] && signed_paths+=("${helper_path}")
+for signed_path in "${signed_paths[@]}"; do
   codesign -dv --verbose=4 "${signed_path}" 2>&1 \
     | grep "Authority=Developer ID Application:" >/dev/null
 done
 
-codesign -d --entitlements - "${helper_path}" 2>&1 \
-  | grep "com.apple.security.cs.debugger" >/dev/null
+if [[ "${helper_present}" == "true" ]]; then
+  codesign -d --entitlements - "${helper_path}" 2>&1 \
+    | grep "com.apple.security.cs.debugger" >/dev/null
+fi
 if codesign -d --entitlements - "${output_app}" 2>&1 \
   | grep "com.apple.security.cs.debugger" >/dev/null; then
   echo "The host app must not carry the lobby helper's debugger entitlement." >&2

@@ -37,7 +37,10 @@ jobs:
       - name: Verify source and packaging contracts
         run: |
           chmod +x Scripts/*.sh Scripts/Installer/* Tests/*/run-tests.sh
-          zsh -n Scripts/*.sh Scripts/Installer/* Tests/*/run-tests.sh
+          # zsh -n only reads the first file it is given, so check every script on its own.
+          for script in Scripts/*.sh Scripts/Installer/* Tests/*/*.sh; do
+            zsh -n "$script"
+          done
           Scripts/verify-vendor.sh --if-present
           Scripts/verify-system-extension-config.sh
           Tests/LobbyConcurrency/run-tests.sh

@@ -1,10 +1,13 @@
 #!/bin/zsh
-# Fails if a release tree contains any file from HearthSim's closed HearthMirror runtime.
+# Fails if a release tree contains anything from HearthSim's closed HearthMirror runtime.
 #
 # HearthSim asked us (Oct and Nov 2026) to stop distributing HearthMirror, so no
-# release app, installer payload, DMG or update archive may carry it. This checks
-# file NAMES anywhere under the given folder, not whether the lobby helper app exists:
-# our own reader will live in an app with the same name.
+# release app, installer payload, DMG or update archive may carry it. Two checks:
+#   1. File NAMES anywhere under the folder (HearthMirror*, CoreCLR files, .NET .dll files).
+#   2. Mach-O LINKS: any binary whose linked-library list (otool -L) names HearthMirror
+#      or coreclr, even if the file was renamed.
+# It checks files, not whether the lobby helper app exists: our own reader will live in an
+# app with the same name.
 #
 # Usage: verify-no-hearthmirror.sh PATH [PATH...]   (an .app, an expanded package, any folder)
 set -euo pipefail
@@ -31,6 +34,30 @@ for pattern in "${forbidden_patterns[@]}"; do
   find_args+=(-iname "${pattern}")
 done
 
+# Prints "<file> -> <library>" for every Mach-O under $1 that links HearthMirror or CoreCLR.
+linked_forbidden_libraries() {
+  local root="$1" file kind libraries library
+  for file in "${root}"/**/*(.ND); do
+    kind="$(/usr/bin/file -b "${file}" 2>/dev/null || true)"
+    [[ "${kind}" == *Mach-O* ]] || continue
+    # A Mach-O that otool cannot read must not slip through as clean.
+    libraries="$(/usr/bin/otool -L "${file}" 2>&1)" || {
+      print -r -- "${file} -> (otool could not read this Mach-O)"
+      continue
+    }
+    # Line 1 of `otool -L` is the file's own path; the rest are install names (the file's own
+    # id first for a dylib, then each linked library). Universal binaries repeat a header ending in ':'.
+    print -r -- "${libraries}" \
+      | /usr/bin/tail -n +2 \
+      | { /usr/bin/grep -v ':$' || true; } \
+      | { /usr/bin/grep -iE 'hearthmirror|coreclr' || true; } \
+      | /usr/bin/sed -E 's/^[[:space:]]+//; s/ \(compatibility version.*$//' \
+      | while IFS= read -r library; do
+          print -r -- "${file} -> ${library}"
+        done
+  done
+}
+
 found=false
 for root in "$@"; do
   [[ -d "${root}" ]] || {
@@ -44,6 +71,13 @@ for root in "$@"; do
     echo "FORBIDDEN: ${total} HearthSim HearthMirror runtime file(s) found in ${root}:" >&2
     print -r -- "${matches}" | /usr/bin/sed -n '1,15p' | /usr/bin/sed 's/^/  /' >&2
     (( total > 15 )) && echo "  ... and $(( total - 15 )) more" >&2
+  fi
+
+  links="$(linked_forbidden_libraries "${root}")"
+  if [[ -n "${links}" ]]; then
+    found=true
+    echo "FORBIDDEN: binaries in ${root} link HearthMirror or CoreCLR libraries:" >&2
+    print -r -- "${links}" | /usr/bin/sed -n '1,15p' | /usr/bin/sed 's/^/  /' >&2
   fi
 done
 

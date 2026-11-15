@@ -136,4 +136,7 @@ if "${project_dir}/Scripts/verify-expanded-installer.sh" "${expanded_package}"; 
   fail "the package verifier must reject a relocatable app"
 fi
 
+/bin/zsh "${script_dir}/export-developer-id-tests.sh" \
+  || fail "the Developer ID export tests failed"
+
 echo "Packaging tests passed."

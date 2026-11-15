@@ -264,6 +264,31 @@ make_clean_helper_app "${tainted}"
 ln -s /nonexistent "${tainted}/HS Reconnect.app/Contents/libcoreclr.dylib"
 expect_forbidden "a symlink named libcoreclr.dylib" "${tainted}"
 
+# A binary is rejected when it LINKS HearthMirror or CoreCLR, even under an innocent name.
+link_dir="${fixture_dir}/hm-link"
+mkdir -p "${link_dir}/src" "${link_dir}/tree"
+print -r -- 'int hm(void){return 1;}' > "${link_dir}/src/hm.c"
+print -r -- 'int hm(void);int main(void){return hm();}' > "${link_dir}/src/main.c"
+/usr/bin/clang -dynamiclib "${link_dir}/src/hm.c" -o "${link_dir}/src/libfake.dylib" \
+  -install_name '@rpath/HearthMirror.framework/Versions/A/HearthMirror'
+/usr/bin/clang "${link_dir}/src/main.c" -o "${link_dir}/src/linked" \
+  -L"${link_dir}/src" -lfake
+/usr/bin/clang "${link_dir}/src/main.c" "${link_dir}/src/hm.c" -o "${link_dir}/src/plain"
+cp "${link_dir}/src/plain" "${link_dir}/tree/Own Reader"
+"${hm_checker}" "${link_dir}/tree" >/dev/null \
+  || fail "the HearthMirror check rejected a plain binary that links nothing forbidden"
+cp "${link_dir}/src/linked" "${link_dir}/tree/Innocent Name"
+if link_output="$("${hm_checker}" "${link_dir}/tree" 2>&1)"; then
+  fail "the HearthMirror check accepted a binary that links HearthMirror"
+fi
+[[ "${link_output}" == *"Innocent Name -> @rpath/HearthMirror.framework/Versions/A/HearthMirror"* ]] \
+  || fail "the HearthMirror check rejected a linking binary without naming the library"
+rm "${link_dir}/tree/Innocent Name"
+# A renamed copy of a CoreCLR dylib is caught by its own install name.
+/usr/bin/clang -dynamiclib "${link_dir}/src/hm.c" -o "${link_dir}/tree/renamed.dylib" \
+  -install_name '@rpath/libcoreclr.dylib'
+expect_forbidden "a renamed dylib whose install name is libcoreclr" "${link_dir}/tree"
+
 # A zipped app that contains HearthMirror.framework is rejected by the archive verifier,
 # while the same app without it passes (so the rejection is the new check, not the fixture).
 clean_zip_root="${fixture_dir}/zip-clean"
