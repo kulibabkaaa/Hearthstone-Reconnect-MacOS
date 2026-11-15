@@ -1,7 +1,6 @@
 import AppKit
 import Darwin
 import Foundation
-import HearthMirror
 import Security
 
 private struct CapturedPlayer: Codable, Equatable {
@@ -76,7 +75,8 @@ private final class LobbyCaptureProbe {
     return formatter
   }()
 
-  private var mirror: HearthMirror?
+  /// Our own read-only Mono reader (Shared/MonoReader), attached to the running Hearthstone.
+  private var mirror: HearthstoneMemory?
   private var attachedPID: Int32?
   private var activeGameUUID: String?
   private var lastPayload: CaptureEvent?
@@ -89,10 +89,10 @@ private final class LobbyCaptureProbe {
   /// login screen can't use up the allowance and turn one later hiccup into giving up for good.
   private var unreadableFailureCount = 0
   /// The last failure was "the game isn't ready" while macOS granted access with no dialog. The next attempt
-  /// then never calls acquireTaskportRight(): it attaches if access is still granted silently and otherwise
+  /// then never calls TaskportAuthorization.request(): it attaches if access is still granted silently and otherwise
   /// stops with "permission_failed". So a long wait for sign-in can never bring a permission dialog back.
   private var retryWithoutPrompt = false
-  /// When the attached reader's class list was read, and how many of the scheduled re-reads are done.
+  /// When the attached reader's class list was last read, and how many of the scheduled re-reads are done.
   private var mirrorSnapshotAt: Date?
   private var mirrorRefreshesDone = 0
   /// Match detection only (lobby info off, Reconnect button on): never show the lobby access dialog.
@@ -154,7 +154,7 @@ private final class LobbyCaptureProbe {
         detail: "Hearthstone could not be verified as the signed Blizzard application.")
       return
     }
-    // acquireTaskportRight() may show a password dialog. Quiet mode skips it and attaches only when macOS
+    // TaskportAuthorization.request() may show a password dialog. Quiet mode skips it and attaches only when macOS
     // already grants task_for_pid's right without one (an approval within its 10 h timeout, or developer tools
     // access enabled), and checks again later. So does a retry for a game that is still starting.
     let grantedWithoutDialog = (quietAttach || retryWithoutPrompt) && Self.taskportRightGrantedWithoutDialog()
@@ -172,7 +172,7 @@ private final class LobbyCaptureProbe {
         detail: "Lobby access is no longer granted without asking.")
       return
     }
-    let permissionResult = grantedWithoutDialog ? 0 : acquireTaskportRight()
+    let permissionResult = grantedWithoutDialog ? 0 : TaskportAuthorization.request()
     guard permissionResult == 0 else {
       let rejected = permissionResult == errAuthorizationCanceled
         || permissionResult == errAuthorizationDenied
@@ -180,23 +180,37 @@ private final class LobbyCaptureProbe {
       emitIfChanged(
         event: willRetry ? "attachment_retrying" : "permission_failed",
         hearthstonePID: pid,
-        detail: "acquireTaskportRight returned \(permissionResult)."
+        detail: "Taskport authorization returned \(permissionResult)."
       )
       return
     }
 
     // Permission approval can take time; reject an exited or replaced process.
     guard HearthstoneProcessTrust.isTrusted(application) else { return }
-    // HearthMirror lists the game's classes once, here, and keeps one process-wide pointer to the newest list.
-    // So a reader made before Hearthstone signs in stays blind to classes loaded later (the lobby among them),
-    // and only the newest reader may ever be used: resetAttachment() above let go of the previous one.
-    let candidate = HearthMirror(pid: pid, blocking: true)
-    let logSessionDirectory = candidate.getLogSessionDir() ?? ""
-    let signedIn = !logSessionDirectory.isEmpty && Self.isSignedIn(candidate)
-    // Asked only when it decides something: another reader must never cost a dialog.
+    let candidate: HearthstoneMemory?
+    do {
+      candidate = try HearthstoneMemory.attach(pid: pid)
+    } catch {
+      if case let .unsupported(why) = LobbyReaderFailure(error) {
+        // This Hearthstone's Mono doesn't match what the reader understands. Never guess: give no lobby data for
+        // this game process, and don't ask again (a new Hearthstone process gets a fresh attempt).
+        failedAttachmentPID = pid
+        attachmentRetryAfter = .distantFuture
+        retryWithoutPrompt = false
+        emitIfChanged(event: "attachment_failed", hearthstonePID: pid,
+          detail: "Lobby info isn't available for this Hearthstone version: \(why).")
+        return
+      }
+      // Still starting (or access refused): the readiness policy below retries or gives up.
+      candidate = nil
+    }
+    let logSessionDirectory = application.bundleURL.flatMap {
+      HearthstoneLogSession.directory(appBundle: $0, launchDate: application.launchDate ?? ProcessStart.date(pid: pid))?.path
+    } ?? ""
+    let signedIn = candidate.map { !logSessionDirectory.isEmpty && Self.isSignedIn($0) } ?? false
     let canRetryWithoutDialog = !signedIn && Self.taskportRightGrantedWithoutDialog()
     switch LobbyMirrorReadinessPolicy.disposition(
-      hasLogSessionDirectory: !logSessionDirectory.isEmpty, signedIn: signedIn,
+      hasLogSessionDirectory: candidate != nil && !logSessionDirectory.isEmpty, signedIn: signedIn,
       canRetryWithoutDialog: canRetryWithoutDialog
     ) {
     case .failed:
@@ -205,7 +219,7 @@ private final class LobbyCaptureProbe {
       emitIfChanged(
         event: willRetry ? "attachment_retrying" : "attachment_failed",
         hearthstonePID: pid,
-        detail: "HearthMirror did not expose a log session directory."
+        detail: candidate == nil ? "Hearthstone's memory isn't readable yet." : "Hearthstone has no log session folder yet."
       )
       return
     case .retryLater:
@@ -216,6 +230,7 @@ private final class LobbyCaptureProbe {
     case .accept:
       break
     }
+    guard let candidate else { return }
     mirror = candidate
     attachedPID = pid
     self.logSessionDirectory = logSessionDirectory
@@ -230,16 +245,15 @@ private final class LobbyCaptureProbe {
     emit(event: "attached", hearthstonePID: pid)
   }
 
-  private static func isSignedIn(_ mirror: HearthMirror) -> Bool {
-    let account = mirror.getAccountId()
+  private static func isSignedIn(_ memory: HearthstoneMemory) -> Bool {
+    let account = memory.accountID()
     return LobbyMirrorReadinessPolicy.isSignedIn(
-      battleTag: mirror.getBattleTag(),
-      accountHigh: account?.hi.int64Value, accountLow: account?.lo.int64Value)
+      battleTag: memory.battleTag(), accountHigh: account?.high, accountLow: account?.low)
   }
 
   /// Signing in comes before the menus finish loading, so the class list is read again a few times while no
-  /// match is on screen. A re-read never asks for permission. If it can't be made silently, the reader in
-  /// use stays.
+  /// match is on screen. The reader keeps its task port: a re-read never asks for permission. (Lookups that miss
+  /// also re-read the list on their own; this keeps the sign-in check and the app's log entry.)
   private func refreshMirrorIfDue(pid: Int32) {
     guard let snapshotAt = mirrorSnapshotAt,
           LobbyMirrorRefreshPolicy.isDue(now: Date(), snapshotAt: snapshotAt,
@@ -247,44 +261,29 @@ private final class LobbyCaptureProbe {
                                          matchVisible: activeGameUUID != nil) else { return }
     mirrorRefreshesDone += 1
     mirrorSnapshotAt = Date()
-    guard Self.taskportRightGrantedWithoutDialog() else { return }
-    // Let go of the reader in use before making the next one (see attach(to:)).
-    mirror = nil
-    let candidate = HearthMirror(pid: pid, blocking: true)
-    guard let directory = candidate.getLogSessionDir(), !directory.isEmpty else {
+    guard let memory = mirror else { return }
+    memory.beginSnapshot()
+    do {
+      try memory.refreshClasses()
+    } catch {
       // Hearthstone is closing or stopped being readable: attach again from the start, silently.
       attachedPID = nil
       recordAttachmentFailure(pid: pid, kind: .gameNotReadable)
       return
     }
-    guard Self.isSignedIn(candidate) else {
-      // The reader this replaces was signed in; a new one that isn't would be worse (blind to the lobby).
-      // Start over and wait for sign-in again, silently.
+    guard Self.isSignedIn(memory) else {
+      // Signed out since attaching: start over and wait for sign-in again, silently.
       attachedPID = nil
       recordAttachmentFailure(pid: pid, kind: .notSignedIn)
       return
     }
-    mirror = candidate
-    logSessionDirectory = directory
     // For the app's log only; written directly so it doesn't disturb `emitIfChanged`'s last payload.
     writer.write(makeEvent(event: "reader_refreshed", hearthstonePID: pid))
   }
 
-  /// The right task_for_pid (inside HearthMirror's init) is checked against, with no user interaction allowed.
-  /// Not the one `acquireTaskportRight()` asks for: HearthMirror spells it "system.privilege.taskport:", which
-  /// has no rule of its own and falls back to the default admin rule (5 min timeout).
+  /// The right task_for_pid checks, with no user interaction allowed: true when attaching can't show a dialog.
   private static func taskportRightGrantedWithoutDialog() -> Bool {
-    var authorization: AuthorizationRef?
-    guard AuthorizationCreate(nil, nil, [], &authorization) == errAuthorizationSuccess,
-          let authorization else { return false }
-    defer { AuthorizationFree(authorization, []) }
-    return "system.privilege.taskport".withCString { name in
-      var item = AuthorizationItem(name: name, valueLength: 0, value: nil, flags: 0)
-      return withUnsafeMutablePointer(to: &item) { pointer in
-        var rights = AuthorizationRights(count: 1, items: pointer)
-        return AuthorizationCopyRights(authorization, &rights, nil, [.extendRights], nil) == errAuthorizationSuccess
-      }
-    }
+    TaskportAuthorization.isGrantedWithoutDialog()
   }
 
   @discardableResult
@@ -308,21 +307,18 @@ private final class LobbyCaptureProbe {
   private func capture() {
     guard let mirror, let attachedPID else { return }
 
-    let lobby = mirror.getBattlegroundsLobbyInfo()
-    let gameUUID = trimmed(lobby?.gameUuid)
-    let account = mirror.getAccountId()
-    let ratingInfo = mirror.getBattlegroundsRatingInfo()
-    let mode = battlegroundsMode(mirror.getSelectedBattlegroundsGameMode().intValue)
-    let ownRating: Int?
-    switch mode {
-    case "duos": ownRating = ratingInfo?.duosRating.intValue
-    default: ownRating = ratingInfo?.rating.intValue
-    }
+    mirror.beginSnapshot()
+    let gameType = mirror.gameType() ?? 0
+    let lobby = BattlegroundsGameType.lobbyApplies(gameType: gameType) ? mirror.matchLobby() : nil
+    let gameUUID = trimmed(lobby?.gameUUID)
+    let account = mirror.accountID()
+    let mode = mirror.selectedBattlegroundsMode()
+    let ownRating = BattlegroundsMode.ownRating(mode: mode, ratings: mirror.battlegroundsRatings())
     let players = (lobby?.players ?? []).prefix(8).map {
       CapturedPlayer(
-        accountHigh: $0.accountId.hi.int64Value,
-        accountLow: $0.accountId.lo.int64Value,
-        heroCardID: $0.heroCardId,
+        accountHigh: $0.accountHigh,
+        accountLow: $0.accountLow,
+        heroCardID: $0.heroCardID,
         name: trimmed($0.name) ?? ""
       )
     }
@@ -343,8 +339,7 @@ private final class LobbyCaptureProbe {
         + "\(namedPlayerCount) nonempty names, "
         + "\(distinctAccountCount) distinct account identities."
     }
-    let region = account.map { regionName(accountHigh: $0.hi.int64Value) }
-    let gameType = mirror.getGameType()?.intValue ?? 0
+    let region = account.map { regionName(accountHigh: $0.high) }
     let reconnectPhase = LobbyReconnectPolicy.phase(
       gameUUIDPresent: gameUUID != nil,
       gameType: gameType,
@@ -379,9 +374,9 @@ private final class LobbyCaptureProbe {
       gameType: gameType,
       region: region,
       mode: mode,
-      ownBattleTag: trimmed(mirror.getBattleTag()),
-      ownAccountHigh: account?.hi.int64Value,
-      ownAccountLow: account?.lo.int64Value,
+      ownBattleTag: trimmed(mirror.battleTag()),
+      ownAccountHigh: account?.high,
+      ownAccountLow: account?.low,
       ownRating: ownRating,
       players: players,
       detail: captureDetail
@@ -431,14 +426,6 @@ private final class LobbyCaptureProbe {
     case 2: return "EU"
     case 3: return "Asia-Pacific"
     case 5: return "China"
-    default: return "unknown"
-    }
-  }
-
-  private func battlegroundsMode(_ rawValue: Int) -> String {
-    switch rawValue {
-    case 1: return "solo"
-    case 2: return "duos"
     default: return "unknown"
     }
   }
