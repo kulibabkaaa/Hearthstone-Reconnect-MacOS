@@ -25,6 +25,39 @@ public enum ReconnectAttemptOutcome: Equatable, Sendable, CaseIterable {
     case .requestFailed, .extensionUnavailable, .uninstalling, .timedOut: .failed
     }
   }
+
+  /// How a reply from the extension ends the attempt.
+  public init(_ completion: ReconnectCompletion) {
+    switch completion {
+    case .uninstalling: self = .uninstalling
+    case .extensionUnavailable: self = .extensionUnavailable
+    case .failed: self = .requestFailed
+    case .response(didCloseFlow: true): self = .flowClosed
+    case .response(didCloseFlow: false): self = .noFlowClosed
+    }
+  }
+
+  /// Stable name for the diagnostics log.
+  public var logName: String {
+    switch self {
+    case .flowClosed: "flowClosed"
+    case .noFlowClosed: "noFlowClosed"
+    case .endpointNotFound: "endpointNotFound"
+    case .requestFailed: "requestFailed"
+    case .extensionUnavailable: "extensionUnavailable"
+    case .uninstalling: "uninstalling"
+    case .timedOut: "timedOut"
+    }
+  }
+
+  /// The diagnostics-log line for how an attempt ended, for example `result=flowClosed source=shortcut`.
+  /// `late`: the reply of an attempt that had already timed out. Words and names only, never addresses.
+  public func logLine(source: ReconnectSource?, late: Bool = false) -> String {
+    var line = "result=\(logName)"
+    if let source { line += " source=\(source.rawValue)" }
+    if late { line += " late=true" }
+    return line
+  }
 }
 
 public enum ReconnectCooldownDisplay {

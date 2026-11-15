@@ -776,6 +776,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         }
       case .failure(let error):
         NSLog("Reconnect preparation failed: %@", error as NSError)
+        let nsError = error as NSError
+        DiagnosticLog.error(
+          .reconnectTarget, "proxySetup=failed domain=\(nsError.domain) code=\(nsError.code)")
         self.shouldPrepareProxyWhenAvailable = false
         self.isProxyReady = false
         self.proxyPreparationNeedsUserRetry = true
@@ -841,6 +844,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     // The attempt may have timed out while the target was being looked up.
     guard reconnectAttempts.activeAttempt == attempt else { return }
     guard let endpoint else {
+      DiagnosticLog.notice(.reconnectTarget, ReconnectAttemptOutcome.endpointNotFound.logLine(source: source))
       applyReconnectEffects(reconnectAttempts.endpointNotFound(attempt))
       return
     }
@@ -860,7 +864,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
         ),
         didCloseFlow: try? result.get().didCloseFlow
       )
-      self.applyReconnectEffects(self.reconnectAttempts.complete(attempt, completion), source: source)
+      let wasRunning = self.reconnectAttempts.activeAttempt == attempt
+      let effects = self.reconnectAttempts.complete(attempt, completion)
+      // Only replies that still count (the running attempt, or a timed-out one that really closed the flow).
+      if !effects.isNone {
+        DiagnosticLog.notice(
+          .reconnectTarget, ReconnectAttemptOutcome(completion).logLine(source: source, late: !wasRunning))
+      }
+      self.applyReconnectEffects(effects, source: source)
     }
   }
 
@@ -869,9 +880,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate,
     let timer = Timer(timeInterval: ReconnectAttemptFlow.timeout, repeats: false) {
       [weak self] _ in
       guard let self else { return }
-      self.applyReconnectEffects(
-        self.reconnectAttempts.timeOut(attempt, isUninstalling: self.isUninstalling)
-      )
+      let effects = self.reconnectAttempts.timeOut(attempt, isUninstalling: self.isUninstalling)
+      if !effects.isNone {
+        DiagnosticLog.notice(.reconnectTarget, ReconnectAttemptOutcome.timedOut.logLine(source: nil))
+      }
+      self.applyReconnectEffects(effects)
     }
     RunLoop.main.add(timer, forMode: .common)
     reconnectTimeoutTimer = timer

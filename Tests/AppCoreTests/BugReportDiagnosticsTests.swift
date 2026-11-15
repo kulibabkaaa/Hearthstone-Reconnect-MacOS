@@ -40,10 +40,12 @@ struct BugReportDiagnosticsTests {
     )
   }
 
-  @Test func reconnectTargetLinePassesRedactionUnchanged() {
+  @Test func reconnectLinesPassRedactionUnchanged() {
     for line in [
       "choice=loggedAndOpen logged=1 open=8", "choice=openGameConnection logged=1 open=5",
       "choice=loggedUnchecked logged=3 open=-1", "choice=none logged=0 open=2",
+      "result=flowClosed source=shortcut", "result=noFlowClosed source=overlayButton late=true", "result=timedOut",
+      "proxySetup=failed domain=NEConfigurationErrorDomain code=5",
     ] {
       #expect(BugReportDiagnostics.redact(line) == line)
     }

@@ -301,3 +301,31 @@ struct ReconnectAttemptFlowTests {
     }
   }
 }
+
+@Suite("Reconnect outcome log line")
+struct ReconnectOutcomeLogLineTests {
+  @Test("every extension reply maps to the outcome the button shows")
+  func completionMapping() {
+    #expect(ReconnectAttemptOutcome(.response(didCloseFlow: true)) == .flowClosed)
+    #expect(ReconnectAttemptOutcome(.response(didCloseFlow: false)) == .noFlowClosed)
+    #expect(ReconnectAttemptOutcome(.failed) == .requestFailed)
+    #expect(ReconnectAttemptOutcome(.extensionUnavailable) == .extensionUnavailable)
+    #expect(ReconnectAttemptOutcome(.uninstalling) == .uninstalling)
+  }
+
+  @Test("log names are distinct single words")
+  func logNames() {
+    let names = ReconnectAttemptOutcome.allCases.map(\.logName)
+    #expect(Set(names).count == names.count)
+    #expect(names.allSatisfy { !$0.isEmpty && $0.allSatisfy(\.isLetter) })
+  }
+
+  @Test("log line carries the result, the control and a late flag only")
+  func logLine() {
+    #expect(ReconnectAttemptOutcome.flowClosed.logLine(source: .shortcut) == "result=flowClosed source=shortcut")
+    #expect(ReconnectAttemptOutcome.timedOut.logLine(source: nil) == "result=timedOut")
+    #expect(
+      ReconnectAttemptOutcome.flowClosed.logLine(source: .overlayButton, late: true)
+        == "result=flowClosed source=overlayButton late=true")
+  }
+}
