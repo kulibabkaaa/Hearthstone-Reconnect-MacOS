@@ -477,6 +477,8 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     action: nil
   )
   private let statusLabel = NSTextField(labelWithString: "")
+  /// Spins next to "Sending report…" from the moment Submit is pressed until the send finishes.
+  private let sendingIndicator = NSProgressIndicator()
   private let diagnosticsProvider: (@MainActor () async -> String)?
   private let diagnosticsSwitch = NSSwitch()
   private let diagnosticsSizeLabel = NSTextField(labelWithString: "")
@@ -791,6 +793,13 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     statusLabel.maximumNumberOfLines = 2
     statusLabel.setAccessibilityLabel("Bug report status")
 
+    sendingIndicator.style = .spinning
+    sendingIndicator.controlSize = .small
+    sendingIndicator.isIndeterminate = true
+    sendingIndicator.isDisplayedWhenStopped = false
+    sendingIndicator.isHidden = true
+    sendingIndicator.setAccessibilityLabel("Sending report")
+
     cancelButton.target = self
     cancelButton.action = #selector(cancel)
     cancelButton.keyEquivalent = "\u{1b}"
@@ -806,11 +815,12 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     let buttonSpacer = NSView()
     buttonSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
     let buttonRow = NSStackView(
-      views: [statusLabel, buttonSpacer, cancelButton, submitButton]
+      views: [sendingIndicator, statusLabel, buttonSpacer, cancelButton, submitButton]
     )
     buttonRow.orientation = .horizontal
     buttonRow.alignment = .centerY
     buttonRow.spacing = 10
+    buttonRow.setCustomSpacing(6, after: sendingIndicator)
 
     let diagnosticsCard = diagnosticsProvider == nil
       ? nil
@@ -1532,12 +1542,34 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
     replyEmailField.isEnabled = !submitting
     diagnosticsSwitch.isEnabled = !submitting
     diagnosticsPreviewButton.isEnabled = !submitting
+    // Show at once that the report is on its way: a spinner and a status line, while Submit stays the (busy)
+    // primary button. It ends in the success state, or in an error message.
+    sendingIndicator.isHidden = !submitting
+    if submitting {
+      sendingIndicator.startAnimation(nil)
+    } else {
+      sendingIndicator.stopAnimation(nil)
+    }
     statusLabel.textColor = .secondaryLabelColor
-    statusLabel.stringValue = submitting ? "Sending…" : ""
+    statusLabel.stringValue = submitting ? "Sending report…" : ""
     updateSubmitButtonTitle(
       submitting ? "Sending…" : "Submit Report"
     )
+    if submitting {
+      NSAccessibility.post(
+        element: statusLabel,
+        notification: .announcementRequested,
+        userInfo: [.announcement: "Sending report", .priority: NSAccessibilityPriorityLevel.high.rawValue]
+      )
+    }
   }
+
+#if DEBUG
+  /// UI harness only: shows the sending state without sending anything.
+  func showSendingStateForPreview() {
+    setSubmitting(true)
+  }
+#endif
 
   private func showError(_ message: String) {
     statusLabel.textColor = .systemRed
@@ -1590,18 +1622,21 @@ final class BugReportWindowController: NSWindowController, NSTextViewDelegate, N
       replyEmailField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     )
     let canSubmit = !isSubmitting && hasValidLength && hasValidEmail
+    // While sending, Submit stays the blue primary button (busy, not clickable) rather than turning grey, so the
+    // form doesn't look as if Cancel were now the thing to press.
+    let submitIsPrimary = canSubmit || isSubmitting
     submitButton.isEnabled = true
     submitButton.isInteractionAvailable = canSubmit
     submitButton.action = canSubmit ? #selector(submit) : nil
     submitButton.keyEquivalent = canSubmit ? "\r" : ""
     submitButton.setAccessibilityEnabled(canSubmit)
-    submitButton.bezelColor = canSubmit ? .systemBlue : .systemGray
-    cancelButton.bezelColor = canSubmit ? nil : .systemBlue
+    submitButton.bezelColor = submitIsPrimary ? .systemBlue : .systemGray
+    cancelButton.bezelColor = submitIsPrimary ? nil : .systemBlue
     cancelButton.attributedTitle = NSAttributedString(
       string: "Cancel",
       attributes: [
         .foregroundColor:
-          canSubmit ? NSColor.labelColor : NSColor.white,
+          submitIsPrimary ? NSColor.labelColor : NSColor.white,
         .font: NSFont.systemFont(
           ofSize: NSFont.systemFontSize,
           weight: .medium
