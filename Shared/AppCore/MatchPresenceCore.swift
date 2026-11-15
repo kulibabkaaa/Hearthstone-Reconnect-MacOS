@@ -110,7 +110,7 @@ public struct MatchPresenceCore: Equatable, Sendable {
   /// How long a match outlasts its game connection when nothing says it ended.
   public static let leaveGrace: TimeInterval = 6
   /// How long it outlasts it while Hearthstone reconnects.
-  public static let reconnectHold: TimeInterval = 20
+  public static let reconnectHold: TimeInterval = 12
   /// A reconnect whose game connection is still open this long after it was asked for no longer holds the match.
   public static let reconnectSettle: TimeInterval = 5
   /// Unreadable polls in a row before the presence is `unknown`.
@@ -151,6 +151,11 @@ public struct MatchPresenceCore: Equatable, Sendable {
   /// Connections open when the latest leave was seen, minus the ones that closed since.
   private var connectionsAtLeave: Set<String>?
   private var loggedServers = Set<String>()
+  /// Servers logged since the latest leave. Only these count at once: an earlier one still open after a leave read
+  /// from history is most likely the old match's connection closing.
+  private var currentServers = Set<String>()
+  /// Time stamp of the newest line that set `kind`, so a mode line flushed late can't overwrite a newer one.
+  private var modeTime: TimeInterval?
   private var evidencePolls = 0
   private var lastEvidenceAt: TimeInterval?
   private var matchStartedAt: TimeInterval?
@@ -162,7 +167,7 @@ public struct MatchPresenceCore: Equatable, Sendable {
   /// again from the other log, or one flushed late) don't change the phase.
   ///
   /// `historical`: lines that were already in the file when reading began (the app or the button started, or a
-  /// log started over). They set the phase and the game's mode, but a leave among them happened at an unknown
+  /// new session folder was found). They set the phase and the game's mode, but a leave among them happened at an unknown
   /// time, so it doesn't mark the connections open now as the old match's: Hearthstone may have started a match it
   /// didn't log since then, and that match must still count.
   public mutating func ingest(_ lines: [MatchLogLine], now: TimeInterval, historical: Bool = false) {
@@ -176,6 +181,11 @@ public struct MatchPresenceCore: Equatable, Sendable {
   @discardableResult
   public mutating func evaluate(openConnections: [String]?, now: TimeInterval) -> MatchPresence {
     guard let openConnections else {
+      // A snapshot taken after this gap could catch a new match's connections as the old one's: skip it.
+      if leaveSnapshotPending {
+        leaveSnapshotPending = false
+        connectionsAtLeave = nil
+      }
       unreadablePolls += 1
       if unreadablePolls >= Self.unreadablePollsBeforeUnknown {
         presence = .unknown
@@ -201,15 +211,19 @@ public struct MatchPresenceCore: Equatable, Sendable {
       connectionsAtLeave = atLeave.intersection(onPort)
     }
     let stale = phase == .left && connectionsAtLeave.map { onPort.isSubset(of: $0) } == true
-    let loggedServerOpen = !onPort.isDisjoint(with: loggedServers)
+    let loggedServerOpen = !onPort.isDisjoint(with: currentServers)
     let evidence = !stale && (loggedServerOpen || onPort.count >= 2)
     lastGamePortConnections = onPort.count
     lastSawLoggedGameServer = loggedServerOpen
 
     if let since = reconnectSince {
       // The connection is back after the reconnect closed it, or stayed open long enough that it never closed.
+      // Back means a logged server open, or two polls in a row: one stray poll (Battle.net overlapping itself, a
+      // failed attempt) mid-gap doesn't end the hold.
       if !evidence { reconnectGapSeen = true }
-      else if reconnectGapSeen || now - since >= Self.reconnectSettle { reconnectSince = nil }
+      else if (reconnectGapSeen && (loggedServerOpen || evidencePolls >= 1)) || now - since >= Self.reconnectSettle {
+        reconnectSince = nil
+      }
     }
     if evidence {
       evidencePolls += 1
@@ -221,6 +235,8 @@ public struct MatchPresenceCore: Equatable, Sendable {
     } else {
       evidencePolls = 0
       if isConnected && shouldEnd(now: now) { endMatch() }
+      // No game open: a mode from the history belongs to a game that is over.
+      if !isConnected { kind = .unknown }
     }
     let effectiveKind = kind == .unknown ? menuKind : kind
     presence = isConnected && effectiveKind != .other ? .inMatch : .notInMatch
@@ -258,14 +274,20 @@ public struct MatchPresenceCore: Equatable, Sendable {
     if let observed = phaseObservedAt, now - observed >= Self.logOrderingWindow {
       phaseTime = nil
       leaveTime = nil
+      modeTime = nil
       phaseObservedAt = nil
     }
     let category: LogPhase
     switch line.event {
     case .joined(let address, let fromMode):
-      if let address { loggedServers.insert(address) }
-      if let fromMode, leaveTime.map({ !Self.isEarlier(line.time, than: $0) }) ?? true {
+      if let address {
+        loggedServers.insert(address)
+        if leaveTime.map({ !Self.isEarlier(line.time, than: $0) }) ?? true { currentServers.insert(address) }
+      }
+      if let fromMode, leaveTime.map({ !Self.isEarlier(line.time, than: $0) }) ?? true,
+         modeTime.map({ !Self.isEarlier(line.time, than: $0) }) ?? true {
         kind = Self.kind(enteredFrom: fromMode, current: kind)
+        modeTime = line.time
       }
       category = .joined
     case .dropped: category = .dropped
@@ -282,6 +304,7 @@ public struct MatchPresenceCore: Equatable, Sendable {
     switch line.event {
     case .left(let menu):
       leaveTime = line.time
+      currentServers = []
       leaveObservedAt = historical ? nil : now
       leaveSnapshotPending = !historical
       if historical { connectionsAtLeave = nil }

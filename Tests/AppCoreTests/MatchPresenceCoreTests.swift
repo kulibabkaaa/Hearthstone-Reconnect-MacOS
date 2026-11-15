@@ -159,11 +159,11 @@ struct MatchPresenceCoreTests {
     _ = session.poll([Lines.battleNet, Lines.game], logs: [Lines.goto("17:48:16.55")])
     // The app asked for a reconnect: the game connection is gone for a while (a slow network).
     session.core.noteReconnect(at: session.now)
-    #expect(session.hold([Lines.battleNet], for: 15).allSatisfy { $0 == .inMatch })
+    #expect(session.hold([Lines.battleNet], for: 10).allSatisfy { $0 == .inMatch })
     #expect(session.poll([Lines.battleNet, Lines.game], logs: [Lines.goto("17:49:03.85", reconnecting: true)]) == .inMatch)
     // A drop Hearthstone logged on its own holds it the same way.
     #expect(session.poll([Lines.battleNet], logs: [Lines.drop("17:50:00.00")]) == .inMatch)
-    #expect(session.hold([Lines.battleNet], for: 15).allSatisfy { $0 == .inMatch })
+    #expect(session.hold([Lines.battleNet], for: 10).allSatisfy { $0 == .inMatch })
     #expect(session.poll([Lines.battleNet, Lines.game], logs: [Lines.goto("17:50:16.00", reconnecting: true)]) == .inMatch)
   }
 
@@ -187,7 +187,7 @@ struct MatchPresenceCoreTests {
     _ = session.poll([Lines.battleNet, Lines.game], logs: [Lines.goto("12:27:44.80")])
     _ = session.poll([Lines.battleNet, Lines.game], logs: [Lines.leave("12:30:52.24")])
     _ = session.hold([Lines.battleNet], for: 20)
-    #expect(session.poll([Lines.battleNet, Lines.game]) == .inMatch)
+    #expect(session.confirm([Lines.battleNet, Lines.game]) == .inMatch)
   }
 
   @Test("started mid-match (app launch, button switched on) after the last match's logged end: the match counts")
@@ -251,7 +251,7 @@ struct MatchPresenceCoreTests {
     _ = session.poll([Lines.battleNet, Lines.game], logs: [Lines.goto("17:48:16.55")])
     let logs = [Lines.drop("17:49:03.832"), Lines.goto("17:49:03.850", reconnecting: true)]
     #expect(session.poll([Lines.battleNet], logs: logs) == .inMatch)
-    #expect(session.hold([Lines.battleNet], for: 15).allSatisfy { $0 == .inMatch })
+    #expect(session.hold([Lines.battleNet], for: 10).allSatisfy { $0 == .inMatch })
     #expect(session.poll([Lines.battleNet, Lines.game]) == .inMatch)
   }
 
@@ -300,6 +300,63 @@ struct MatchPresenceCoreTests {
     _ = session.poll([Lines.battleNet, Lines.otherGame], logs: [Lines.goto("21:40:00.0", Lines.otherGame), Lines.awake("21:40:05.0", from: "TOURNAMENT")])
     #expect(session.core.phase == .joined && session.core.kind == .other)
     #expect(session.core.presence == .notInMatch)
+  }
+
+  @Test("one stray poll mid-gap (Battle.net overlapping itself, a failed attempt) doesn't end a reconnect hold")
+  func strayPollKeepsHold() {
+    var session = Session()
+    _ = session.poll([Lines.battleNet, Lines.game], logs: [Lines.goto("17:48:16.55")])
+    let logs = [Lines.drop("17:49:03.832"), Lines.goto("17:49:03.850", reconnecting: true)]
+    _ = session.poll([Lines.battleNet], logs: logs)
+    _ = session.hold([Lines.battleNet], for: 2)
+    #expect(session.poll([Lines.battleNet, Lines.newBattleNet]) == .inMatch)
+    #expect(session.hold([Lines.battleNet], for: 8).allSatisfy { $0 == .inMatch })
+  }
+
+  @Test("a match that ends during a reconnect hold, with nothing logged, still hides within about 12 s")
+  func holdIsBounded() {
+    var session = Session()
+    _ = session.poll([Lines.battleNet, Lines.game], logs: [Lines.goto("17:48:16.55")])
+    _ = session.poll([Lines.battleNet], logs: [Lines.drop("17:49:03.832")])
+    let after = session.hold([Lines.battleNet], for: 14)
+    #expect(after.firstIndex(of: .notInMatch).map { $0 + 2 } ?? 99 <= Int(MatchPresenceCore.reconnectHold) + 1)
+    #expect(after.last == .notInMatch)
+  }
+
+  @Test("a leave followed by unreadable polls doesn't take a later match's connections as the old match's")
+  func unreadableAfterLeave() {
+    var session = Session()
+    _ = session.poll([Lines.battleNet, Lines.game], logs: [Lines.goto("12:27:44.80")])
+    _ = session.poll(nil, logs: [Lines.leave("12:30:52.24")])
+    _ = session.poll(nil)
+    // When the connections read again, a new unlogged match is already on.
+    #expect(session.confirm([Lines.battleNet, Lines.otherGame]) == .inMatch)
+  }
+
+  @Test("a mode line flushed late from an older game doesn't overwrite the current game's mode")
+  func lateModeLine() {
+    var session = Session()
+    _ = session.poll([Lines.battleNet, Lines.game], logs: [Lines.goto("12:10:00.0"), Lines.awake("12:10:05.0", from: "BACON")])
+    #expect(session.poll([Lines.battleNet, Lines.game], logs: [Lines.awake("12:00:05.0", from: "TOURNAMENT")]) == .inMatch)
+    #expect(session.core.kind == .battlegrounds)
+  }
+
+  @Test("history ending in a Constructed game with no logged end doesn't hide the next unlogged Battlegrounds match")
+  func staleModeFromHistory() {
+    var session = Session()
+    let backlog = [Lines.goto("10:00:00.0"), Lines.awake("10:00:05.0", from: "TOURNAMENT")]
+    _ = session.poll([Lines.battleNet], logs: backlog, historical: true)
+    _ = session.hold([Lines.battleNet], for: 5)
+    #expect(session.confirm([Lines.battleNet, Lines.otherGame]) == .inMatch)
+  }
+
+  @Test("at app start right after a match, the old game connection still closing doesn't count at once")
+  func oldServerAfterHistoricalLeave() {
+    var session = Session()
+    let backlog = [Lines.goto("12:27:44.80"), Lines.leave("12:30:52.24")]
+    #expect(session.poll([Lines.battleNet, Lines.game], logs: backlog, historical: true) == .notInMatch)
+    #expect(session.poll([Lines.battleNet]) == .notInMatch)
+    #expect(session.hold([Lines.battleNet], for: 10).allSatisfy { $0 == .notInMatch })
   }
 
   @Test("time stamps across midnight keep their order")
