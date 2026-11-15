@@ -117,6 +117,17 @@ PACKAGE_INFO
 
 "${project_dir}/Scripts/verify-expanded-installer.sh" "${expanded_package}"
 
+# The installer check also rejects HearthSim's HearthMirror files anywhere in the payload.
+mkdir -p "${expanded_package}/Payload/Applications/HS Reconnect.app/Contents/Frameworks/HearthMirror.framework"
+if hearthmirror_output="$("${project_dir}/Scripts/verify-expanded-installer.sh" "${expanded_package}" 2>&1)"; then
+  fail "the package verifier must reject an app containing HearthMirror.framework"
+fi
+[[ "${hearthmirror_output}" == *FORBIDDEN* ]] \
+  || fail "the package verifier rejected HearthMirror without a clear message"
+rm -rf "${expanded_package}/Payload/Applications/HS Reconnect.app/Contents/Frameworks"
+"${project_dir}/Scripts/verify-expanded-installer.sh" "${expanded_package}" >/dev/null \
+  || fail "the package verifier rejected a clean payload"
+
 perl -0pi -e \
   's#</pkg-info>#<relocate><bundle id="io.github.kulibabkaaa.HSReconnect"/></relocate></pkg-info>#' \
   "${expanded_package}/PackageInfo"
@@ -124,5 +135,8 @@ perl -0pi -e \
 if "${project_dir}/Scripts/verify-expanded-installer.sh" "${expanded_package}"; then
   fail "the package verifier must reject a relocatable app"
 fi
+
+/bin/zsh "${script_dir}/export-developer-id-tests.sh" \
+  || fail "the Developer ID export tests failed"
 
 echo "Packaging tests passed."

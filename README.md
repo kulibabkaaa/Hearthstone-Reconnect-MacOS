@@ -42,7 +42,7 @@ The lobby overlay works while HSTracker is running. Reconnect works independentl
 
 HSTracker stops tracking a match when Hearthstone reconnects. Turn on **Keep HSTracker working** in the Reconnect card to bring its panels and Bob's Buddy back after each reconnect. It works by adding one line to Hearthstone's loading log on your Mac. Opponent boards HSTracker saved before the reconnect stay lost. The option is off by default.
 
-The **Overlays** card in the app turns **Lobby info** and the **Reconnect button** on or off, and sets the position shortcut, opacity, and **Reset Layout** for both. The button is on by default. With lobby info off, the app still reads Hearthstone's game state on your Mac to tell whether you are in a match; turn off the button to stop this. While the app is still connecting to the game, the button stays hidden. If it can't read the game at all, for example because lobby access isn't allowed, the button shows whenever Hearthstone is in front.
+The **Overlays** card in the app turns **Lobby info** and the **Reconnect button** on or off, and sets the position shortcut, opacity, and **Reset Layout** for both. The button is on by default and shows only during a Battlegrounds match. The app tells from Hearthstone's log files and the list of its open connections on your Mac, with no extra permission; turn off the button to stop this. If it can't read Hearthstone's connections, the button shows whenever Hearthstone is in front.
 
 ## Updates and privacy
 

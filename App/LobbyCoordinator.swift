@@ -96,13 +96,12 @@ final class LobbyCoordinator {
   var onLobbyDisplayed: (() -> Void)?
   /// Called when `isInMatch` or `matchDetectorState` changes.
   var onMatchStateChanged: (() -> Void)?
-  /// Whether the Reconnect button is on and Hearthstone runs. With lobby info off they decide whether the reader
-  /// runs for match detection only (`ReconnectButtonVisibilityPolicy.readerMode`). Call `refreshReaderMode()`
-  /// when either changes.
-  var matchDetectionInputs: () -> (buttonEnabled: Bool, hearthstoneRunning: Bool) = { (false, false) }
-  /// The player is in a Battlegrounds match. With lobby info on: real lobby rows are up (never the layout
-  /// sample), a Duos match the lobby doesn't draw (`ReconnectButtonVisibilityPolicy.countsAsMatch`), or a match
-  /// being resumed. With it off: the same matches, seen by the reader in match-detection-only mode.
+  /// Whether Hearthstone runs: a reader stuck connecting counts as unavailable only then.
+  var isHearthstoneRunning: () -> Bool = { false }
+  /// The player is in a Battlegrounds match, as the reader sees it with lobby info on: real lobby rows are up
+  /// (never the layout sample), a Duos match the lobby doesn't draw
+  /// (`ReconnectButtonVisibilityPolicy.countsAsMatch`), or a match being resumed. The Reconnect button has its own
+  /// signal (`MatchPresenceMonitor`); this one can only add to it while the reader is attached.
   private(set) var isInMatch = false {
     didSet { if isInMatch != oldValue { onMatchStateChanged?() } }
   }
@@ -164,12 +163,10 @@ final class LobbyCoordinator {
     if value { _ = resumeCache.load() } else { deactivate(status: "Lobby info disabled") }
     refreshReaderMode()
   }
-  /// Starts, stops or switches the reader for lobby info, match detection only, or neither. Switching restarts
-  /// the helper, so the detector is connecting until it attaches again.
+  /// Starts or stops the reader for lobby info. Only lobby info runs it: with it off, nothing asks for
+  /// Developer Tools access. Switching restarts the helper, so the detector is connecting until it attaches again.
   func refreshReaderMode() {
-    let inputs = matchDetectionInputs()
-    let wanted = isRunning ? ReconnectButtonVisibilityPolicy.readerMode(lobbyEnabled: enabled,
-      buttonEnabled: inputs.buttonEnabled, hearthstoneRunning: inputs.hearthstoneRunning) : .off
+    let wanted = isRunning ? ReconnectButtonVisibilityPolicy.readerMode(lobbyEnabled: enabled) : .off
     if wanted != readerMode {
       if readerMode != .off { reader.stop() }
       readerMode = wanted
@@ -177,7 +174,7 @@ final class LobbyCoordinator {
       isInMatch = false
     }
     // Starting a running reader again is harmless; lobby mode always retried a stopped helper this way.
-    if wanted != .off { reader.start(quiet: wanted == .matchDetectionOnly) }
+    if wanted != .off { reader.start() }
   }
   func retrySetup() {
     guard enabled else { onStatus?("Enable lobby info first"); return }
@@ -257,22 +254,17 @@ final class LobbyCoordinator {
     }
   }
   private func readerStatus(_ text: String) {
-    guard isRunning else { return }
-    guard readerMode == .lobby else {
-      // Match detection only: lobby info is off, so its status line keeps saying so.
-      if text == "Waiting for Hearthstone" { isInMatch = false }
-      return
-    }
+    guard isRunning, readerMode == .lobby else { return }
     if text == "Waiting for Hearthstone" { suspend(status: text) }
     else { onStatus?(text) }
   }
   private func readerCapture(_ capture: LobbyCapture) {
-    guard isRunning else { return }
-    if readerMode == .lobby { accept(capture) } else { detectMatch(capture) }
+    guard isRunning, readerMode == .lobby else { return }
+    accept(capture)
   }
   private func readerReconnectDetected() {
-    guard isRunning else { return }
-    if readerMode == .lobby { restoreInterruptedMatch() }
+    guard isRunning, readerMode == .lobby else { return }
+    restoreInterruptedMatch()
     isInMatch = true
   }
   private func readerDetectorSignal(_ signal: MatchDetectorSignal) {
@@ -299,13 +291,8 @@ final class LobbyCoordinator {
   }
   private func connectingTimedOut() {
     connectingTimeout = nil
-    guard isRunning, readerMode != .off, matchDetectionInputs().hearthstoneRunning else { return }
+    guard isRunning, readerMode != .off, isHearthstoneRunning() else { return }
     readerDetectorSignal(.timedOut)
-  }
-  /// Match detection only: nothing is drawn, saved, downloaded or reported.
-  private func detectMatch(_ capture: LobbyCapture) {
-    isInMatch = capture.gameUUID != nil && ReconnectButtonVisibilityPolicy.countsAsMatch(
-      LobbyReconnectPolicy.liveCaptureDisposition(mode: capture.mode))
   }
   private func deactivate(status: String, inMatch: Bool = false) {
     lifecycle.deactivate(); clearAfterLifecycleChange(status: status, inMatch: inMatch)

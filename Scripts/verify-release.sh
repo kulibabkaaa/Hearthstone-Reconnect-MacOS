@@ -11,7 +11,7 @@ dmg="${1:-${project_dir}/dist/HS-Reconnect-${version}.dmg}"
 archive="${2:-${project_dir}/dist/HS-Reconnect-${version}.zip}"
 package="${3:-${project_dir}/dist/HS-Reconnect-${version}.pkg}"
 
-"${project_dir}/Scripts/verify-vendor.sh"
+"${project_dir}/Scripts/verify-vendor.sh" --if-present
 swift test --package-path "${project_dir}"
 "${project_dir}/Tests/LobbyConcurrency/run-tests.sh"
 "${project_dir}/Tests/Packaging/run-tests.sh"
