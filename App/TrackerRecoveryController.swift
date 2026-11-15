@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import OSLog
 
 /// "Keep HSTracker working": after a reconnect, gets HSTracker to pick the match back up (why and how:
 /// `TrackerRecovery` in AppCore, which also makes every decision).
@@ -52,7 +51,6 @@ final class TrackerRecoveryController {
   private static let maximumReadBytes = 512 * 1024
 
   private let defaults: UserDefaults
-  private let logger = Logger(subsystem: AppConfiguration.bundleIdentifier, category: "TrackerRecovery")
   private let queue = DispatchQueue(label: "HSReconnect.TrackerRecovery", qos: .userInitiated)
   private var health: TrackerRecoveryHealth
   private var snapshot: Snapshot?
@@ -195,8 +193,9 @@ final class TrackerRecoveryController {
       let result = TrackerRecoveryStatus.after(outcome)
       self.lastResult = result == .ready ? nil : result
       // `notice`, not `info`: macOS keeps notices on disk, and this line is how a field problem gets diagnosed.
-      self.logger.notice(
-        "Recovery for HSTracker build \(run.snapshot.trackerBuild, privacy: .public): \(String(describing: outcome), privacy: .public)"
+      DiagnosticLog.notice(
+        .trackerRecovery,
+        "Recovery for HSTracker build \(run.snapshot.trackerBuild): \(String(describing: outcome))"
       )
       self.refreshIdleStatus()
     }

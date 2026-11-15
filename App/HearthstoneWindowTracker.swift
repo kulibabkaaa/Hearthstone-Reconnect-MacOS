@@ -3,11 +3,30 @@ import AppKit
 /// Polls the Hearthstone window every 0.25 s and hands its frame to every overlay that follows the game.
 /// One poll feeds the lobby and the Reconnect button, so neither depends on the other being enabled or running.
 /// Each overlay checks that Hearthstone is frontmost itself (`HearthstoneApp.isFrontmost`).
+///
+/// The Hearthstone process is found once and reused while it runs (`ProcessLookupCache`): checking every running
+/// app's bundle identifier cost a Launch Services round trip per app without one, at four polls a second most of the
+/// app's idle CPU.
 final class HearthstoneWindowTracker {
   static let pollInterval: TimeInterval = 0.25
   private var subscribers: [(owner: ObjectIdentifier, handler: (NSRect?) -> Void)] = []
   private var timer: Timer?
+  private var lookupCache = ProcessLookupCache()
+  /// Only the pid is kept: every property read on an `NSRunningApplication` (even `processIdentifier` and
+  /// `isTerminated`) re-fetches it from Launch Services in the running app.
+  private var cachedPID: pid_t?
+  private var workspaceObservers: [NSObjectProtocol] = []
   var isPolling: Bool { timer != nil }
+
+  init() {
+    // Any launch or quit may be Hearthstone's (or a second copy of it): look it up again on the next poll.
+    let center = NSWorkspace.shared.notificationCenter
+    for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+      workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+        self?.lookupCache.invalidate()
+      })
+    }
+  }
 
   /// Calls `handler` on every poll until `unsubscribe(owner)`. Subscribing again replaces the handler.
   /// The timer runs only while someone is subscribed.
@@ -28,19 +47,43 @@ final class HearthstoneWindowTracker {
     subscribers.removeAll { $0.owner == id }
     if subscribers.isEmpty { timer?.invalidate(); timer = nil }
   }
-  deinit { timer?.invalidate() }
+  deinit {
+    timer?.invalidate()
+    workspaceObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
+  }
 
   private func poll() {
     let frame = frame()
     subscribers.forEach { $0.handler(frame) }
   }
 
+  /// The running Hearthstone's pid, looked up again only when `ProcessLookupCache` says so.
+  private func hearthstonePID() -> pid_t? {
+    let now = ProcessInfo.processInfo.systemUptime
+    let cachedIsRunning = cachedPID.map(Self.processExists) ?? false
+    if lookupCache.needsLookup(now: now, cachedIsRunning: cachedIsRunning) {
+      cachedPID = NSRunningApplication.runningApplications(withBundleIdentifier: HearthstoneApp.bundleIdentifier)
+        .first { !$0.isTerminated }?.processIdentifier
+      lookupCache.didLookUp(now: now, found: cachedPID != nil)
+    }
+    return cachedPID
+  }
+
+  /// Whether a process with this pid still exists. A quit also arrives as a Workspace notification, which looks up
+  /// again at once; this catches the rest.
+  private static func processExists(_ pid: pid_t) -> Bool {
+    guard pid > 0 else { return false }
+    return kill(pid, 0) == 0 || errno == EPERM
+  }
+
   /// The largest Hearthstone window in AppKit coordinates, or nil when the game isn't running or has no window.
   func frame(includeOffscreen: Bool = false) -> NSRect? {
-    guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == HearthstoneApp.bundleIdentifier }) else { return nil }
+    guard let pid = hearthstonePID() else { return nil }
     let options: CGWindowListOption = includeOffscreen ? [.optionAll, .excludeDesktopElements] : [.optionOnScreenOnly, .excludeDesktopElements]
     let items = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
-    for item in items.sorted(by: { windowArea($0) > windowArea($1) }) where (item[kCGWindowOwnerPID as String] as? Int32) == app.processIdentifier {
+    // Only the game's own windows are measured and sorted, largest first.
+    let windows = items.filter { ($0[kCGWindowOwnerPID as String] as? Int32) == pid }
+    for item in windows.sorted(by: { windowArea($0) > windowArea($1) }) {
       if let dict = item[kCGWindowBounds as String] as? NSDictionary,
          let quartz = CGRect(dictionaryRepresentation: dict), quartz.width > 500, quartz.height > 300 {
         let primaryTop = NSScreen.screens.first?.frame.maxY ?? quartz.maxY

@@ -1,5 +1,4 @@
 import AppKit
-import OSLog
 import ServiceManagement
 
 enum AutoLaunchError: Error {
@@ -12,10 +11,6 @@ final class AutoLaunchController {
     identifier: AppConfiguration.watcherBundleIdentifier
   )
   private let defaults = UserDefaults.standard
-  private let logger = Logger(
-    subsystem: AppConfiguration.bundleIdentifier,
-    category: "LoginItem"
-  )
   private var repairPolicy = LoginItemRepairPolicy()
   private var healthCheckGeneration = 0
   private var isReregistrationPending = false
@@ -157,12 +152,14 @@ final class AutoLaunchController {
     case .notApplicable:
       concludeRepair()
     case .gaveUp:
-      logger.error(
+      DiagnosticLog.error(
+        .loginItem,
         "The Open with Hearthstone helper still isn't running after \(LoginItemRepairPolicy.maximumRepairs) repairs."
       )
       concludeRepair()
     case .reregister:
-      logger.notice(
+      DiagnosticLog.notice(
+        .loginItem,
         "The Open with Hearthstone helper isn't running. Registering it again (repair \(self.repairPolicy.repairsStarted))."
       )
       reregister()
@@ -207,7 +204,8 @@ final class AutoLaunchController {
     else {
       return
     }
-    logger.notice(
+    DiagnosticLog.notice(
+        .loginItem,
       "Finishing an Open with Hearthstone repair that the last run didn't complete."
     )
     registerForRepair()
@@ -224,8 +222,9 @@ final class AutoLaunchController {
       do {
         try service.unregister()
       } catch {
-        logger.error(
-          "Couldn't unregister the helper for repair: \(error.localizedDescription, privacy: .public)"
+        DiagnosticLog.error(
+        .loginItem,
+          "Couldn't unregister the helper for repair: \(error.localizedDescription)"
         )
       }
     }
@@ -256,8 +255,9 @@ final class AutoLaunchController {
         forKey: DefaultsKey.loginItemRepairInProgress
       )
     } catch {
-      logger.error(
-        "Couldn't register the helper again: \(error.localizedDescription, privacy: .public)"
+      DiagnosticLog.error(
+        .loginItem,
+        "Couldn't register the helper again: \(error.localizedDescription)"
       )
     }
   }

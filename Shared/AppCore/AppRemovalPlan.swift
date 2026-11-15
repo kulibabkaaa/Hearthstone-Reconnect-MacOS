@@ -85,6 +85,13 @@ public struct AppRemovalPlan: Sendable {
           AppIdentity.appName,
           isDirectory: true
         ),
+      // The diagnostics log (`DiagnosticLog`).
+      library
+        .appendingPathComponent("Logs", isDirectory: true)
+        .appendingPathComponent(
+          AppIdentity.appName,
+          isDirectory: true
+        ),
       library
         .appendingPathComponent(
           "Containers",

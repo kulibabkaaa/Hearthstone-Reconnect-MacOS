@@ -301,3 +301,57 @@ struct ReconnectAttemptFlowTests {
     }
   }
 }
+
+@Suite("Reconnect outcome log line")
+struct ReconnectOutcomeLogLineTests {
+  @Test("every extension reply maps to the outcome the button shows")
+  func completionMapping() {
+    #expect(ReconnectAttemptOutcome(.response(didCloseFlow: true)) == .flowClosed)
+    #expect(ReconnectAttemptOutcome(.response(didCloseFlow: false)) == .noFlowClosed)
+    #expect(ReconnectAttemptOutcome(.failed) == .requestFailed)
+    #expect(ReconnectAttemptOutcome(.extensionUnavailable) == .extensionUnavailable)
+    #expect(ReconnectAttemptOutcome(.uninstalling) == .uninstalling)
+  }
+
+  @Test("log names are distinct single words")
+  func logNames() {
+    let names = ReconnectAttemptOutcome.allCases.map(\.logName)
+    #expect(Set(names).count == names.count)
+    #expect(names.allSatisfy { !$0.isEmpty && $0.allSatisfy(\.isLetter) })
+  }
+
+  @Test("log line carries the result, the control and a late flag only")
+  func logLine() {
+    #expect(ReconnectAttemptOutcome.flowClosed.logLine(source: .shortcut) == "result=flowClosed source=shortcut")
+    #expect(ReconnectAttemptOutcome.timedOut.logLine(source: nil) == "result=timedOut")
+    #expect(
+      ReconnectAttemptOutcome.flowClosed.logLine(source: .overlayButton, late: true)
+        == "result=flowClosed source=overlayButton late=true")
+  }
+
+  @Test("refused presses say why and which control")
+  func refusalLine() {
+    #expect(
+      ReconnectAttemptOutcome.refusalLogLine(status: .cooldown(seconds: 3), source: .shortcut)
+        == "result=refused reason=cooldown source=shortcut")
+    #expect(
+      ReconnectAttemptOutcome.refusalLogLine(status: .proxyNotReady, source: .menu)
+        == "result=refused reason=proxyNotReady source=menu")
+    #expect(
+      ReconnectAttemptOutcome.refusalLogLine(status: .alreadyRunning, source: .overlayButton)
+        == "result=refused reason=alreadyRunning source=overlayButton")
+  }
+
+  @Test("repeated identical refusals are logged once a minute, new ones at once")
+  func refusalThrottle() {
+    var throttle = ReconnectRefusalLogThrottle()
+    let cooldown = ReconnectStatusMessage.cooldown(seconds: 4)
+    #expect(throttle.line(status: cooldown, source: .shortcut, now: 100) == "result=refused reason=cooldown source=shortcut")
+    #expect(throttle.line(status: .cooldown(seconds: 3), source: .shortcut, now: 101) == nil)
+    #expect(throttle.line(status: cooldown, source: .menu, now: 102) == "result=refused reason=cooldown source=menu")
+    #expect(throttle.line(status: cooldown, source: .menu, now: 161) == nil)
+    #expect(throttle.line(status: cooldown, source: .menu, now: 162) != nil)
+    throttle.attemptStarted()
+    #expect(throttle.line(status: cooldown, source: .menu, now: 163) != nil)
+  }
+}

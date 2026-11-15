@@ -30,9 +30,10 @@ a second whether a Battlegrounds match is in progress, so it can show the button
 For this it reads only the newest lines of Hearthstone's own log files on this
 Mac and the list of addresses Hearthstone is connected to (what `lsof` shows,
 never any traffic). While it checks, it keeps in memory only whether a match is
-in progress and the game server addresses Hearthstone's logs named; it saves
-none of it to disk, sends none of it anywhere, and its own diagnostic log
-records counts, never addresses. This
+in progress and the game server addresses Hearthstone's logs named. The
+addresses are never saved to disk or sent anywhere. Whether a match is in
+progress, with the check's state and counts, is written to the app's local
+diagnostics log described under bug reports below, never with addresses. This
 needs no permission and doesn't read Hearthstone's memory. If the connections
 can't be read, the button shows whenever Hearthstone is in front. Turning off
 the Reconnect button stops this checking.
@@ -64,9 +65,54 @@ connection metadata such as the public IP address.
 Bug reports are optional and sent only when the user selects **Submit**. The
 report contains the typed description, app version, macOS version, a required
 reply email address, and up to five optional images chosen, dragged, or pasted
-by the user. It does not automatically include logs, lobby names, Blizzard
-account details, or other files. Reports and images are processed and stored
-by Forminit so an email notification can be delivered to the project
-maintainer. Forminit also
-receives ordinary connection metadata, including the public IP address and
-user agent used for the submission.
+by the user.
+
+The bug report form also has an **Include diagnostic logs** switch. It is on
+each time the form opens, the user can turn it off for that report, and **Show
+What's Included** displays the exact text that will be attached before anything
+is sent. When it is on, the report carries one small text file (at most about
+200 KB) with:
+
+- the app version and build, Mac architecture, macOS version, whether the
+  network extension and proxy are on, whether Keep HSTracker working is on,
+  whether Hearthstone is running, and the name of Hearthstone's newest log
+  folder (a date);
+- the Battle.net region host name only (for example `eu.actual.battle.net`),
+  and nothing else from Hearthstone's Battle.net log. When the newest log
+  folder has no Battle.net log, it is taken from the newest older folder that
+  has one, and the file names that folder (a date);
+- from Hearthstone's `GameNetLogger.log` and `Hearthstone.log`, only the lines
+  about connecting to and disconnecting from a game server and about looking
+  for a game (at most the newest 150 of each). They include the game server's
+  address. Game, client, and spectator keys in those lines are removed;
+- HS Reconnect's own log messages about choosing the reconnect target and how
+  each reconnect press ended (for example "reconnected", "no game found", or
+  "refused during the cooldown", with which control was used; no addresses),
+  whether reconnect setup failed (an error code only),
+  whether a match is in progress for the Reconnect button (states and counts
+  only, no addresses), Keep HSTracker working, the Open with Hearthstone
+  helper, and analytics setup,
+  from at most the last three days (newest 200).
+
+So these messages survive a restart of the app or the Mac, HS Reconnect also
+writes them to a small log file on this Mac, in `~/Library/Logs/HS Reconnect/`
+(two files of at most 256 KB each; lines older than three days are deleted
+when the app starts and are never read).
+Only those message types are written there, and they are cleaned the same way
+before they are saved. The file never leaves the Mac on its own: it is read only
+to build the diagnostic file above, and only when the switch is on. Uninstalling
+HS Reconnect from the app removes it.
+
+Before attaching, the app also removes anything in those lines that looks like
+a BattleTag, email address, Blizzard account ID, or the Mac's user folder name.
+It never attaches other Hearthstone logs (such as `Power.log`, `Zone.log`, or
+`LoadingScreen.log`), lobby or opponent names, HSTracker's log, or other files.
+With the switch off, no logs are included.
+
+Reports, images, and diagnostic files are processed and stored by Forminit so
+an email notification can be delivered to the project maintainer. If Forminit
+answers a report that has the diagnostic file with any HTTP 4xx error other
+than a timeout (408) or rate limit (429), whatever the reason, the app sends the
+same report once more without the file, with a note that the file was left out.
+Server errors (5xx), timeouts, and rate limits are not retried this way. Forminit also receives ordinary connection metadata,
+including the public IP address and user agent used for the submission.
