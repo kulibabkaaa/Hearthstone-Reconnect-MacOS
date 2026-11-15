@@ -245,6 +245,15 @@ public enum BugReportDiagnostics {
     date.formatted(.iso8601)
   }
 
+  // MARK: - Submission
+
+  /// Whether a refused report should be resent once without the diagnostics file. Only client errors that
+  /// point at the request's contents qualify: a timeout (408), a rate limit (429) or a server error (5xx) may
+  /// have stored the first request already, and resending would create a duplicate.
+  public static func shouldRetryWithoutAttachment(statusCode: Int) -> Bool {
+    (400 ... 499).contains(statusCode) && statusCode != 408 && statusCode != 429
+  }
+
   // MARK: - Finding the newest log folder
 
   /// Picks the newest `Hearthstone_<date>` folder from (name, modification date) pairs.

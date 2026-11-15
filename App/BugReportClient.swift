@@ -4,7 +4,7 @@ enum BugReportClientError: Error {
   case notConfigured
   case invalidEndpoint
   case invalidAttachment
-  case rejected
+  case rejected(statusCode: Int)
   case invalidResponse
 }
 
@@ -114,14 +114,18 @@ final class BugReportClient {
         ),
         to: endpoint
       )
-    } catch BugReportClientError.rejected where diagnosticsText != nil {
-      // The logs switch is on by default, so a form service that refuses the text file must never cost the
-      // report itself: send it once more without the attachment.
+    } catch BugReportClientError.rejected(let statusCode)
+      where diagnosticsText != nil
+      && BugReportDiagnostics.shouldRetryWithoutAttachment(statusCode: statusCode)
+    {
+      // The logs switch is on by default, so a form service that refuses the request because of its contents must
+      // never cost the report itself: send it once more without the file. Server errors and rate limits are not
+      // retried, since the first request may already be stored.
       try await send(
         BugReportMultipartBody(
           content: content,
           imageJPEGs: imageData,
-          diagnosticsNote: "The diagnostics file was refused by the form service and left out."
+          diagnosticsNote: "The first attempt with the diagnostics file was refused (HTTP \(statusCode)), so the file was left out."
         ),
         to: endpoint
       )
@@ -147,7 +151,7 @@ final class BugReportClient {
       throw BugReportClientError.invalidResponse
     }
     guard (200 ... 299).contains(response.statusCode) else {
-      throw BugReportClientError.rejected
+      throw BugReportClientError.rejected(statusCode: response.statusCode)
     }
   }
 

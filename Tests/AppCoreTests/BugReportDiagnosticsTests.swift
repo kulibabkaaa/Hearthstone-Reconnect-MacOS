@@ -178,6 +178,15 @@ struct BugReportDiagnosticsTests {
     #expect(text.contains("GotoGameServe()"))
   }
 
+  @Test func retriesWithoutTheFileOnlyForContentRefusals() {
+    for status in [400, 403, 413, 415, 422] {
+      #expect(BugReportDiagnostics.shouldRetryWithoutAttachment(statusCode: status))
+    }
+    for status in [200, 301, 408, 429, 500, 502, 503] {
+      #expect(!BugReportDiagnostics.shouldRetryWithoutAttachment(statusCode: status))
+    }
+  }
+
   @Test func picksTheNewestHearthstoneLogFolder() {
     let folders: [(name: String, modified: Date)] = [
       ("Hearthstone_2026_11_10_00_47_36", Date(timeIntervalSince1970: 100)),
