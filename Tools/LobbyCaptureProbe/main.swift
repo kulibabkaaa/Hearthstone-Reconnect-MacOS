@@ -358,6 +358,7 @@ private final class LobbyCaptureProbe {
     switch matchTracker.observe(
       gameUUID: gameUUID,
       leftGameServer: sessionLog.map(LobbyReconnectPolicy.sessionLogSaysLeftGameServer) ?? false,
+      resuming: reconnectPhase == .resuming,
       now: ProcessInfo.processInfo.systemUptime
     ) {
     case let .started(uuid):

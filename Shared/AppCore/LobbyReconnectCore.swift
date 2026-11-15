@@ -303,15 +303,26 @@ public struct LobbyMatchTracker: Equatable, Sendable {
   private var vanishedAt: TimeInterval?
   /// A match that ended while its game state lingers (the end screen): its id must not start it again.
   private var finishedGameUUID: String?
+  /// An unreported id seen once while the log's newest line is a clean leave. It is taken as a lingering, finished
+  /// game only if it is still there on the next poll with the leave still newest: a new game's id that shows up one
+  /// poll before its join line reaches the log must not be lost.
+  private var lingeringCandidate: String?
 
   public init() {}
 
   /// One poll. `gameUUID`: the Battlegrounds game id read now (nil when there is none). `leftGameServer`: the session
-  /// log's newest game-connection line is a clean leave. `now`: seconds on any steady clock.
-  public mutating func observe(gameUUID: String?, leftGameServer: Bool, now: TimeInterval) -> Report {
-    if gameUUID == nil { finishedGameUUID = nil }
+  /// log's newest game-connection line is a clean leave. `resuming`: Hearthstone says it is resuming a game (the
+  /// helper's first moments after attaching, `LobbyReconnectPhase.resuming`); a vanished id is then held without a
+  /// limit, so a reconnect at startup isn't reported as an end. `now`: seconds on any steady clock.
+  public mutating func observe(gameUUID: String?, leftGameServer: Bool, resuming: Bool = false,
+                               now: TimeInterval) -> Report {
+    if gameUUID == nil {
+      finishedGameUUID = nil
+      lingeringCandidate = nil
+    }
     if let reported = reportedGameUUID {
-      if leftGameServer { return finish(reported, lingering: gameUUID) }
+      // Only the match that just ended can linger on its end screen; any other id is left free to start.
+      if leftGameServer { return finish(reported, lingering: gameUUID == reported ? reported : nil) }
       if let gameUUID {
         vanishedAt = nil
         if gameUUID == reported { return .ongoing(gameUUID) }
@@ -320,14 +331,20 @@ public struct LobbyMatchTracker: Equatable, Sendable {
       }
       let since = vanishedAt ?? now
       vanishedAt = since
-      if now - since < Self.hold { return .holding(reported) }
+      if resuming || now - since < Self.hold { return .holding(reported) }
       return finish(reported, lingering: nil)
     }
     guard let gameUUID, gameUUID != finishedGameUUID else { return .noMatch }
     if leftGameServer {
-      finishedGameUUID = gameUUID
+      if lingeringCandidate == gameUUID {
+        finishedGameUUID = gameUUID
+        lingeringCandidate = nil
+      } else {
+        lingeringCandidate = gameUUID
+      }
       return .noMatch
     }
+    lingeringCandidate = nil
     reportedGameUUID = gameUUID
     vanishedAt = nil
     return .started(gameUUID)

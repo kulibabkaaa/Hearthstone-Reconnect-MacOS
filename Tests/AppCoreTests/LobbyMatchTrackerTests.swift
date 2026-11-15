@@ -62,10 +62,37 @@ struct LobbyMatchTrackerTests {
       == [.started("a"), .ended("a"), .noMatch, .noMatch, .started("b")])
   }
 
-  @Test("attaching during an end screen never starts that finished match")
+  @Test("attaching during an end screen never starts that finished match, even once the next join is logged")
   func attachDuringEndScreen() {
-    #expect(run([(0, "a", true), (1, "a", true), (2, nil, true), (3, nil, false)])
+    #expect(run([(0, "a", true), (1, "a", true), (2, "a", false), (3, nil, false)])
       == [.noMatch, .noMatch, .noMatch, .noMatch])
+  }
+
+  @Test("a new game's id seen one poll before its join line reaches the log still starts")
+  func newIDBeforeJoinLine() {
+    // The previous game's leave is still the newest log line when the new id first appears.
+    #expect(run([(0, "b", true), (1, "b", false), (2, "b", false)]) == [.noMatch, .started("b"), .ongoing("b")])
+    // Same while a match is reported: a different id under a stale leave ends the old match but isn't latched.
+    #expect(run([(0, "a", false), (1, "b", true), (2, "b", false)])
+      == [.started("a"), .ended("a"), .started("b")])
+  }
+
+  @Test("a finished match's id is forgotten once its state is gone: the same id later is a new match")
+  func finishedIDForgotten() {
+    #expect(run([(0, "a", false), (5, "a", true), (6, nil, true), (7, "a", false)])
+      == [.started("a"), .ended("a"), .noMatch, .started("a")])
+  }
+
+  @Test("while Hearthstone says it is resuming a game, a vanished id is held past the usual 3 s")
+  func resumingHold() {
+    var tracker = LobbyMatchTracker()
+    #expect(tracker.observe(gameUUID: "a", leftGameServer: false, now: 0) == .started("a"))
+    #expect(tracker.observe(gameUUID: nil, leftGameServer: false, resuming: true, now: 1) == .holding("a"))
+    #expect(tracker.observe(gameUUID: nil, leftGameServer: false, resuming: true, now: 20) == .holding("a"))
+    #expect(tracker.observe(gameUUID: "a", leftGameServer: false, resuming: true, now: 21) == .ongoing("a"))
+    // Once it no longer says so, the normal hold applies again.
+    #expect(tracker.observe(gameUUID: nil, leftGameServer: false, now: 30) == .holding("a"))
+    #expect(tracker.observe(gameUUID: nil, leftGameServer: false, now: 33) == .ended("a"))
   }
 
   @Test("Hearthstone quitting during a hold hands back the held match and starts over")
