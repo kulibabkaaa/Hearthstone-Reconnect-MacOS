@@ -9,10 +9,10 @@ Reconnect is more reliable, and lobby info now runs on HS Reconnect's own code.
 
 **Changed**
 
-- The Reconnect button no longer needs any permission.
+- The Reconnect button no longer asks for Developer Tools access.
 - Lobby info now runs on HS Reconnect's own code. It still asks for Developer Tools access.
-- Uses about half as much CPU.
-- Recognises more Battlegrounds modes, including future ones.
+- Uses about half as much CPU while Hearthstone is in the menus.
+- Recognises more Battlegrounds modes, and should pick up new ones.
 
 **Fixed**
 

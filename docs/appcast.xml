@@ -7,7 +7,7 @@
     <language>en</language>
     <item>
       <title>Version 2.2.1</title>
-      <pubDate>Mon, 16 Nov 2026 00:19:03 +0000</pubDate>
+      <pubDate>Mon, 16 Nov 2026 00:27:54 +0000</pubDate>
       <sparkle:version>52</sparkle:version>
       <sparkle:shortVersionString>2.2.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
@@ -57,10 +57,10 @@
 </ul>
 <p><strong>Changed</strong></p>
 <ul>
-  <li>The Reconnect button no longer needs any permission.</li>
+  <li>The Reconnect button no longer asks for Developer Tools access.</li>
   <li>Lobby info now runs on HS Reconnect's own code. It still asks for Developer Tools access.</li>
-  <li>Uses about half as much CPU.</li>
-  <li>Recognises more Battlegrounds modes, including future ones.</li>
+  <li>Uses about half as much CPU while Hearthstone is in the menus.</li>
+  <li>Recognises more Battlegrounds modes, and should pick up new ones.</li>
 </ul>
 <p><strong>Fixed</strong></p>
 <ul>
