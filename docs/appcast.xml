@@ -6,10 +6,10 @@
     <description>Signed updates for HS Reconnect.</description>
     <language>en</language>
     <item>
-      <title>Version 2.2.0</title>
-      <pubDate>Tue, 10 Nov 2026 15:21:36 +0000</pubDate>
-      <sparkle:version>51</sparkle:version>
-      <sparkle:shortVersionString>2.2.0</sparkle:shortVersionString>
+      <title>Version 2.2.1</title>
+      <pubDate>Mon, 16 Nov 2026 00:27:54 +0000</pubDate>
+      <sparkle:version>52</sparkle:version>
+      <sparkle:shortVersionString>2.2.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<!DOCTYPE html>
 <html lang="en">
@@ -48,21 +48,30 @@
 </style>
 </head>
 <body>
-<h1>HS Reconnect 2.2.0</h1>
+<h1>HS Reconnect 2.2.1</h1>
+<p>Reconnect is more reliable, and lobby info now runs on HS Reconnect's own code.</p>
+<p><strong>Added</strong></p>
 <ul>
-  <li><strong>New:</strong> Keep HSTracker working. HSTracker stops tracking a Battlegrounds match when Hearthstone reconnects: its panels disappear and Bob's Buddy stops. With the new switch on, HSTracker picks the match back up within a second or two of each reconnect. The switch is in the Reconnect card and is off by default.</li>
-  <li><strong>How it works:</strong> right after a reconnect, the app adds one line to Hearthstone's loading log on your Mac. HSTracker reads that log and starts tracking again. The app first checks HSTracker's own log on your Mac; if HSTracker has already recovered by itself, the app adds nothing.</li>
-  <li><strong>What it can't do:</strong> opponent boards HSTracker saved before a reconnect stay lost, and HSTracker's match timer restarts.</li>
-  <li>The app does this only while the switch is on and HSTracker is running. Nothing from either log is stored by the app or leaves your Mac.</li>
-  <li>A What's New card explains the option once, in the app window when Reconnect is ready.</li>
-  <li><strong>Fixed:</strong> lobby info and the Reconnect button could stay hidden for a whole session when Hearthstone was opened while HS Reconnect was already running. The app now waits until Hearthstone has signed in before it reads the game.</li>
-  <li><strong>Fixed:</strong> Open with Hearthstone could stop working while Settings still showed it as on. The app now checks that its helper is really running and sets it up again if it isn't.</li>
+  <li>Bug reports can include logs, with personal details removed. You can check them before sending, or turn them off.</li>
+  <li>A spinner while a bug report is sending.</li>
 </ul>
-<p>Thanks to @tonn1o, who tracked down the same HSTracker cause and a matching fix independently.</p>
+<p><strong>Changed</strong></p>
+<ul>
+  <li>The Reconnect button no longer asks for Developer Tools access.</li>
+  <li>Lobby info now runs on HS Reconnect's own code. It still asks for Developer Tools access.</li>
+  <li>Uses about half as much CPU while Hearthstone is in the menus.</li>
+  <li>Recognises more Battlegrounds modes, and should pick up new ones.</li>
+</ul>
+<p><strong>Fixed</strong></p>
+<ul>
+  <li>Reconnect no longer says "No game found" after some matches.</li>
+  <li>The lobby overlay no longer blinks during a reconnect.</li>
+  <li>Bug reports show the right Battle.net region.</li>
+</ul>
 <p class="small-print">Requires macOS 13 or later and the native macOS version of Hearthstone. Supports Apple silicon and Intel Macs. Version 2.0.0 and later can install this update from the app. For earlier versions, run the new installer over the old app. The app is unofficial and is not affiliated with Blizzard Entertainment.</p>
 </body>
 </html>]]></description>
-      <enclosure url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v2.2.0/HS-Reconnect-2.2.0.zip" type="application/octet-stream" sparkle:edSignature="VLcycM3efLAYKFzhoSOwsFPhmrNvTv5kAqn4AayIoJVWXVOcf3MeIgCS3X2txOq6vEXmG6+QMo69rDZyIce3DQ==" length="14822904" />
+      <enclosure url="https://github.com/kulibabkaaa/Hearthstone-Reconnect-MacOS/releases/download/v2.2.1/HS-Reconnect-2.2.1.zip" type="application/octet-stream" sparkle:edSignature="fVSJMXMPinY7pJ0nh9y9Sw52R95SZnwBZYAO32oBhsgfxVewsjDe7xorOANNpH0s96vgVhzVVQhv2KnpeagMAA==" length="4404261" />
     </item>
   </channel>
 </rss>
